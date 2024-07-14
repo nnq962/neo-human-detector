@@ -1,8 +1,8 @@
 detector:
   mode: head
   model_size: nano
-  batch_size: 1
-  conf: 0.7
+  batch_size: 2
+  conf: 0.55
   vid_stride: 1
   verbose: false
   show: true
@@ -47,6 +47,6 @@ cameras:
   source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
   source_protocol: tcp
   source_on_demand: true
-  enabled: false
+  enabled: true
   zones: []
   id: 98mgh

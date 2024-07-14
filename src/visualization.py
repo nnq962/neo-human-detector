@@ -36,6 +36,9 @@ def draw_overlay(
 ) -> np.ndarray:
     """Vẽ bbox, confidence và tên zone nếu bbox thuộc vùng giám sát."""
     for bbox, conf, zone_name in zip(bboxes, confs, zone_names):
+        if not np.isfinite(bbox[:4]).all() or not np.isfinite(conf):
+            continue
+
         x1, y1, x2, y2 = map(int, bbox[:4])
         in_zone = zone_name is not None
         color = COLOR_BBOX_IN_ZONE if in_zone else COLOR_BBOX_NORMAL

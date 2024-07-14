@@ -1,0 +1,14 @@
+[project]
+name = "neo-human-detector-batch"
+version = "0.1.0"
+requires-python = ">=3.8"
+dependencies = [
+    "fastapi>=0.124.4",
+    "unidecode>=1.4.0",
+    "uvicorn>=0.33.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+]

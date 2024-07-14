@@ -17,6 +17,9 @@ def build_detection_websocket_payload(
     objects_data = []
 
     for bbox, conf in zip(bboxes, confs):
+        if not np.isfinite(bbox[:4]).all() or not np.isfinite(conf):
+            continue
+
         x1, y1, x2, y2 = bbox[:4]
         objects_data.append({
             "bbox": [float(x1 / w), float(y1 / h), float((x2 - x1) / w), float((y2 - y1) / h)],

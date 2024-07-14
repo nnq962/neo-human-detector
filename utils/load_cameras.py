@@ -65,7 +65,7 @@ def load_cameras(cfg: dict) -> Optional[List[Camera]]:
                 LOGGER.warning(f"Lỗi khi parse zone {zone_dict.get('name')} trong camera '{camera_id}': {e}")
 
         if not zones:
-            LOGGER.warning(f"Camera '{camera_id}' không có zone hợp lệ.")
+            LOGGER.warning(f"Camera '{camera_name}' không có zone hợp lệ.")
 
         cameras.append(Camera(
             id=camera_id,

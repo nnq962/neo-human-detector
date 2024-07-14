@@ -3,6 +3,7 @@ import platform
 import sys
 import logging
 import logging.config
+import time
 from datetime import datetime
 import pytz
 
@@ -17,7 +18,9 @@ LOGGING_NAME = "People Counter"
 
 class DualTimezoneFormatter(logging.Formatter):
     """Formatter hiển thị cả UTC và VN time"""
-    converter = lambda *args: __import__('time').gmtime(args[1])
+
+    def converter(self, timestamp):
+        return time.gmtime(timestamp)
     
     def format(self, record):
         # 1. Thêm VN time vào record
@@ -42,7 +45,9 @@ class DualTimezoneFormatter(logging.Formatter):
 
 class DualTimezoneColoredFormatter(colorlog.ColoredFormatter):
     """ColoredFormatter với dual timezone"""
-    converter = lambda *args: __import__('time').gmtime(args[1])
+
+    def converter(self, timestamp):
+        return time.gmtime(timestamp)
     
     def format(self, record):
         # 1. Thêm VN time vào record

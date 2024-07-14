@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Optional, Tuple
 from ultralytics import YOLO
 import time
+from unidecode import unidecode
 from src.models import Camera
 from src.visualization import draw_overlay, draw_zones
 from src.websocket_payload import build_detection_websocket_payload
@@ -19,7 +20,9 @@ MODEL_PATHS = {
     ("head", "nano", 4): "weights/head/yolo8n_rknn_model_b4",
     ("head", "nano", 8): "weights/head/yolo8n_rknn_model_b8",
     ("head", "medium", 1): "weights/head/yolo8m_rknn_model_b1",
-    ("person", "nano", 1): "weights/person/yolo26n_rknn_model",
+    ("head", "medium", 2): "weights/head/yolo8m_rknn_model_b2",
+    ("person", "nano", 1): "weights/person/yolov8n_rknn_model",
+    ("person", "medium", 1): "weights/person/yolo11m_rknn_model",
 }
 
 
@@ -198,6 +201,15 @@ class Detector:
         if boxes is not None and len(boxes) > 0:
             bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
             confs  = boxes.conf.cpu().numpy()   # (N,)
+
+            valid_mask = np.isfinite(bboxes[:, :4]).all(axis=1) & np.isfinite(confs)
+            invalid_count = int((~valid_mask).sum())
+            if invalid_count:
+                LOGGER.warning(
+                    f"Bỏ qua {invalid_count} detection có bbox hoặc confidence không hợp lệ."
+                )
+                bboxes = bboxes[valid_mask]
+                confs = confs[valid_mask]
         else:
             # Gán sẵn dtype float32 để đồng nhất với dữ liệu tensor của YOLO
             bboxes = np.empty((0, 4), dtype=np.float32)
@@ -436,7 +448,7 @@ class Detector:
                     frame = draw_overlay(frame, bboxes, confs, zone_names)
 
                     # Vẽ FPS lên góc trên bên trái
-                    cv2.putText(frame, f"{camera.name} FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                    cv2.putText(frame, f"{unidecode(camera.name)} FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
                     if self.show_scale != 1.0:
                         h, w = frame.shape[:2]

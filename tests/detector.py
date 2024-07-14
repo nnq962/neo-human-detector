@@ -1,14 +1,14 @@
-import sys
 import os
+import sys
 
 # Thêm thư mục gốc vào PYTHONPATH để có thể import từ src
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
 
-from utils import load_cameras, load_config, LOGGER
-from src.detector import Detector
-
 def main():
+    from src.detector import Detector
+    from utils import LOGGER, load_cameras, load_config
+
     # Đường dẫn tuyệt đối tới file configs/test.yaml
     config_path = os.path.join(PROJECT_ROOT, "configs", "test.yaml")
     

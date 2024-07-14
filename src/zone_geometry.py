@@ -28,6 +28,8 @@ def is_bbox_in_zone(
         )
 
     x1, y1, x2, y2 = bbox[:4]
+    if not np.isfinite([x1, y1, x2, y2]).all():
+        return False
 
     if mode == "center":
         point = (int((x1 + x2) // 2), int((y1 + y2) // 2))
