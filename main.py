@@ -9,9 +9,9 @@ from human_detector import HumanDetector
 #   - "path/to/video.mp4"=> File video
 #   - "rtsp://..."       => Stream RTSP camera
 
-SOURCE = 0  # USB Camera mặc định
+# SOURCE = 0  # USB Camera mặc định
 # SOURCE = "examples/crowd.mp4"
-# SOURCE = rtsp://admin:phenikaaneo%40@10.70.22.159:554/Streaming/Channels/101
+SOURCE = "rtsp://admin:phenikaaneo%40@10.70.22.159:554/Streaming/Channels/101"
 
 # Chọn mode: "person" hoặc "human_head"
 # MODE = "person"
@@ -23,6 +23,11 @@ MODEL_PATH = None
 # MODEL_PATH = "models/person/yolo26n.pt"
 # MODEL_PATH = "models/head/yolov8_nano.pt"
 
+# Cách xác định điểm đại diện khi kiểm tra ROI:
+#   'center'        — tâm bbox (phù hợp cho đầu người)
+#   'bottom_center' — giữa cạnh dưới bbox (phù hợp cho toàn thân người đứng)
+ROI_CHECK_MODE = "center"
+
 # ============================================================
 
 if __name__ == "__main__":
@@ -30,11 +35,12 @@ if __name__ == "__main__":
         mode=MODE,
         model_path=MODEL_PATH,
         source=SOURCE,
-        conf=0.50,
+        conf=0.65,
         imgsz=640,
-        device=0,   # GPU 0; đổi thành 'cpu' nếu không có GPU
-        half=True,  # Dùng FP16 để tăng tốc (tắt đi nếu gặp lỗi)
+        device=0,           # GPU 0; đổi thành 'cpu' nếu không có GPU
+        half=True,          # Dùng FP16 để tăng tốc (tắt đi nếu gặp lỗi)
         show=True,
+        roi_check_mode=ROI_CHECK_MODE,
     )
 
     detector.run()
