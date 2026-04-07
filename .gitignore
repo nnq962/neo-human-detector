@@ -2,3 +2,4 @@
 /examples
 device.txt
 /test
+/__pycache__

@@ -1,7 +1,9 @@
 import os
-import cv2
+import aidcv as cv2
 import numpy as np
+from typing import List, Optional, Set
 from ultralytics import YOLO
+from utils import LOGGER
 
 
 class HumanDetector:
@@ -17,27 +19,9 @@ class HumanDetector:
     """
 
     DEFAULT_MODELS = {
-        "person":     "models/person/yolo26n.pt",
-        "human_head": "models/head/yolov8_nano.pt",
+        "person":     "models/person/yolo26n_rknn_model",
+        "human_head": "models/head/yolov8_nano_rknn_model",
     }
-
-    # =========================================================================
-    # KHAI BÁO CÁC VÙNG GIÁM SÁT (ROI MONITORING)
-    monitored_areas = [
-        {
-            "name": "area1",
-            "pts": np.array([[930, 793], [1430, 784], [1443, 1075], [954, 1073]], dtype=np.int32)
-        },
-        {
-            "name": "area2",
-            "pts": np.array([[313, 785], [668, 774], [680, 1067], [300, 1072]], dtype=np.int32)
-        },
-        {
-            "name": "area3",
-            "pts": np.array([[4, 702], [266, 707], [270, 1039], [6, 1046]], dtype=np.int32)
-        }
-    ]
-    # =========================================================================
 
     # Màu sắc cho từng ROI (BGR) — xanh lá khi rỗng, đỏ khi có người
     COLOR_ROI_EMPTY   = (0, 200, 0)    # xanh lá
@@ -56,6 +40,7 @@ class HumanDetector:
         half: bool = True,
         show: bool = True,
         roi_check_mode: str = "center",
+        monitored_areas: List[dict] = None,
     ):
         """
         Args:
@@ -85,14 +70,36 @@ class HumanDetector:
         self.show = show
         self.roi_check_mode = roi_check_mode
 
+        # Log info
+        LOGGER.info(f"Source: {source}")
+        LOGGER.info(f"Mode: {mode}")
+        LOGGER.info(f"Conf: {conf}")
+        LOGGER.info(f"Imgsz: {imgsz}")
+        LOGGER.info(f"Device: {device}")
+        LOGGER.info(f"Half: {half}")
+        LOGGER.info(f"Show: {show}")
+        LOGGER.info(f"ROI Check Mode: {roi_check_mode}")        
+
+        # Initialize monitored areas
+        if monitored_areas is None:
+            raise ValueError("monitored_areas must not be None")
+        else:
+            self.monitored_areas = monitored_areas
+            # Convert pts to numpy arrays if they are lists (from JSON)
+            for area in self.monitored_areas:
+                if not isinstance(area["pts"], np.ndarray):
+                    area["pts"] = np.array(area["pts"], dtype=np.int32)
+
         # Mode 'person' dùng model COCO nên cần filter class 0 (person)
         # Mode 'human_head' dùng model chuyên biệt, không cần filter
         self.classes = [0] if mode == "person" else None
 
         # Load model
         resolved_path = model_path or self.DEFAULT_MODELS[mode]
-        print(f"[HumanDetector] Mode: {mode} | Model: {resolved_path}")
-        self.model = YOLO(resolved_path)
+        self.model = YOLO(
+            resolved_path, 
+            task="detect"
+        )
 
     def _draw_monitored_areas(
         self,
@@ -139,7 +146,7 @@ class HumanDetector:
         frame: np.ndarray,
         bboxes: np.ndarray,
         confs: np.ndarray,
-        bbox_roi_names: list[str | None],
+        bbox_roi_names: List[Optional[str]],
     ) -> np.ndarray:
         """
         Vẽ bounding boxes thủ công lên frame.
@@ -236,10 +243,6 @@ class HumanDetector:
         - ROI đang có người: viền + nền đỏ thay vì xanh.
         Nhấn 'q' để dừng.
         """
-        print(
-            f"[HumanDetector] Bắt đầu từ source: {self.source} | "
-            f"ROI check mode: {self.roi_check_mode} | Nhấn 'q' để thoát."
-        )
 
         win_name = f"HumanDetector [{self.mode}]"
         if self.show:
@@ -275,8 +278,8 @@ class HumanDetector:
                 # Mỗi phần tử là tên ROI chứa bbox đó (None = không thuộc ROI nào).
                 # Nếu 1 bbox nằm trong nhiều ROI, ưu tiên ROI đầu tiên tìm được.
                 # Nếu 2+ head cùng nằm trong 1 ROI → đều được xử lý bình thường.
-                bbox_roi_names: list[str | None] = [None] * len(bboxes)
-                active_area_names: set[str] = set()
+                bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
+                active_area_names: Set[str] = set()
 
                 if len(bboxes) > 0:
                     for area in self.monitored_areas:
@@ -295,12 +298,9 @@ class HumanDetector:
                 if self.show:
                     cv2.imshow(win_name, frame)
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-
         finally:
             cv2.destroyAllWindows()
-            print("[HumanDetector] Đã dừng.")
+            LOGGER.info("HumanDetector Đã dừng.")
             # Force-exit để tránh crash C++ runtime khi cleanup
             # RTSP stream hoặc GPU context (ultralytics/OpenCV known issue)
             os._exit(0)
