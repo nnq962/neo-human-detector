@@ -17,7 +17,7 @@ let lastClickMs = 0;
 
 const AREA_COLORS = [
     { fill: 'rgba(59,125,248,0.22)', stroke: '#3b7df8' },
-    { fill: 'rgba(22,163,74,0.22)',  stroke: '#16a34a' },
+    { fill: 'rgba(22,163,74,0.22)', stroke: '#16a34a' },
     { fill: 'rgba(217,119,6,0.22)', stroke: '#d97706' },
     { fill: 'rgba(220,38,38,0.22)', stroke: '#dc2626' },
     { fill: 'rgba(124,58,237,0.22)', stroke: '#7c3aed' },
@@ -104,11 +104,10 @@ function updateConfBadge(v) {
 }
 
 function applyConfigToUI(config) {
-    setSegValue('cfg-mode', config.mode ?? 'human_head');
-    setSegValue('cfg-roi',  config.roi_check_mode ?? 'bottom_center');
+    setSegValue('cfg-roi', config.roi_check_mode ?? 'bottom_center');
     setSegValue('cfg-imgsz', config.imgsz ?? 640);
     setSegValue('cfg-device', config.device ?? 'cpu');
-    setSegValue('cfg-show',  config.show ?? true);
+    setSegValue('cfg-show', config.show ?? true);
     const slider = document.getElementById('cfg-conf');
     if (slider) { slider.value = config.conf ?? 0.65; updateConfBadge(slider.value); }
     const src = document.getElementById('cfg-source');
@@ -121,7 +120,6 @@ function applyConfigToUI(config) {
 function buildConfigFromUI() {
     return {
         source: document.getElementById('cfg-source')?.value?.trim() ?? '',
-        mode: getSegValue('cfg-mode'),
         conf: parseFloat(parseFloat(document.getElementById('cfg-conf')?.value ?? 0.65).toFixed(2)),
         imgsz: parseInt(getSegValue('cfg-imgsz')),
         device: getSegValue('cfg-device'),
@@ -136,7 +134,7 @@ function buildConfigFromUI() {
 // =====================================================
 function initCanvas() {
     const wrapper = document.getElementById('canvasWrapper');
-    const W = wrapper.clientWidth  || 640;
+    const W = wrapper.clientWidth || 640;
     const H = wrapper.clientHeight || 440;
 
     fabricCanvas = new fabric.Canvas('roiCanvas', {
@@ -145,8 +143,8 @@ function initCanvas() {
         preserveObjectStacking: true,
     });
 
-    fabricCanvas.on('mouse:down',     onMouseDown);
-    fabricCanvas.on('mouse:move',     onMouseMove);
+    fabricCanvas.on('mouse:down', onMouseDown);
+    fabricCanvas.on('mouse:move', onMouseMove);
     fabricCanvas.on('object:modified', onPolygonModified);
     fabricCanvas.on('selection:created', onSelectionChanged);
     fabricCanvas.on('selection:updated', onSelectionChanged);
@@ -183,12 +181,12 @@ function getAbsolutePoints(polygon) {
 // =====================================================
 async function refreshSnapshot() {
     const loadingEl = document.getElementById('canvasLoading');
-    const errorEl   = document.getElementById('canvasError');
-    const metaEl    = document.getElementById('snapshotMeta');
-    const btn       = document.getElementById('btnRefreshSnapshot');
+    const errorEl = document.getElementById('canvasError');
+    const metaEl = document.getElementById('snapshotMeta');
+    const btn = document.getElementById('btnRefreshSnapshot');
 
     loadingEl.style.display = 'flex';
-    errorEl.style.display   = 'none';
+    errorEl.style.display = 'none';
     if (btn) btn.disabled = true;
 
     try {
@@ -209,7 +207,7 @@ async function refreshSnapshot() {
                 img.scaleX = newW / img.width;
                 img.scaleY = newH / img.height;
                 img.selectable = false;
-                img.evented    = false;
+                img.evented = false;
                 fabricCanvas.setBackgroundImage(img, () => {
                     fabricCanvas.renderAll();
                     resolve();
@@ -218,7 +216,7 @@ async function refreshSnapshot() {
         });
 
         loadingEl.style.display = 'none';
-        metaEl.style.display    = 'block';
+        metaEl.style.display = 'block';
         const now = new Date();
         document.getElementById('snapshotTime').textContent =
             `Cập nhật lúc: ${now.toLocaleTimeString('vi-VN')} — ${now.toLocaleDateString('vi-VN')}`;
@@ -226,7 +224,7 @@ async function refreshSnapshot() {
         drawAllPolygons();
     } catch {
         loadingEl.style.display = 'none';
-        errorEl.style.display   = 'flex';
+        errorEl.style.display = 'flex';
         document.getElementById('canvasErrorMsg').textContent = 'Không thể kết nối đến camera. Kiểm tra RTSP URL.';
     } finally {
         if (btn) btn.disabled = false;
@@ -338,11 +336,13 @@ function actionHandler(eventData, transform, x, y) {
 }
 
 function anchorWrapper(anchorIndex, fn) {
-    return function(eventData, transform, x, y) {
+    return function (eventData, transform, x, y) {
         const fabricObject = transform.target;
         const absolutePoint = fabric.util.transformPoint(
-            { x: fabricObject.points[anchorIndex].x - fabricObject.pathOffset.x,
-              y: fabricObject.points[anchorIndex].y - fabricObject.pathOffset.y },
+            {
+                x: fabricObject.points[anchorIndex].x - fabricObject.pathOffset.x,
+                y: fabricObject.points[anchorIndex].y - fabricObject.pathOffset.y
+            },
             fabricObject.calcTransformMatrix()
         );
         const actionPerformed = fn(eventData, transform, x, y);
@@ -500,7 +500,7 @@ function onMouseDown(opt) {
 
 function onMouseMove(opt) {
     if (!isDrawingMode || tempPoints.length === 0) return;
-    const pt  = fabricCanvas.getPointer(opt.e);
+    const pt = fabricCanvas.getPointer(opt.e);
     const last = tempPoints[tempPoints.length - 1];
     if (previewLine) fabricCanvas.remove(previewLine);
     previewLine = new fabric.Line([last.x, last.y, pt.x, pt.y], {
@@ -515,10 +515,10 @@ function onMouseMove(opt) {
 // AREA LIST & FORM
 // =====================================================
 function renderAreaList() {
-    const list    = document.getElementById('areaList');
-    const empty   = document.getElementById('areaEmpty');
-    const badge   = document.getElementById('areaCountBadge');
-    const areas   = globalConfig.monitored_areas ?? [];
+    const list = document.getElementById('areaList');
+    const empty = document.getElementById('areaEmpty');
+    const badge = document.getElementById('areaCountBadge');
+    const areas = globalConfig.monitored_areas ?? [];
 
     badge.textContent = areas.length;
 
@@ -530,7 +530,7 @@ function renderAreaList() {
     empty.style.display = 'none';
     list.innerHTML = areas.map((area, idx) => {
         const color = AREA_COLORS[idx % AREA_COLORS.length];
-        const sel   = selectedAreaIdx === idx ? 'selected' : '';
+        const sel = selectedAreaIdx === idx ? 'selected' : '';
         return `<div class="area-list-item ${sel}" onclick="selectAreaByIdx(${idx})">
             <span class="area-color-dot" style="background:${color.stroke}"></span>
             <span class="area-name">${area.name || 'Vùng ' + (idx + 1)}</span>
@@ -553,9 +553,9 @@ function populateAreaForm(idx) {
     const area = globalConfig.monitored_areas?.[idx];
     if (!area) return;
     document.getElementById('areaForm').style.display = 'flex';
-    document.getElementById('areaName').value       = area.name ?? '';
-    document.getElementById('areaSlam_x').value     = area.slam_pose?.x ?? 0;
-    document.getElementById('areaSlam_y').value     = area.slam_pose?.y ?? 0;
+    document.getElementById('areaName').value = area.name ?? '';
+    document.getElementById('areaSlam_x').value = area.slam_pose?.x ?? 0;
+    document.getElementById('areaSlam_y').value = area.slam_pose?.y ?? 0;
     document.getElementById('areaSlam_theta').value = area.slam_pose?.theta ?? 90;
 }
 
@@ -565,8 +565,8 @@ function applyAreaProperties() {
     if (!area) return;
     area.name = document.getElementById('areaName').value.trim() || area.name;
     area.slam_pose = {
-        x:     parseFloat(document.getElementById('areaSlam_x').value)     || 0,
-        y:     parseFloat(document.getElementById('areaSlam_y').value)     || 0,
+        x: parseFloat(document.getElementById('areaSlam_x').value) || 0,
+        y: parseFloat(document.getElementById('areaSlam_y').value) || 0,
         theta: parseFloat(document.getElementById('areaSlam_theta').value) || 90,
     };
     updateJSONPreview();
@@ -603,7 +603,7 @@ function updateJSONPreview() {
 
 function syntaxHighlightJSON(str) {
     return str
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(
             /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
             m => {
@@ -621,7 +621,7 @@ async function saveConfigToServer() {
     const btn = document.getElementById('btnSave');
     if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu...'; }
     try {
-        const res  = await fetch(`${API_BASE}/api/save-config`, {
+        const res = await fetch(`${API_BASE}/api/save-config`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });

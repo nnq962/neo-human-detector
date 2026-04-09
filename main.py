@@ -14,7 +14,6 @@ if __name__ == "__main__":
     config = load_config(CONFIG_FILE)
 
     detector = HumanDetector(
-        mode=config.get("mode", "person"),
         source=config.get("source", 0),
         conf=config.get("conf", 0.5),
         imgsz=config.get("imgsz", 640),
