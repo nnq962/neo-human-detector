@@ -4,6 +4,7 @@ import numpy as np
 from typing import List, Optional, Set
 from ultralytics import YOLO
 from utils import LOGGER
+import time
 
 
 class HumanDetector:
@@ -80,13 +81,15 @@ class HumanDetector:
                 if not isinstance(area["pts"], np.ndarray):
                     area["pts"] = np.array(area["pts"], dtype=np.int32)
 
-        # Khởi tạo từ điển lưu điểm. 
-        # Cấu trúc: {"ghe_1": {id_1: 15, id_2: 5}, "ghe_2": {}}
-        self.roi_scores = {area["name"]: {} for area in self.monitored_areas}
-        self.SCORE_REWARD = 1.0     # Điểm cộng khi có mặt
-        self.SCORE_PENALTY = 2    # Điểm trừ khi vắng mặt
-        self.SCORE_MAX = 100        # Trần điểm số
-        self.CONFIRM_THRESHOLD = 50 # Ngưỡng điểm để báo "CÓ KHÁCH"
+        # Khởi tạo bộ chấm điểm ROI
+        self.roi_scores = {area["name"]: 0.0 for area in self.monitored_areas}
+        self.roi_state = {area["name"]: False for area in self.monitored_areas}  # Trạng thái ổn định
+
+        self.SCORE_REWARD = 1.0
+        self.SCORE_PENALTY = 2.0
+        self.SCORE_MAX = 100.0
+        self.CONFIRM_THRESHOLD = 50.0
+        self.RELEASE_THRESHOLD = 20.0
 
         # Load model
         self.model = YOLO(
@@ -129,11 +132,15 @@ class HumanDetector:
             # Vẽ viền vùng
             cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=2)
 
-            # Vẽ nhãn tên vùng tại điểm trung tâm
+            # Nhãn tên vùng kèm điểm số
+            score = self.roi_scores.get(name, 0.0)
+            label = f"{name} [{score:.1f}]"
+
+            # Vẽ nhãn tại điểm trung tâm
             cx = int(pts[:, 0].mean())
             cy = int(pts[:, 1].mean())
-            cv2.putText(frame, name, (cx, cy),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            cv2.putText(frame, label, (cx, cy),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.8, color, 2)
 
         # Blend overlay (alpha=0.2)
         cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
@@ -144,9 +151,7 @@ class HumanDetector:
         frame: np.ndarray,
         bboxes: np.ndarray,
         confs: np.ndarray,
-        ids: np.ndarray,
         bbox_roi_names: List[Optional[str]],
-        roi_scores: dict,
     ) -> np.ndarray:
         """
         Vẽ khung nhận diện (Bounding Box) và thông tin đối tượng lên khung hình.
@@ -156,15 +161,13 @@ class HumanDetector:
             frame (np.ndarray): Khung hình ảnh gốc (BGR).
             bboxes (np.ndarray): Mảng tọa độ các khung nhận diện (N, 4).
             confs (np.ndarray): Mảng giá trị độ tin cậy (N,).
-            ids (np.ndarray): Mảng định danh (ID) của các đối tượng (N,).
             bbox_roi_names (List[Optional[str]]): Danh sách tên ROI tương ứng của mỗi đối tượng.
-            roi_scores (dict): Dữ liệu điểm số tín nhiệm hiện tại của các đối tượng.
 
         Returns:
             np.ndarray: Khung hình đã được vẽ thông tin nhận diện.
         """
 
-        for bbox, conf, track_id, roi_name in zip(bboxes, confs, ids, bbox_roi_names):
+        for bbox, conf, roi_name in zip(bboxes, confs, bbox_roi_names):
             x1, y1, x2, y2 = map(int, bbox[:4])
             in_roi = roi_name is not None
             color  = self.COLOR_BBOX_IN_ROI if in_roi else self.COLOR_BBOX_NORMAL
@@ -173,13 +176,12 @@ class HumanDetector:
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness=2)
 
             # Tạo label: luôn hiện conf, thêm tên ROI nếu trong vùng
-            if in_roi and track_id in roi_scores[roi_name]:
+            if in_roi:
                 # Nếu nằm trong ROI, lấy điểm số ra (làm tròn 1 chữ số thập phân)
-                score = roi_scores[roi_name][track_id]
-                label = f"[{track_id}] [{roi_name}] [{score:.1f}] [{conf:.2f}]"
+                label = f"[{roi_name}] [{conf:.2f}]"
             else:
                 # Nếu chạy rông bên ngoài, chỉ hiện ID và Conf
-                label = f"[{track_id}] [{conf:.2f}]"
+                label = f"[{conf:.2f}]"
 
             # Nền nhãn
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 0.55, 1)
@@ -250,10 +252,8 @@ class HumanDetector:
             Iterable: Trình tạo (generator) trả về kết quả nhận diện cho từng khung hình.
         """
 
-        results = self.model.track(
+        results = self.model.predict(
             source=self.source,
-            persist=True,
-            tracker="bytetrack.yaml",
             conf=self.conf,
             imgsz=self.imgsz,
             device=self.device,
@@ -281,9 +281,14 @@ class HumanDetector:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
 
         results = self.inference()
+        prev_time = time.time()
 
         try:
             for result in results:
+                speed_dict = result.speed
+                inference_time = speed_dict['inference']
+                # LOGGER.info(f"Inference time: {inference_time:.1f}ms")
+                
                 # Lấy frame gốc (chưa vẽ gì)
                 frame = result.orig_img.copy()
 
@@ -292,64 +297,72 @@ class HumanDetector:
                 if boxes is not None and len(boxes) > 0:
                     bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
                     confs  = boxes.conf.cpu().numpy()   # (N,)
-
-                    # Trích xuất ID (Căn cước công dân)
-                    if boxes.id is not None:
-                        ids = boxes.id.cpu().numpy().astype(int)
-                    else:
-                        # Nếu thuật toán chưa kịp cấp ID, cho tạm bằng 0
-                        ids = np.zeros(len(bboxes), dtype=int)
                 else:
                     bboxes = np.empty((0, 4), dtype=np.float32)
                     confs  = np.empty((0,),   dtype=np.float32)
-                    ids    = np.empty((0,),   dtype=int)
 
-                # ── 2. LOGIC CHẤM ĐIỂM TÍN NHIỆM ───────────────
+                # ── KIỂM TRA ĐỐI TƯỢNG TRONG ROI VÀ TÍNH ĐIỂM ───────────────
                 bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
+                detected_rois: Set[str] = set()
+
+                if len(bboxes) > 0:
+                    for i, bbox in enumerate(bboxes):
+                        for area in self.monitored_areas:
+                            if self.is_bbox_in_roi(bbox, area["pts"], mode=self.roi_check_mode):
+                                bbox_roi_names[i] = area["name"]
+                                detected_rois.add(area["name"])
+                                break  # Ngừng kiểm tra các vùng khác nếu đã thuộc 1 vùng
+
                 active_area_names: Set[str] = set()
 
                 for area in self.monitored_areas:
-                    name = area["name"]
-                    ids_in_this_roi = []
+                    roi_name = area["name"]
+                    head_detected_in_roi = roi_name in detected_rois
 
-                    # 1. Quét xem ai đang ở trong vùng ROI này
-                    if len(bboxes) > 0:
-                        for i, bbox in enumerate(bboxes):
-                            if self.is_bbox_in_roi(bbox, area["pts"], mode=self.roi_check_mode):
-                                track_id = ids[i]
-                                ids_in_this_roi.append(track_id)
-                                bbox_roi_names[i] = name  # Đánh dấu để lát vẽ Bbox màu đỏ
+                    # Cập nhật điểm số
+                    if head_detected_in_roi:
+                        self.roi_scores[roi_name] = min(
+                            self.SCORE_MAX, 
+                            self.roi_scores[roi_name] + self.SCORE_REWARD
+                        )
+                    else:
+                        self.roi_scores[roi_name] = max(
+                            0.0, 
+                            self.roi_scores[roi_name] - self.SCORE_PENALTY
+                        )
 
-                    # 2. CỘNG ĐIỂM self.SCORE_REWARD cho tất cả những ai ĐANG CÓ MẶT
-                    for track_id in ids_in_this_roi:
-                        current_score = self.roi_scores[name].get(track_id, 0)
-                        self.roi_scores[name][track_id] = min(current_score + self.SCORE_REWARD, self.SCORE_MAX)
+                    score = self.roi_scores[roi_name]
 
-                    # 3. TRỪ ĐIỂM self.SCORE_PENALTY cho những ai ĐÃ VẮNG MẶT
-                    for tracked_id in list(self.roi_scores[name].keys()):
-                        if tracked_id not in ids_in_this_roi:
-                            self.roi_scores[name][tracked_id] -= self.SCORE_PENALTY
-                            # Xóa sổ khỏi bộ nhớ nếu điểm về 0
-                            if self.roi_scores[name][tracked_id] <= 0:
-                                del self.roi_scores[name][tracked_id]
+                    # Hysteresis logic
+                    if not self.roi_state[roi_name] and score >= self.CONFIRM_THRESHOLD:
+                        self.roi_state[roi_name] = True
+                    elif self.roi_state[roi_name] and score <= self.RELEASE_THRESHOLD:
+                        self.roi_state[roi_name] = False
 
-                    # 4. CHỐT KẾT QUẢ ĐỂ BẬT ROI THÀNH MÀU ĐỎ
-                    if self.roi_scores[name]:
-                        # Tìm người có điểm cao nhất trong ROI này
-                        top_id = max(self.roi_scores[name], key=self.roi_scores[name].get)
-                        top_score = self.roi_scores[name][top_id]
+                    # Nếu vùng đang active, thêm vào tập để vẽ đỏ
+                    if self.roi_state[roi_name]:
+                        active_area_names.add(roi_name)
 
-                        # Nếu điểm của "người dẫn đầu" vượt ngưỡng -> Báo có khách!
-                        if top_score >= self.CONFIRM_THRESHOLD:
-                            active_area_names.add(name)
-
-                # ── 3. Vẽ lên frame ──────────────────────────────────────────
-                frame = self._draw_monitored_areas(frame, active_area_names)
-
-                # CHÚ Ý: Đã truyền thêm self.roi_scores vào hàm vẽ
-                frame = self._draw_detections(
-                    frame, bboxes, confs, ids, bbox_roi_names, self.roi_scores
+                # Vẽ lên frame
+                frame = self._draw_monitored_areas(
+                    frame, 
+                    active_area_names
                 )
+                frame = self._draw_detections(
+                    frame, 
+                    bboxes, 
+                    confs, 
+                    bbox_roi_names
+                )
+
+                # Tính FPS
+                current_time = time.time()
+                fps = 1.0 / (current_time - prev_time)
+                prev_time = current_time
+
+                # Hiển thị FPS
+                cv2.putText(frame, f"FPS: {fps:.1f}", (20, 50), 
+                            cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
 
                 if self.show:
                     cv2.imshow(win_name, frame)
