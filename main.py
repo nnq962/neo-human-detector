@@ -1,9 +1,6 @@
 import json
 from human_detector import HumanDetector
 
-# ============================================================
-# CẤU HÌNH CHẠY (LOAD TỪ CONFIG.JSON)
-# ============================================================
 CONFIG_FILE = "config.json"
 
 def load_config(file_path):

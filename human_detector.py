@@ -366,6 +366,8 @@ class HumanDetector:
 
                 if self.show:
                     cv2.imshow(win_name, frame)
+                else:
+                    LOGGER.info(f"FPS: {fps:.1f}")
 
         finally:
             cv2.destroyAllWindows()
