@@ -1,12 +1,18 @@
 import aidcv as cv2  # Hoặc import cv2 nếu chạy trên PC
 import json
-from fastapi import FastAPI, Response, HTTPException, Request
+from fastapi import FastAPI, Response, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from utils import LOGGER
+import threading
+from collections import deque
+import asyncio
+from utils import LOGGER, UartManager
 
 app = FastAPI(title="ROI Config API")
+
+# Hàng đợi chứa gói tin mới nhất
+robot_data_queue = deque(maxlen=1)
 
 # Cấu hình CORS để Web UI (Frontend) có thể gọi API mà không bị chặn
 app.add_middleware(
@@ -18,6 +24,27 @@ app.add_middleware(
 )
 
 CONFIG_FILE = "config.json"
+
+# Luồng đọc UART     
+def uart_reader_worker():
+    """Hàm này chạy trong thread riêng để đọc dữ liệu từ ESP32"""
+    uart_manager = UartManager()
+    LOGGER.info("Thread UART đang lắng nghe...")
+    while True:
+        data = uart_manager.receive_data()
+        if data and isinstance(data, dict):
+            robot_data_queue.append(data)
+        # Nghỉ cực ngắn để CPU không quá tải
+        import time
+        time.sleep(0.01)
+
+# Event khi server khởi động
+@app.on_event("startup")
+async def startup_event():
+    # Chạy thread UART
+    thread = threading.Thread(target=uart_reader_worker, daemon=True)
+    thread.start()
+    LOGGER.info("Hệ thống UART đã sẵn sàng!")
 
 def get_rtsp_url():
     """Hàm đọc RTSP URL từ file config.json hiện tại"""
@@ -88,16 +115,50 @@ def get_config():
         return {}
 
 # ==========================================
+# API 4: GỬI LỆNH ĐIỀU KHIỂN ROBOT (WS)
+# ==========================================
+@app.websocket("/ws/robot")
+async def websocket_robot(websocket: WebSocket):
+    await websocket.accept()
+    LOGGER.info("Client đã kết nối WebSocket.")
+    
+    # Biến cờ để nhớ xem dữ liệu cuối cùng mình gửi cho Client này là gì
+    last_sent_data = None 
+    
+    try:
+        while True:
+            # 1. Kiểm tra xem deque có dữ liệu không (deque dùng len() thay vì empty())
+            if len(robot_data_queue) > 0:
+                # Lấy phần tử mới nhất (bên phải cùng) mà KHÔNG xóa nó khỏi deque
+                # Điều này giúp nhiều màn hình Web có thể cùng đọc 1 tọa độ
+                current_data = robot_data_queue[-1]
+                
+                # 2. CHỈ GỬI ĐI nếu tọa độ này là mới (khác với cái vừa gửi lúc nãy)
+                if current_data != last_sent_data:
+                    await websocket.send_json(current_data)
+                    last_sent_data = current_data  # Cập nhật lại cờ
+            
+            # 3. Nghỉ ngắn 10ms để không làm cháy CPU của mạch nhúng
+            await asyncio.sleep(0.01) 
+            
+    except WebSocketDisconnect:
+        LOGGER.info("Client đã ngắt kết nối.")
+    except Exception as e:
+        LOGGER.error(f"Lỗi WebSocket: {e}")
+
+# ==========================================
 # GIAO DIỆN
 # ==========================================
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     # Chạy server ở port 8000, lắng nghe mọi IP trong mạng LAN
-    LOGGER.info("Đang khởi động tại http://0.0.0.0:8000")
+    host = "0.0.0.0"
+    port = 9620
+    LOGGER.info(f"Đang khởi động tại http://{host}:{port}")
     uvicorn.run(
         "api_server:app", 
-        host="0.0.0.0", 
-        port=9620, 
+        host=host, 
+        port=port, 
         reload=True
     )

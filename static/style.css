@@ -860,6 +860,151 @@ body {
 .btn-delete-area:hover { background: rgba(220,38,38,0.15); transform: translateY(-1px); }
 
 /* ===================================================
+   REALTIME SLAM SWITCH
+   =================================================== */
+
+/* Hàng chứa switch + label */
+.realtime-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(59,125,248,0.06);
+    border: 1px solid rgba(59,125,248,0.18);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+}
+
+.realtime-switch-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.realtime-switch-label {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--text-primary);
+    letter-spacing: 0.1px;
+}
+
+.realtime-switch-hint {
+    font-size: 10.5px;
+    color: var(--text-muted);
+}
+
+/* iOS-style toggle switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+/* Ẩn hoàn toàn native checkbox */
+.toggle-switch input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+/* Track (nền pill) */
+.toggle-track {
+    position: absolute;
+    inset: 0;
+    background: #d1d5db;
+    border-radius: 99px;
+    transition: background 0.22s ease, box-shadow 0.22s ease;
+    cursor: pointer;
+}
+
+/* Thumb (nút tròn trắng) */
+.toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Checked state */
+.toggle-switch input:checked + .toggle-track {
+    background: var(--accent-blue);
+    box-shadow: 0 0 0 3px rgba(59,125,248,0.18);
+}
+
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(18px);
+}
+
+.toggle-switch:hover .toggle-track {
+    box-shadow: 0 0 0 2px rgba(59,125,248,0.25);
+}
+
+/* Status bar dưới switch */
+.realtime-ws-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-secondary);
+    overflow: hidden;
+}
+
+/* WebSocket status dot */
+.ws-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+    transition: background 0.2s ease;
+}
+
+.ws-dot.connecting {
+    background: var(--accent-amber);
+    animation: pulse 1s infinite;
+}
+
+.ws-dot.connected {
+    background: var(--accent-green);
+    box-shadow: 0 0 5px rgba(34,197,94,0.5);
+    animation: pulse 2s infinite;
+}
+
+.ws-dot.error {
+    background: var(--accent-red);
+    animation: none;
+}
+
+/* Input bị khóa khi ở chế độ realtime */
+.text-input.slam-readonly {
+    background: rgba(59,125,248,0.06);
+    border-color: rgba(59,125,248,0.25);
+    color: var(--accent-blue);
+    cursor: not-allowed;
+    font-weight: 600;
+}
+
+.text-input.slam-readonly:focus {
+    box-shadow: none;
+    border-color: rgba(59,125,248,0.25);
+}
+
+/* ===================================================
    RESPONSIVE
    =================================================== */
 @media (max-width: 700px) {

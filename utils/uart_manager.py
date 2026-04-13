@@ -51,7 +51,7 @@ class UartManager:
                 # Thử parse JSON (nếu ESP32 gửi về dạng JSON)
                 try:
                     parsed_data = json.loads(raw_data)
-                    LOGGER.info(f"Recv: {parsed_data}")
+                    # LOGGER.info(f"Recv: {parsed_data}")
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường

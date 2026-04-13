@@ -15,6 +15,10 @@ let tempCircles = [];      // fabric.Circle markers
 let previewLine = null;    // dashed preview line
 let lastClickMs = 0;
 
+// ─── Realtime SLAM WebSocket ───────────────────────────────────
+let slamWs = null;          // WebSocket instance
+let slamRealtimeOn = false; // trạng thái switch
+
 const AREA_COLORS = [
     { fill: 'rgba(59,125,248,0.22)', stroke: '#3b7df8' },
     { fill: 'rgba(22,163,74,0.22)', stroke: '#16a34a' },
@@ -557,6 +561,13 @@ function populateAreaForm(idx) {
     document.getElementById('areaSlam_x').value = area.slam_pose?.x ?? 0;
     document.getElementById('areaSlam_y').value = area.slam_pose?.y ?? 0;
     document.getElementById('areaSlam_theta').value = area.slam_pose?.theta ?? 90;
+
+    // Luôn reset switch về OFF khi chọn vùng mới
+    disconnectSlamWs();
+    const toggle = document.getElementById('slamRealtimeToggle');
+    if (toggle) toggle.checked = false;
+    setSlamInputsReadonly(false);
+    document.getElementById('realtimeWsStatus').style.display = 'none';
 }
 
 function applyAreaProperties() {
@@ -640,6 +651,116 @@ async function saveConfigToServer() {
             btn.innerHTML = `<svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Lưu cấu hình`;
         }
     }
+}
+
+// =====================================================
+// REALTIME SLAM — WebSocket
+// =====================================================
+
+/**
+ * Gọi khi người dùng bật/tắt switch "Tọa độ Realtime".
+ * @param {boolean} enabled
+ */
+function onSlamRealtimeToggle(enabled) {
+    if (enabled) {
+        slamRealtimeOn = true;
+        connectSlamWs();
+        setSlamInputsReadonly(true);
+    } else {
+        slamRealtimeOn = false;
+        disconnectSlamWs();
+        setSlamInputsReadonly(false);
+        document.getElementById('realtimeWsStatus').style.display = 'none';
+    }
+}
+
+/** Kết nối WebSocket /ws/robot và lắng nghe tọa độ SLAM */
+function connectSlamWs() {
+    // Đóng kết nối cũ nếu có (im lặng, không reset cờ)
+    if (slamWs) {
+        slamWs.onclose = null;
+        slamWs.close();
+        slamWs = null;
+    }
+
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/robot`;
+    const statusBar = document.getElementById('realtimeWsStatus');
+    const dot = document.getElementById('wsStatusDot');
+    const txt = document.getElementById('wsStatusText');
+
+    statusBar.style.display = 'flex';
+    dot.className = 'ws-dot connecting';
+    txt.textContent = 'Đang kết nối...';
+
+    try {
+        slamWs = new WebSocket(wsUrl);
+    } catch (e) {
+        dot.className = 'ws-dot error';
+        txt.textContent = 'Không thể tạo WebSocket';
+        return;
+    }
+
+    slamWs.onopen = () => {
+        dot.className = 'ws-dot connected';
+        txt.textContent = 'Đã kết nối — chờ dữ liệu...';
+    };
+
+    slamWs.onmessage = (event) => {
+        if (!slamRealtimeOn) return;
+        try {
+            const data = JSON.parse(event.data);
+            const x     = data.x     !== undefined ? data.x     : (data.slam_x     !== undefined ? data.slam_x     : null);
+            const y     = data.y     !== undefined ? data.y     : (data.slam_y     !== undefined ? data.slam_y     : null);
+            const theta = data.theta !== undefined ? data.theta : (data.slam_theta !== undefined ? data.slam_theta : null);
+
+            if (x !== null) document.getElementById('areaSlam_x').value = parseFloat(x).toFixed(4);
+            if (y !== null) document.getElementById('areaSlam_y').value = parseFloat(y).toFixed(4);
+            if (theta !== null) document.getElementById('areaSlam_theta').value = parseFloat(theta).toFixed(2);
+
+            var xTxt = x !== null ? parseFloat(x).toFixed(2) : '-';
+            var yTxt = y !== null ? parseFloat(y).toFixed(2) : '-';
+            var tTxt = theta !== null ? parseFloat(theta).toFixed(1) : '-';
+            dot.className = 'ws-dot connected';
+            txt.textContent = 'x=' + xTxt + '  y=' + yTxt + '  th=' + tTxt + 'deg';
+        } catch(e) {
+            // ignore parse errors
+        }
+    };
+
+    slamWs.onerror = () => {
+        dot.className = 'ws-dot error';
+        txt.textContent = 'Lỗi kết nối WebSocket';
+    };
+
+    slamWs.onclose = () => {
+        if (!slamRealtimeOn) return;
+        dot.className = 'ws-dot error';
+        txt.textContent = 'Mất kết nối';
+    };
+}
+
+/** Ngắt WebSocket hiện tại một cách sạch sẽ */
+function disconnectSlamWs() {
+    if (slamWs) {
+        slamWs.onclose = null; // tránh trigger UI lỗi
+        slamWs.close();
+        slamWs = null;
+    }
+}
+
+/**
+ * Bật/tắt khả năng chỉnh sửa thủ công cho 3 input SLAM.
+ * @param {boolean} readonly - true: readonly (realtime mode), false: cho phép sửa
+ */
+function setSlamInputsReadonly(readonly) {
+    const ids = ['areaSlam_x', 'areaSlam_y', 'areaSlam_theta'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.readOnly = readonly;
+        el.classList.toggle('slam-readonly', readonly);
+    });
+    // Nút "Áp dụng" vẫn hoạt động để ghi nhận giá trị đang hiển thị
 }
 
 // =====================================================
