@@ -35,6 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSegControls();
     initSlider();
     initSourceInput();
+    initUartInputs();
     initCanvas();
     initKeyboard();
     initSystem();
@@ -89,6 +90,13 @@ function initSourceInput() {
     if (src) src.addEventListener('input', updateJSONPreview);
 }
 
+function initUartInputs() {
+    const port = document.getElementById('cfg-uart-port');
+    if (port) port.addEventListener('input', updateJSONPreview);
+    const baud = document.getElementById('cfg-uart-baudrate');
+    if (baud) baud.addEventListener('change', updateJSONPreview);
+}
+
 function setSegValue(groupId, value) {
     const g = document.getElementById(groupId);
     if (!g) return;
@@ -116,6 +124,10 @@ function applyConfigToUI(config) {
     if (slider) { slider.value = config.conf ?? 0.65; updateConfBadge(slider.value); }
     const src = document.getElementById('cfg-source');
     if (src) src.value = config.source ?? '';
+    const uartPort = document.getElementById('cfg-uart-port');
+    if (uartPort) uartPort.value = config.uart_port ?? '/dev/ttyS4';
+    const uartBaud = document.getElementById('cfg-uart-baudrate');
+    if (uartBaud) uartBaud.value = String(config.uart_baudrate ?? 115200);
     globalConfig = { ...config };
     updateJSONPreview();
     renderAreaList();
@@ -129,6 +141,8 @@ function buildConfigFromUI() {
         device: getSegValue('cfg-device'),
         show: getSegValue('cfg-show') === 'true',
         roi_check_mode: getSegValue('cfg-roi'),
+        uart_port: document.getElementById('cfg-uart-port')?.value?.trim() ?? '/dev/ttyS4',
+        uart_baudrate: parseInt(document.getElementById('cfg-uart-baudrate')?.value ?? '115200'),
         monitored_areas: globalConfig.monitored_areas ?? []
     };
 }

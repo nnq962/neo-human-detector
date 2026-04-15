@@ -3,8 +3,13 @@ import json
 import time
 from utils import LOGGER
 
+CONFIG_FILE = "config.json"
+DEFAULT_PORT = '/dev/ttyS4'
+DEFAULT_BAUDRATE = 115200
+DEFAULT_TIMEOUT = 1
+
 class UartManager:
-    def __init__(self, port='/dev/ttyS4', baudrate=115200, timeout=1):
+    def __init__(self, port=DEFAULT_PORT, baudrate=DEFAULT_BAUDRATE, timeout=DEFAULT_TIMEOUT):
         """Khởi tạo kết nối UART"""
         self.port = port
         self.baudrate = baudrate
@@ -32,6 +37,23 @@ class UartManager:
             json_str = json.dumps(data_dict) + '\n' 
             self.serial_conn.write(json_str.encode('utf-8'))
             LOGGER.info(f"Send: {json_str.strip()}")
+            return True
+        except Exception as e:
+            LOGGER.error(f"Lỗi khi gửi: {e}")
+            return False
+
+    def send_string(self, text_str):
+        """Gửi chuỗi thuần qua UART"""
+        if not self.serial_conn or not self.serial_conn.is_open:
+            LOGGER.error("Cổng UART chưa mở.")
+            return False
+            
+        try:
+            # Nếu chuỗi chưa có \n thì thêm vào
+            if not text_str.endswith('\n'):
+                text_str += '\n'
+            self.serial_conn.write(text_str.encode('utf-8'))
+            LOGGER.info(f"Send: {text_str.strip()}")
             return True
         except Exception as e:
             LOGGER.error(f"Lỗi khi gửi: {e}")
@@ -68,6 +90,26 @@ class UartManager:
             self.serial_conn.close()
             LOGGER.info("Đã ngắt kết nối UART.")
 
+import os
+
+# Đường dẫn tuyệt đối đến config.json để tránh lỗi khi import từ thư mục khác
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+
+def load_config(file_path):
+    try:
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        LOGGER.error(f"Cannot load config {file_path}, using defaults: {e}")
+        return {}
+
+config = load_config(CONFIG_FILE)
+
+uart_manager = UartManager(
+    port=config.get("uart_port", DEFAULT_PORT), 
+    baudrate=config.get("uart_baudrate", DEFAULT_BAUDRATE),
+    timeout=DEFAULT_TIMEOUT
+)
 # =================================================================
 # CÁCH SỬ DỤNG (Bạn có thể import class này vào file khác)
 # =================================================================

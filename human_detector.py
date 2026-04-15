@@ -3,9 +3,9 @@ import aidcv as cv2
 import numpy as np
 from typing import List, Optional, Set
 from ultralytics import YOLO
-from utils import LOGGER
+from utils import LOGGER, uart_manager
 import time
-
+import threading
 
 class HumanDetector:
     """
@@ -96,6 +96,9 @@ class HumanDetector:
             self.DEFAULT_MODELS, 
             task="detect"
         )
+
+        # Khởi tạo UART Manager để gửi dữ liệu
+        self.uart = uart_manager
 
     def _draw_monitored_areas(
         self,
@@ -241,6 +244,62 @@ class HumanDetector:
         result = cv2.pointPolygonTest(roi_pts, point, measureDist=False)
         return result >= 0
 
+    def _send_uart_payload(self, payload: dict):
+        """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
+        if not payload or not hasattr(self, 'uart'):
+            return
+            
+        detected = payload.get("detected", [])
+        cleared = payload.get("cleared", [])
+        
+        # Hàm phụ đóng gói chuỗi
+        def build_string(det_list, clr_list):
+            parts = []
+            if det_list:
+                d_str = "d:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in det_list])
+                parts.append(d_str)
+            if clr_list:
+                c_str = "c:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in clr_list])
+                parts.append(c_str)
+            return "-".join(parts)
+
+        MAX_BYTES = 250
+        all_events = [("d", d) for d in detected] + [("c", c) for c in cleared]
+        
+        current_det = []
+        current_clr = []
+        
+        for event_type, event_data in all_events:
+            # Thêm tạm vào nhóm hiện tại
+            if event_type == "d":
+                current_det.append(event_data)
+            else:
+                current_clr.append(event_data)
+                
+            test_str = build_string(current_det, current_clr)
+            
+            # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
+            if len(test_str.encode('utf-8')) > MAX_BYTES:
+                # Nhả event vừa thêm ra để lấy chuỗi an toàn
+                if event_type == "d":
+                    current_det.pop()
+                else:
+                    current_clr.pop()
+                    
+                full_str = build_string(current_det, current_clr)
+                if full_str:
+                    threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
+                    time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
+                    
+                # Bắt đầu mẻ mới với đồ đạc vừa bị loại ra
+                current_det = [event_data] if event_type == "d" else []
+                current_clr = [event_data] if event_type == "c" else []
+        
+        # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
+        final_str = build_string(current_det, current_clr)
+        if final_str:
+            threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()
+
     def inference(self):
         """
         Thực hiện nhận diện và theo dõi đối tượng trên luồng dữ liệu đầu vào.
@@ -314,6 +373,10 @@ class HumanDetector:
                                 break  # Ngừng kiểm tra các vùng khác nếu đã thuộc 1 vùng
 
                 active_area_names: Set[str] = set()
+                uart_payload = {
+                    "detected": [],
+                    "cleared": []
+                }
 
                 for area in self.monitored_areas:
                     roi_name = area["name"]
@@ -336,12 +399,33 @@ class HumanDetector:
                     # Hysteresis logic
                     if not self.roi_state[roi_name] and score >= self.CONFIRM_THRESHOLD:
                         self.roi_state[roi_name] = True
+                        
+                        slam_pose = area.get("slam_pose", {})
+                        uart_payload["detected"].append({
+                            "area_name": roi_name,
+                            "slam_pose": slam_pose
+                        })
+                        # LOGGER.debug(f"Khu vực {roi_name} có người (Đợi gửi Payload)")
+
                     elif self.roi_state[roi_name] and score <= self.RELEASE_THRESHOLD:
                         self.roi_state[roi_name] = False
+                        
+                        slam_pose = area.get("slam_pose", {})
+                        uart_payload["cleared"].append({
+                            "area_name": roi_name,
+                            "slam_pose": slam_pose
+                        })
+                        # LOGGER.debug(f"Khu vực {roi_name} không còn ai (Đợi gửi Payload)")
 
                     # Nếu vùng đang active, thêm vào tập để vẽ đỏ
                     if self.roi_state[roi_name]:
                         active_area_names.add(roi_name)
+
+                # Nếu vòng quét frame này có bất kỳ sự kiện nào thay đổi, gửi 1 lần đi luôn
+                if uart_payload["detected"] or uart_payload["cleared"]:
+                    self._send_uart_payload(uart_payload)
+                    total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
+                    # LOGGER.info(f"Đã gộp gửi {total_events} sự kiện qua UART.")
 
                 # Vẽ lên frame
                 frame = self._draw_monitored_areas(
@@ -371,6 +455,8 @@ class HumanDetector:
 
         finally:
             cv2.destroyAllWindows()
+            if hasattr(self, 'uart'):
+                self.uart.close()
             LOGGER.info("HumanDetector Đã dừng.")
             # Force-exit để tránh crash C++ runtime khi cleanup
             # RTSP stream hoặc GPU context (ultralytics/OpenCV known issue)

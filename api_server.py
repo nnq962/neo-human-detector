@@ -7,7 +7,7 @@ import uvicorn
 import threading
 from collections import deque
 import asyncio
-from utils import LOGGER, UartManager
+from utils import LOGGER, uart_manager
 
 app = FastAPI(title="ROI Config API")
 
@@ -28,7 +28,6 @@ CONFIG_FILE = "config.json"
 # Luồng đọc UART     
 def uart_reader_worker():
     """Hàm này chạy trong thread riêng để đọc dữ liệu từ ESP32"""
-    uart_manager = UartManager()
     LOGGER.info("Thread UART đang lắng nghe...")
     while True:
         data = uart_manager.receive_data()

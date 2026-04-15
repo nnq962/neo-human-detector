@@ -362,6 +362,28 @@ body {
 
 .text-input::placeholder { color: var(--text-muted); }
 
+/* Select Input (styled dropdown) */
+.select-input {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%234b5563' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 10px 6px;
+    padding-right: 32px;
+    cursor: pointer;
+}
+
+.select-input:hover {
+    border-color: rgba(59,125,248,0.35);
+}
+
+.select-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(79,142,247,0.12);
+}
+
 /* ===================================================
    SECTION 2 — SNAPSHOT
    =================================================== */

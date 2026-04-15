@@ -5,6 +5,8 @@
     "device": "cpu",
     "show": true,
     "roi_check_mode": "bottom_center",
+    "uart_port": "/dev/ttyS4",
+    "uart_baudrate": 115200,
     "monitored_areas": [
         {
             "name": "kv1",
@@ -87,9 +89,9 @@
         {
             "name": "kv4",
             "slam_pose": {
-                "x": 0,
-                "y": 0,
-                "theta": 90
+                "x": 275,
+                "y": 154,
+                "theta": 285
             },
             "pts": [
                 [
@@ -139,9 +141,9 @@
         {
             "name": "kv6",
             "slam_pose": {
-                "x": 0,
-                "y": 0,
-                "theta": 90
+                "x": 346,
+                "y": 225,
+                "theta": 345
             },
             "pts": [
                 [
@@ -165,9 +167,9 @@
         {
             "name": "kv7",
             "slam_pose": {
-                "x": 0,
-                "y": 0,
-                "theta": 90
+                "x": 216,
+                "y": 157,
+                "theta": 250
             },
             "pts": [
                 [
@@ -179,21 +181,21 @@
                     180
                 ],
                 [
-                    790,
-                    322
+                    780,
+                    349
                 ],
                 [
-                    553,
-                    318
+                    554,
+                    342
                 ]
             ]
         },
         {
             "name": "kv8",
             "slam_pose": {
-                "x": 0,
-                "y": 0,
-                "theta": 90
+                "x": 346,
+                "y": 275,
+                "theta": 15
             },
             "pts": [
                 [
@@ -217,9 +219,9 @@
         {
             "name": "kv9",
             "slam_pose": {
-                "x": 0,
-                "y": 0,
-                "theta": 90
+                "x": 336,
+                "y": 300,
+                "theta": 30
             },
             "pts": [
                 [
