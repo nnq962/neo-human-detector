@@ -1,5 +1,5 @@
 {
-    "source": "rtsp://admin:phenikaaneo%40@10.70.22.159:554/Streaming/Channels/101",
+    "source": "rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101",
     "conf": 0.7,
     "imgsz": 640,
     "device": "cpu",

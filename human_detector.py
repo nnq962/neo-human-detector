@@ -22,10 +22,10 @@ class HumanDetector:
     DEFAULT_MODELS = "models/head/yolov8_nano_rknn_model"
 
     # Màu sắc cho từng ROI (BGR)
-    COLOR_ROI_EMPTY   = (0, 200, 0)    # xanh lá
-    COLOR_ROI_ACTIVE  = (0, 0, 220)    # đỏ
+    COLOR_ROI_EMPTY   = (0, 0, 220)    # đỏ
+    COLOR_ROI_ACTIVE  = (0, 200, 0)    # xanh lá
     COLOR_BBOX_NORMAL = (255, 0, 0)    # xanh dương — bbox ngoài ROI
-    COLOR_BBOX_IN_ROI = (0, 0, 220)    # đỏ   — bbox trong ROI
+    COLOR_BBOX_IN_ROI = (0, 200, 0)    # xanh lá   — bbox trong ROI
 
     def __init__(
         self,
