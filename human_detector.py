@@ -6,6 +6,8 @@ from ultralytics import YOLO
 from utils import LOGGER, uart_manager
 import time
 import threading
+from models import ROIState, SeatZone, TrackedPerson
+
 
 class HumanDetector:
     """
@@ -21,9 +23,6 @@ class HumanDetector:
 
     DEFAULT_MODELS = "models/head/yolov8_nano_rknn_model"
 
-    # Màu sắc cho từng ROI (BGR)
-    COLOR_ROI_EMPTY   = (0, 0, 220)    # đỏ
-    COLOR_ROI_ACTIVE  = (0, 200, 0)    # xanh lá
     COLOR_BBOX_NORMAL = (255, 0, 0)    # xanh dương — bbox ngoài ROI
     COLOR_BBOX_IN_ROI = (0, 200, 0)    # xanh lá   — bbox trong ROI
 
@@ -71,25 +70,33 @@ class HumanDetector:
         LOGGER.info(f"Show: {show}")
         LOGGER.info(f"ROI Check Mode: {roi_check_mode}")        
 
-        # Initialize monitored areas
+        # Initialize monitored areas -------------------------------------------------------------------------
         if monitored_areas is None:
             raise ValueError("monitored_areas must not be None")
-        else:
-            self.monitored_areas = monitored_areas
-            # Convert pts to numpy arrays if they are lists (from JSON)
-            for area in self.monitored_areas:
-                if not isinstance(area["pts"], np.ndarray):
-                    area["pts"] = np.array(area["pts"], dtype=np.int32)
 
-        # Khởi tạo bộ chấm điểm ROI
-        self.roi_scores = {area["name"]: 0.0 for area in self.monitored_areas}
-        self.roi_state = {area["name"]: False for area in self.monitored_areas}  # Trạng thái ổn định
+        self.monitored_areas = monitored_areas
+        self.zones = {} 
 
-        self.SCORE_REWARD = 1.0
-        self.SCORE_PENALTY = 2.0
-        self.SCORE_MAX = 100.0
-        self.CONFIRM_THRESHOLD = 50.0
-        self.RELEASE_THRESHOLD = 20.0
+        for area in self.monitored_areas:
+            name = area["name"]
+            # Ép kiểu numpy array ngay tại đây
+            pts = np.array(area["pts"], dtype=np.int32) if not isinstance(area["pts"], np.ndarray) else area["pts"]
+            
+            # Khởi tạo Object SeatZone
+            self.zones[name] = SeatZone(
+                name=name,
+                pts=pts,
+                slam_pose=area.get("slam_pose", {})
+            )
+
+        # Global ID Tracker
+        self.global_tracked_ids = {}
+
+        # Time Thresholds
+        self.CONFIRM_ENTER_TIME = 10.0      # Ngồi liên tục > 10s mới tính là OCCUPIED
+        self.CONFIRM_EXIT_TIME = 8.0        # Mất dấu > 8s mới tính là EMPTY
+        self.ID_GARBAGE_COLLECT_TIME = 15.0 # Quá 15s không thấy ID trên toàn camera -> Dọn rác
+        # -----------------------------------------------------------------------------------------------------
 
         # Load model
         self.model = YOLO(
@@ -103,31 +110,23 @@ class HumanDetector:
     def _draw_monitored_areas(
         self,
         frame: np.ndarray,
-        active_area_names: set = None,
     ) -> np.ndarray:
         """
         Vẽ lớp phủ các vùng giám sát (ROI) lên khung hình.
-        Highlight các vùng trong `active_area_names` bằng màu cảnh báo, các vùng còn lại dùng màu mặc định.
+        Sử dụng màu sắc tương ứng với trạng thái của từng vùng dựa trên ROIColor.
 
         Args:
             frame (np.ndarray): Khung hình ảnh gốc (hệ màu BGR).
-            active_area_names (set, optional): Tập hợp tên các ROI đang ở trạng thái kích hoạt.
-                Nếu None, tất cả các vùng sẽ được vẽ ở trạng thái mặc định.
 
         Returns:
             np.ndarray: Khung hình đã được chèn các hiệu ứng hình ảnh của ROI.
         """
 
-        if active_area_names is None:
-            active_area_names = set()
-
         overlay = frame.copy()
-        for area in self.monitored_areas:
-            pts  = area["pts"]
-            name = area["name"]
-            is_active = name in active_area_names
-
-            color = self.COLOR_ROI_ACTIVE if is_active else self.COLOR_ROI_EMPTY
+        for zone in self.zones.values():
+            pts  = zone.pts
+            name = zone.name
+            color = zone.get_current_color()
 
             # Tô màu nền bán trong suốt
             cv2.fillPoly(overlay, [pts], color=color)
@@ -135,9 +134,8 @@ class HumanDetector:
             # Vẽ viền vùng
             cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=2)
 
-            # Nhãn tên vùng kèm điểm số
-            score = self.roi_scores.get(name, 0.0)
-            label = f"{name} [{score:.1f}]"
+            # Nhãn tên vùng kèm trạng thái
+            label = f"{name} [{zone.state.value}]"
 
             # Vẽ nhãn tại điểm trung tâm
             cx = int(pts[:, 0].mean())
@@ -154,6 +152,7 @@ class HumanDetector:
         frame: np.ndarray,
         bboxes: np.ndarray,
         confs: np.ndarray,
+        ids: np.ndarray,
         bbox_roi_names: List[Optional[str]],
     ) -> np.ndarray:
         """
@@ -164,13 +163,14 @@ class HumanDetector:
             frame (np.ndarray): Khung hình ảnh gốc (BGR).
             bboxes (np.ndarray): Mảng tọa độ các khung nhận diện (N, 4).
             confs (np.ndarray): Mảng giá trị độ tin cậy (N,).
+            ids (np.ndarray): Mảng ID của các đối tượng (N,).
             bbox_roi_names (List[Optional[str]]): Danh sách tên ROI tương ứng của mỗi đối tượng.
 
         Returns:
             np.ndarray: Khung hình đã được vẽ thông tin nhận diện.
         """
 
-        for bbox, conf, roi_name in zip(bboxes, confs, bbox_roi_names):
+        for bbox, conf, obj_id, roi_name in zip(bboxes, confs, ids, bbox_roi_names):
             x1, y1, x2, y2 = map(int, bbox[:4])
             in_roi = roi_name is not None
             color  = self.COLOR_BBOX_IN_ROI if in_roi else self.COLOR_BBOX_NORMAL
@@ -178,13 +178,14 @@ class HumanDetector:
             # Vẽ bounding box
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness=2)
 
-            # Tạo label: luôn hiện conf, thêm tên ROI nếu trong vùng
+            # Tạo label: luôn hiện id, conf, thêm tên ROI nếu trong vùng
+            id_text = f"ID {obj_id}" if obj_id != -1 else "ID:?"
             if in_roi:
-                # Nếu nằm trong ROI, lấy điểm số ra (làm tròn 1 chữ số thập phân)
-                label = f"[{roi_name}] [{conf:.2f}]"
+                # Nếu nằm trong ROI, hiện tên ROI
+                label = f"[{roi_name}] [{id_text}] [{conf:.2f}]"
             else:
                 # Nếu chạy rông bên ngoài, chỉ hiện ID và Conf
-                label = f"[{conf:.2f}]"
+                label = f"[{id_text}] [{conf:.2f}]"
 
             # Nền nhãn
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 0.55, 1)
@@ -311,9 +312,11 @@ class HumanDetector:
             Iterable: Trình tạo (generator) trả về kết quả nhận diện cho từng khung hình.
         """
 
-        results = self.model.predict(
+        results = self.model.track(
             source=self.source,
             conf=self.conf,
+            persist=True,
+            tracker="bytetrack.yaml",
             imgsz=self.imgsz,
             device=self.device,
             half=self.half,
@@ -351,91 +354,143 @@ class HumanDetector:
                 # Lấy frame gốc (chưa vẽ gì)
                 frame = result.orig_img.copy()
 
-                # Lấy danh sách bbox và confidence
+                # Lấy danh sách bbox, id và confidence
                 boxes = result.boxes
                 if boxes is not None and len(boxes) > 0:
                     bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
                     confs  = boxes.conf.cpu().numpy()   # (N,)
+                    
+                    # An toàn lấy ID (nếu chưa có ID thì gán tạm -1)
+                    if boxes.id is not None:
+                        ids = boxes.id.cpu().numpy().astype(int)
+                    else:
+                        ids = np.full((len(bboxes),), -1, dtype=int)
                 else:
                     bboxes = np.empty((0, 4), dtype=np.float32)
                     confs  = np.empty((0,),   dtype=np.float32)
+                    ids    = np.empty((0,),   dtype=int)
 
-                # ── KIỂM TRA ĐỐI TƯỢNG TRONG ROI VÀ TÍNH ĐIỂM ───────────────
+                # ── 1. GẮN ID VÀO TỪNG VÙNG ROI ─────────────────────────────────
+                # Tạo 1 list để lưu tên ROI tương ứng với từng bbox
                 bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
-                detected_rois: Set[str] = set()
+
+                # Dictionary chứa danh sách các ID đang nằm trong từng ROI
+                roi_current_ids = {zone_name: [] for zone_name in self.zones.keys()}
 
                 if len(bboxes) > 0:
-                    for i, bbox in enumerate(bboxes):
-                        for area in self.monitored_areas:
-                            if self.is_bbox_in_roi(bbox, area["pts"], mode=self.roi_check_mode):
-                                bbox_roi_names[i] = area["name"]
-                                detected_rois.add(area["name"])
-                                break  # Ngừng kiểm tra các vùng khác nếu đã thuộc 1 vùng
+                    for i, (bbox, obj_id) in enumerate(zip(bboxes, ids)):
+                        for zone_name, zone in self.zones.items():
+                            if self.is_bbox_in_roi(bbox, zone.pts, mode=self.roi_check_mode):
+                                bbox_roi_names[i] = zone_name
+                                roi_current_ids[zone_name].append(obj_id)
+                                break  # Ngừng kiểm tra vì 1 người chỉ ngồi 1 ghế
 
-                active_area_names: Set[str] = set()
+                # ── 2. STATE MACHINE CHO TỪNG VÙNG ───────────────────────────────
                 uart_payload = {
                     "detected": [],
                     "cleared": []
                 }
 
-                for area in self.monitored_areas:
-                    roi_name = area["name"]
-                    head_detected_in_roi = roi_name in detected_rois
+                # Lấy thời gian hiện tại
+                current_time = time.time()
 
-                    # Cập nhật điểm số
-                    if head_detected_in_roi:
-                        self.roi_scores[roi_name] = min(
-                            self.SCORE_MAX, 
-                            self.roi_scores[roi_name] + self.SCORE_REWARD
-                        )
-                    else:
-                        self.roi_scores[roi_name] = max(
-                            0.0, 
-                            self.roi_scores[roi_name] - self.SCORE_PENALTY
-                        )
+                for zone_name, zone in self.zones.items():
+                    # Lấy các ID hợp lệ đang ở trong vùng này (bỏ qua ID = -1)
+                    valid_ids_in_zone = [i for i in roi_current_ids[zone_name] if i != -1]
 
-                    score = self.roi_scores[roi_name]
+                    # LOGIC 1: ĐANG TRỐNG -> CÓ NGƯỜI VÀO
+                    if zone.state == ROIState.EMPTY:
+                        if valid_ids_in_zone:
+                            zone.current_id = valid_ids_in_zone[0] # Lấy ID đầu tiên
+                            zone.state = ROIState.PENDING_ENTER
+                            zone.enter_time = current_time
 
-                    # Hysteresis logic
-                    if not self.roi_state[roi_name] and score >= self.CONFIRM_THRESHOLD:
-                        self.roi_state[roi_name] = True
-                        
-                        slam_pose = area.get("slam_pose", {})
-                        uart_payload["detected"].append({
-                            "area_name": roi_name,
-                            "slam_pose": slam_pose
-                        })
-                        # LOGGER.debug(f"Khu vực {roi_name} có người (Đợi gửi Payload)")
+                    # LOGIC 2: ĐANG CHỜ ĐỦ 10S
+                    elif zone.state == ROIState.PENDING_ENTER:
+                        if zone.current_id in valid_ids_in_zone:
+                            # Vẫn đang ngồi -> Kiểm tra đã đủ thời gian chưa
+                            if current_time - zone.enter_time >= self.CONFIRM_ENTER_TIME:
+                                zone.state = ROIState.OCCUPIED
+                                uart_payload["detected"].append({
+                                    "area_name": zone_name,
+                                    "slam_pose": zone.slam_pose
+                                })
+                        else:
+                            # Chưa đủ 10s đã đứng dậy đi mất -> Reset về Trống
+                            zone.reset_zone()
 
-                    elif self.roi_state[roi_name] and score <= self.RELEASE_THRESHOLD:
-                        self.roi_state[roi_name] = False
-                        
-                        slam_pose = area.get("slam_pose", {})
-                        uart_payload["cleared"].append({
-                            "area_name": roi_name,
-                            "slam_pose": slam_pose
-                        })
-                        # LOGGER.debug(f"Khu vực {roi_name} không còn ai (Đợi gửi Payload)")
+                    # LOGIC 3: ĐÃ XÁC NHẬN NGỒI
+                    elif zone.state == ROIState.OCCUPIED:
+                        if zone.current_id in valid_ids_in_zone:
+                            # Vẫn tiếp tục ngồi, không làm gì cả
+                            pass
+                        else:
+                            # Vừa mới mất dấu ID -> Rơi vào trạng thái chờ CONFIRM_EXIT_TIME
+                            zone.previous_state = ROIState.OCCUPIED
+                            zone.state = ROIState.PENDING_EXIT
+                            zone.lost_time = current_time
 
-                    # Nếu vùng đang active, thêm vào tập để vẽ đỏ
-                    if self.roi_state[roi_name]:
-                        active_area_names.add(roi_name)
+                    # LOGIC 4: ĐANG CHỜ XÁC NHẬN RỜI ĐI HOẶC NỐI ID (PENDING_EXIT)
+                    elif zone.state == ROIState.PENDING_EXIT:
 
+                        # TRƯỜNG HỢP A: CÓ MỘT ID ĐANG XUẤT HIỆN TRONG GHẾ
+                        if valid_ids_in_zone:
+                            new_id = valid_ids_in_zone[0]
+                            
+                            # Case A.1: Vẫn là ID cũ (YOLO tự nối lại được tracking)
+                            if new_id == zone.current_id:
+                                zone.state = zone.previous_state # Khôi phục lại trạng thái OCCUPIED
+                                
+                            # Case A.2: Là một ID lạ
+                            else:
+                                person_info = self.global_tracked_ids.get(new_id)
+                                
+                                # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ ngẩng mặt lên
+                                if person_info and person_info.first_seen_in_roi == zone_name:
+                                    zone.current_id = new_id         # Gán ID mới cho họ
+                                    zone.state = zone.previous_state # Khôi phục OCCUPIED
+                                    
+                                # Nếu ID lạ này "khai sinh" ở ngoài (hoặc ghế khác) rồi bước vào -> Người mới
+                                else:
+                                    # 1. Gửi lệnh chốt báo người cũ ĐÃ ĐI
+                                    uart_payload["cleared"].append({
+                                        "area_name": zone_name,
+                                        "slam_pose": zone.slam_pose
+                                    })
+                                    # 2. Xóa thông tin người cũ, cho người mới bắt đầu đếm 10s PENDING_ENTER luôn
+                                    zone.reset_zone()
+                                    zone.current_id = new_id
+                                    zone.state = ROIState.PENDING_ENTER
+                                    zone.enter_time = current_time
+
+                        # TRƯỜNG HỢP B: VẪN KHÔNG THẤY AI (BẮT ĐẦU ĐẾM NGƯỢC)
+                        else:
+                            if current_time - zone.lost_time >= self.CONFIRM_EXIT_TIME:
+                                # Đã quá 5s không có ai xuất hiện -> Chính thức báo trống
+                                uart_payload["cleared"].append({
+                                    "area_name": zone_name,
+                                    "slam_pose": zone.slam_pose
+                                })
+                                zone.reset_zone()
+
+                # ── 3. GỬI UART VÀ VẼ LÊN FRAME ─────────────────────────────────
                 # Nếu vòng quét frame này có bất kỳ sự kiện nào thay đổi, gửi 1 lần đi luôn
                 if uart_payload["detected"] or uart_payload["cleared"]:
-                    self._send_uart_payload(uart_payload)
+                    # self._send_uart_payload(uart_payload)
                     total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
                     # LOGGER.info(f"Đã gộp gửi {total_events} sự kiện qua UART.")
 
-                # Vẽ lên frame
+                # Vẽ các vùng giám sát
                 frame = self._draw_monitored_areas(
-                    frame, 
-                    active_area_names
+                    frame
                 )
+
+                # Vẽ các đối tượng được phát hiện
                 frame = self._draw_detections(
                     frame, 
                     bboxes, 
                     confs, 
+                    ids,
                     bbox_roi_names
                 )
 
