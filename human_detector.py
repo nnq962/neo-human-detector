@@ -182,7 +182,7 @@ class HumanDetector:
             id_text = f"ID {obj_id}" if obj_id != -1 else "ID:?"
             if in_roi:
                 # Nếu nằm trong ROI, hiện tên ROI
-                label = f"[{roi_name}] [{id_text}] [{conf:.2f}]"
+                label = f"[{id_str}] [{conf:.2f}] [{roi_name}]"
             else:
                 # Nếu chạy rông bên ngoài, chỉ hiện ID và Conf
                 label = f"[{id_text}] [{conf:.2f}]"
@@ -327,17 +327,204 @@ class HumanDetector:
 
         return results
 
+    def _parse_detections(self, boxes):
+        """
+        Trích xuất thông tin Bounding Box, Confidence và ID từ đối tượng boxes của YOLO.
+        
+        Args:
+            boxes: Đối tượng kết quả trả về từ YOLO chứa thông tin nhận diện.
+            
+        Returns:
+            tuple: (bboxes, confs, ids)
+                - bboxes (np.ndarray): Mảng numpy chứa tọa độ bounding box (N, 4).
+                - confs (np.ndarray): Mảng numpy chứa độ tin cậy của mỗi dự đoán (N,).
+                - ids (np.ndarray): Mảng numpy chứa ID của đối tượng (N,). Gán -1 nếu không có ID.
+        """
+        if boxes is not None and len(boxes) > 0:
+            bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
+            confs  = boxes.conf.cpu().numpy()   # (N,)
+            
+            if boxes.id is not None:
+                ids = boxes.id.cpu().numpy().astype(int)
+            else:
+                ids = np.full((len(bboxes),), -1, dtype=int)
+        else:
+            bboxes = np.empty((0, 4), dtype=np.float32)
+            confs  = np.empty((0,),   dtype=np.float32)
+            ids    = np.empty((0,),   dtype=int)
+            
+        return bboxes, confs, ids
+
+    def _assign_ids_to_rois(self, bboxes, ids):
+        """
+        Gắn từng đối tượng phát hiện được vào các vùng giám sát (ROI) tương ứng.
+        
+        Mỗi bounding box sẽ được kiểm tra xem điểm đại diện của nó có nằm trong bất kỳ ROI nào không.
+        Giả định mỗi người chỉ nằm trong tối đa một vùng giám sát (sẽ ngừng kiểm tra khi đã tìm thấy).
+        
+        Args:
+            bboxes (np.ndarray): Mảng tọa độ bounding box.
+            ids (np.ndarray): Mảng ID tương ứng.
+            
+        Returns:
+            tuple: (bbox_roi_names, roi_current_ids)
+                - bbox_roi_names (List[Optional[str]]): Tên vùng ROI chứa bbox tương ứng, hoặc None nếu nằm ngoài.
+                - roi_current_ids (dict): Từ điển map tên ROI với danh sách ID đang nằm trong ROI đó.
+        """
+        # Tạo 1 list để lưu tên ROI tương ứng với từng bbox
+        bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
+
+        # Dictionary chứa danh sách các ID đang nằm trong từng ROI
+        roi_current_ids = {zone_name: [] for zone_name in self.zones.keys()}
+
+        if len(bboxes) > 0:
+            for i, (bbox, obj_id) in enumerate(zip(bboxes, ids)):
+                for zone_name, zone in self.zones.items():
+                    if self.is_bbox_in_roi(bbox, zone.pts, mode=self.roi_check_mode):
+                        bbox_roi_names[i] = zone_name
+                        roi_current_ids[zone_name].append(obj_id)
+                        break # Ngừng kiểm tra vì 1 người chỉ ngồi 1 ghế
+
+        return bbox_roi_names, roi_current_ids
+
+    def _update_global_tracking(self, ids, bbox_roi_names, current_time):
+        """
+        Cập nhật hệ thống theo dõi ID toàn cục (Global Tracker).
+        
+        Ghi nhận vòng đời của mọi ID xuất hiện trên camera để phân biệt người mới 
+        và người cũ bị che khuất (occlusion). Dọn dẹp (Garbage Collection) các ID đã mất dấu quá lâu.
+        
+        Args:
+            ids (np.ndarray): Mảng ID hiện tại trên khung hình.
+            bbox_roi_names (List[Optional[str]]): Tên vùng ROI mà mỗi ID đang đứng (để biết nơi khai sinh).
+            current_time (float): Mốc thời gian hệ thống hiện tại.
+        """
+        for obj_id, roi_name in zip(ids, bbox_roi_names):
+            if obj_id == -1: continue # Bỏ qua ID không hợp lệ
+            
+            if obj_id not in self.global_tracked_ids:
+                # Lần đầu tiên nhìn thấy ID này trên toàn camera
+                self.global_tracked_ids[obj_id] = TrackedPerson(
+                    id=obj_id,
+                    first_seen_time=current_time,
+                    first_seen_in_roi=roi_name, # Nếu đang đứng ngoài, nó sẽ lưu là None
+                    last_seen_time=current_time
+                )
+            else:
+                # ID cũ, chỉ cần update thời gian để không bị dọn rác
+                self.global_tracked_ids[obj_id].last_seen_time = current_time
+
+        # Dọn rác: Xóa những ID đã khuất bóng khỏi camera quá 15s để nhẹ RAM
+        expired_ids = [k for k, v in self.global_tracked_ids.items() 
+                       if current_time - v.last_seen_time > self.ID_GARBAGE_COLLECT_TIME]
+        for k in expired_ids:
+            del self.global_tracked_ids[k]
+
+    def _update_zone_states(self, roi_current_ids, current_time):
+        """
+        Cập nhật trạng thái (State Machine) cho từng vùng giám sát và tạo payload gửi UART.
+        
+        Logic xử lý các trạng thái:
+        - EMPTY: Ghế trống. Nếu có người vào -> chuyển sang PENDING_ENTER.
+        - PENDING_ENTER: Chờ đủ thời gian xác nhận ngồi (CONFIRM_ENTER_TIME). Nếu đủ -> OCCUPIED.
+        - OCCUPIED: Đã xác nhận có người. Nếu mất dấu -> chuyển sang PENDING_EXIT.
+        - PENDING_EXIT: Chờ đủ thời gian mất dấu hoàn toàn (CONFIRM_EXIT_TIME) để báo EMPTY. 
+          Nếu trong thời gian này YOLO tự nối lại ID hoặc có ID mới 'khai sinh' tại chỗ -> OCCUPIED.
+          
+        Args:
+            roi_current_ids (dict): Từ điển chứa các ID đang nằm trong từng vùng.
+            current_time (float): Mốc thời gian hệ thống hiện tại.
+            
+        Returns:
+            dict: Payload UART gồm hai danh sách "detected" và "cleared" chứa sự kiện gửi đi.
+        """
+        uart_payload = {
+            "detected": [],
+            "cleared": []
+        }
+
+        for zone_name, zone in self.zones.items():
+            # Lấy các ID hợp lệ đang ở trong vùng này (bỏ qua ID = -1)
+            valid_ids_in_zone = [i for i in roi_current_ids[zone_name] if i != -1]
+
+            # LOGIC 1: ĐANG TRỐNG -> CÓ NGƯỜI VÀO
+            if zone.state == ROIState.EMPTY:
+                if valid_ids_in_zone:
+                    zone.current_id = valid_ids_in_zone[0]
+                    zone.state = ROIState.PENDING_ENTER
+                    zone.enter_time = current_time
+
+            # LOGIC 2: ĐANG CHỜ ĐỦ 10S
+            elif zone.state == ROIState.PENDING_ENTER:
+                if zone.current_id in valid_ids_in_zone:
+                    if current_time - zone.enter_time >= self.CONFIRM_ENTER_TIME:
+                        zone.state = ROIState.OCCUPIED
+                        uart_payload["detected"].append({
+                            "area_name": zone_name,
+                            "slam_pose": zone.slam_pose
+                        })
+                else:
+                    zone.reset_zone()
+
+            # LOGIC 3: ĐÃ XÁC NHẬN NGỒI
+            elif zone.state == ROIState.OCCUPIED:
+                if zone.current_id in valid_ids_in_zone:
+                    pass
+                else:
+                    zone.previous_state = ROIState.OCCUPIED
+                    zone.state = ROIState.PENDING_EXIT
+                    zone.lost_time = current_time
+
+            # LOGIC 4: ĐANG CHỜ XÁC NHẬN RỜI ĐI HOẶC NỐI ID
+            elif zone.state == ROIState.PENDING_EXIT:
+
+                # TRƯỜNG HỢP A: CÓ MỘT ID ĐANG XUẤT HIỆN TRONG GHẾ
+                if valid_ids_in_zone:
+                    new_id = valid_ids_in_zone[0]
+                    
+                    # Case A.1: Vẫn là ID cũ (YOLO tự nối lại được tracking)
+                    if new_id == zone.current_id:
+                        zone.state = zone.previous_state
+
+                    # Case A.2: Là một ID lạ
+                    else:
+                        person_info = self.global_tracked_ids.get(new_id)
+                        
+                        # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ ngẩng mặt lên
+                        if person_info and person_info.first_seen_in_roi == zone_name:
+                            zone.current_id = new_id         # Gán ID mới cho họ
+                            zone.state = zone.previous_state # Khôi phục OCCUPIED
+                            
+                        # Nếu ID lạ này "khai sinh" ở ngoài (hoặc ghế khác) rồi bước vào -> Người mới
+                        else:
+                            # 1. Gửi lệnh chốt báo người cũ ĐÃ ĐI
+                            uart_payload["cleared"].append({
+                                "area_name": zone_name,
+                                "slam_pose": zone.slam_pose
+                            })
+                            
+                            # 2. Xóa thông tin người cũ, cho người mới bắt đầu đếm 10s PENDING_ENTER luôn
+                            zone.reset_zone()
+                            zone.current_id = new_id
+                            zone.state = ROIState.PENDING_ENTER
+                            zone.enter_time = current_time
+
+                # TRƯỜNG HỢP B: VẪN KHÔNG THẤY AI (BẮT ĐẦU ĐẾM NGƯỢC)
+                else:
+                    if current_time - zone.lost_time >= self.CONFIRM_EXIT_TIME:
+                        # Đã quá 5s không có ai xuất hiện -> Chính thức báo trống
+                        uart_payload["cleared"].append({
+                            "area_name": zone_name,
+                            "slam_pose": zone.slam_pose
+                        })
+                        zone.reset_zone()
+
+        return uart_payload
+
     def run(self):
         """
         Khởi chạy vòng lặp nhận diện và giám sát đối tượng theo thời gian thực.
-
-        Quy trình xử lý bao gồm:
-        1. Nhận dữ liệu từ mô hình tracking.
-        2. Kiểm tra sự hiện diện của đối tượng trong các vùng ROI.
-        3. Áp dụng logic điểm số tín nhiệm để xác thực trạng thái vùng.
-        4. Hiển thị hình ảnh trực quan và xử lý phím bấm (nhấn 'q' để dừng).
         """
-
         win_name = f"HumanDetector"
         if self.show:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
@@ -347,133 +534,25 @@ class HumanDetector:
 
         try:
             for result in results:
-                speed_dict = result.speed
-                inference_time = speed_dict['inference']
-                # LOGGER.info(f"Inference time: {inference_time:.1f}ms")
+                # speed_dict = result.speed
+                # inference_time = speed_dict['inference']
                 
-                # Lấy frame gốc (chưa vẽ gì)
                 frame = result.orig_img.copy()
 
-                # Lấy danh sách bbox, id và confidence
-                boxes = result.boxes
-                if boxes is not None and len(boxes) > 0:
-                    bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
-                    confs  = boxes.conf.cpu().numpy()   # (N,)
-                    
-                    # An toàn lấy ID (nếu chưa có ID thì gán tạm -1)
-                    if boxes.id is not None:
-                        ids = boxes.id.cpu().numpy().astype(int)
-                    else:
-                        ids = np.full((len(bboxes),), -1, dtype=int)
-                else:
-                    bboxes = np.empty((0, 4), dtype=np.float32)
-                    confs  = np.empty((0,),   dtype=np.float32)
-                    ids    = np.empty((0,),   dtype=int)
+                # 1. Trích xuất thông tin Bounding Box
+                bboxes, confs, ids = self._parse_detections(result.boxes)
 
-                # ── 1. GẮN ID VÀO TỪNG VÙNG ROI ─────────────────────────────────
-                # Tạo 1 list để lưu tên ROI tương ứng với từng bbox
-                bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
-
-                # Dictionary chứa danh sách các ID đang nằm trong từng ROI
-                roi_current_ids = {zone_name: [] for zone_name in self.zones.keys()}
-
-                if len(bboxes) > 0:
-                    for i, (bbox, obj_id) in enumerate(zip(bboxes, ids)):
-                        for zone_name, zone in self.zones.items():
-                            if self.is_bbox_in_roi(bbox, zone.pts, mode=self.roi_check_mode):
-                                bbox_roi_names[i] = zone_name
-                                roi_current_ids[zone_name].append(obj_id)
-                                break  # Ngừng kiểm tra vì 1 người chỉ ngồi 1 ghế
-
-                # ── 2. STATE MACHINE CHO TỪNG VÙNG ───────────────────────────────
-                uart_payload = {
-                    "detected": [],
-                    "cleared": []
-                }
-
-                # Lấy thời gian hiện tại
+                # 2. Gắn ID vào các vùng ROI
+                bbox_roi_names, roi_current_ids = self._assign_ids_to_rois(bboxes, ids)
+                
+                # 3. Cập nhật Global Tracker
                 current_time = time.time()
+                self._update_global_tracking(ids, bbox_roi_names, current_time)
 
-                for zone_name, zone in self.zones.items():
-                    # Lấy các ID hợp lệ đang ở trong vùng này (bỏ qua ID = -1)
-                    valid_ids_in_zone = [i for i in roi_current_ids[zone_name] if i != -1]
+                # 4. State Machine: Cập nhật trạng thái từng vùng
+                uart_payload = self._update_zone_states(roi_current_ids, current_time)
 
-                    # LOGIC 1: ĐANG TRỐNG -> CÓ NGƯỜI VÀO
-                    if zone.state == ROIState.EMPTY:
-                        if valid_ids_in_zone:
-                            zone.current_id = valid_ids_in_zone[0] # Lấy ID đầu tiên
-                            zone.state = ROIState.PENDING_ENTER
-                            zone.enter_time = current_time
-
-                    # LOGIC 2: ĐANG CHỜ ĐỦ 10S
-                    elif zone.state == ROIState.PENDING_ENTER:
-                        if zone.current_id in valid_ids_in_zone:
-                            # Vẫn đang ngồi -> Kiểm tra đã đủ thời gian chưa
-                            if current_time - zone.enter_time >= self.CONFIRM_ENTER_TIME:
-                                zone.state = ROIState.OCCUPIED
-                                uart_payload["detected"].append({
-                                    "area_name": zone_name,
-                                    "slam_pose": zone.slam_pose
-                                })
-                        else:
-                            # Chưa đủ 10s đã đứng dậy đi mất -> Reset về Trống
-                            zone.reset_zone()
-
-                    # LOGIC 3: ĐÃ XÁC NHẬN NGỒI
-                    elif zone.state == ROIState.OCCUPIED:
-                        if zone.current_id in valid_ids_in_zone:
-                            # Vẫn tiếp tục ngồi, không làm gì cả
-                            pass
-                        else:
-                            # Vừa mới mất dấu ID -> Rơi vào trạng thái chờ CONFIRM_EXIT_TIME
-                            zone.previous_state = ROIState.OCCUPIED
-                            zone.state = ROIState.PENDING_EXIT
-                            zone.lost_time = current_time
-
-                    # LOGIC 4: ĐANG CHỜ XÁC NHẬN RỜI ĐI HOẶC NỐI ID (PENDING_EXIT)
-                    elif zone.state == ROIState.PENDING_EXIT:
-
-                        # TRƯỜNG HỢP A: CÓ MỘT ID ĐANG XUẤT HIỆN TRONG GHẾ
-                        if valid_ids_in_zone:
-                            new_id = valid_ids_in_zone[0]
-                            
-                            # Case A.1: Vẫn là ID cũ (YOLO tự nối lại được tracking)
-                            if new_id == zone.current_id:
-                                zone.state = zone.previous_state # Khôi phục lại trạng thái OCCUPIED
-                                
-                            # Case A.2: Là một ID lạ
-                            else:
-                                person_info = self.global_tracked_ids.get(new_id)
-                                
-                                # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ ngẩng mặt lên
-                                if person_info and person_info.first_seen_in_roi == zone_name:
-                                    zone.current_id = new_id         # Gán ID mới cho họ
-                                    zone.state = zone.previous_state # Khôi phục OCCUPIED
-                                    
-                                # Nếu ID lạ này "khai sinh" ở ngoài (hoặc ghế khác) rồi bước vào -> Người mới
-                                else:
-                                    # 1. Gửi lệnh chốt báo người cũ ĐÃ ĐI
-                                    uart_payload["cleared"].append({
-                                        "area_name": zone_name,
-                                        "slam_pose": zone.slam_pose
-                                    })
-                                    # 2. Xóa thông tin người cũ, cho người mới bắt đầu đếm 10s PENDING_ENTER luôn
-                                    zone.reset_zone()
-                                    zone.current_id = new_id
-                                    zone.state = ROIState.PENDING_ENTER
-                                    zone.enter_time = current_time
-
-                        # TRƯỜNG HỢP B: VẪN KHÔNG THẤY AI (BẮT ĐẦU ĐẾM NGƯỢC)
-                        else:
-                            if current_time - zone.lost_time >= self.CONFIRM_EXIT_TIME:
-                                # Đã quá 5s không có ai xuất hiện -> Chính thức báo trống
-                                uart_payload["cleared"].append({
-                                    "area_name": zone_name,
-                                    "slam_pose": zone.slam_pose
-                                })
-                                zone.reset_zone()
-
-                # ── 3. GỬI UART VÀ VẼ LÊN FRAME ─────────────────────────────────
+                # ── 4. GỬI UART VÀ VẼ LÊN FRAME ─────────────────────────────────
                 # Nếu vòng quét frame này có bất kỳ sự kiện nào thay đổi, gửi 1 lần đi luôn
                 if uart_payload["detected"] or uart_payload["cleared"]:
                     # self._send_uart_payload(uart_payload)
