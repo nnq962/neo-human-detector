@@ -95,7 +95,7 @@ class HumanDetector:
         # Time Thresholds
         self.CONFIRM_ENTER_TIME = 10.0      # Ngồi liên tục > 10s mới tính là OCCUPIED
         self.CONFIRM_EXIT_TIME = 8.0        # Mất dấu > 8s mới tính là EMPTY
-        self.ID_GARBAGE_COLLECT_TIME = 15.0 # Quá 15s không thấy ID trên toàn camera -> Dọn rác
+        self.ID_GARBAGE_COLLECT_TIME = 5.0 # Quá 5s không thấy ID trên toàn camera -> Dọn rác
         # -----------------------------------------------------------------------------------------------------
 
         # Load model
@@ -182,7 +182,7 @@ class HumanDetector:
             id_text = f"ID {obj_id}" if obj_id != -1 else "ID:?"
             if in_roi:
                 # Nếu nằm trong ROI, hiện tên ROI
-                label = f"[{id_str}] [{conf:.2f}] [{roi_name}]"
+                label = f"[{id_text}] [{conf:.2f}] [{roi_name}]"
             else:
                 # Nếu chạy rông bên ngoài, chỉ hiện ID và Conf
                 label = f"[{id_text}] [{conf:.2f}]"
@@ -586,6 +586,10 @@ class HumanDetector:
                     cv2.imshow(win_name, frame)
                 else:
                     LOGGER.info(f"FPS: {fps:.1f}")
+                    pass
+
+        except Exception as e:
+            LOGGER.error(f"Lỗi xảy ra trong vòng lặp run: {e}", exc_info=True)
 
         finally:
             cv2.destroyAllWindows()
