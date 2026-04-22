@@ -1,27 +1,14 @@
-import aidcv as cv2  # Hoặc import cv2 nếu chạy trên PC
+import aidcv as cv2
 import json
-from fastapi import FastAPI, Response, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import threading
+from fastapi import APIRouter, Response, HTTPException, Request, WebSocket, WebSocketDisconnect
 from collections import deque
 import asyncio
 from utils import LOGGER, uart_manager
 
-app = FastAPI(title="ROI Config API")
+router = APIRouter()
 
 # Hàng đợi chứa gói tin mới nhất
 robot_data_queue = deque(maxlen=1)
-
-# Cấu hình CORS để Web UI (Frontend) có thể gọi API mà không bị chặn
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Trong thực tế nên để IP của Frontend, demo thì để "*"
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 CONFIG_FILE = "config.json"
 
@@ -37,13 +24,7 @@ def uart_reader_worker():
         import time
         time.sleep(0.01)
 
-# Event khi server khởi động
-@app.on_event("startup")
-async def startup_event():
-    # Chạy thread UART
-    thread = threading.Thread(target=uart_reader_worker, daemon=True)
-    thread.start()
-    LOGGER.info("Hệ thống UART đã sẵn sàng!")
+# (Thread UART được khởi động từ main.py lifespan)
 
 def get_rtsp_url():
     """Hàm đọc RTSP URL từ file config.json hiện tại"""
@@ -58,7 +39,7 @@ def get_rtsp_url():
 # ==========================================
 # API 1: CHỤP ẢNH SNAPSHOT TỪ CAMERA
 # ==========================================
-@app.get("/api/get-snapshot")
+@router.get("/api/get-snapshot")
 def get_snapshot():
     rtsp_url = get_rtsp_url()
     if not rtsp_url:
@@ -86,7 +67,7 @@ def get_snapshot():
 # ==========================================
 # API 2: LƯU CẤU HÌNH TỪ WEB XUỐNG FILE JSON
 # ==========================================
-@app.post("/api/save-config")
+@router.post("/api/save-config")
 async def save_config(request: Request):
     try:
         # Nhận chuỗi JSON từ giao diện Web gửi xuống
@@ -95,6 +76,14 @@ async def save_config(request: Request):
         # Ghi đè vào file config.json
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(new_config, f, indent=4, ensure_ascii=False)
+            
+        # Nạp cấu hình nóng (Hot Reload) vào AI đang chạy
+        if hasattr(request.app.state, "detector"):
+            request.app.state.detector.update_dynamic_config(
+                new_conf=new_config.get("conf"),
+                new_roi_check_mode=new_config.get("roi_check_mode"),
+                new_monitored_areas=new_config.get("monitored_areas")
+            )
             
         return {"status": "success", "message": "Đã lưu cấu hình ROI thành công!"}
     
@@ -105,7 +94,7 @@ async def save_config(request: Request):
 # ==========================================
 # API 3: LẤY DATA JSON HIỆN TẠI
 # ==========================================
-@app.get("/api/get-config")
+@router.get("/api/get-config")
 def get_config():
     try:
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
@@ -114,9 +103,9 @@ def get_config():
         return {}
 
 # ==========================================
-# API 4: GỬI LỆNH ĐIỀU KHIỂN ROBOT (WS)
+# WebSocket 1: GỬI LỆNH ĐIỀU KHIỂN ROBOT
 # ==========================================
-@app.websocket("/ws/robot")
+@router.websocket("/ws/robot")
 async def websocket_robot(websocket: WebSocket):
     await websocket.accept()
     LOGGER.info("Client đã kết nối WebSocket.")
@@ -146,18 +135,26 @@ async def websocket_robot(websocket: WebSocket):
         LOGGER.error(f"Lỗi WebSocket: {e}")
 
 # ==========================================
-# GIAO DIỆN
+# WebSocket 2: GỬI BBOXES TỚI FRONTEND
 # ==========================================
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
-if __name__ == "__main__":
-    # Chạy server ở port 8000, lắng nghe mọi IP trong mạng LAN
-    host = "0.0.0.0"
-    port = 9620
-    LOGGER.info(f"Đang khởi động tại http://{host}:{port}")
-    uvicorn.run(
-        "api_server:app", 
-        host=host, 
-        port=port, 
-        reload=False
-    )
+@router.websocket("/ws/bboxes")
+async def websocket_bboxes(websocket: WebSocket):
+    """Endpoint WebSocket để Frontend kết nối vào lấy dữ liệu."""
+    await websocket.accept()
+    LOGGER.info("Client đã kết nối WebSocket BBoxes thành công!")
+    try:
+        while True:
+            # Lấy data_queue từ app state (được gán trong main.py)
+            data_queue = websocket.app.state.data_queue
+            
+            # Lấy data từ queue và gửi đi
+            if not data_queue.empty():
+                payload = data_queue.get()
+                await websocket.send_json(payload)
+            else:
+                # Nghỉ 10ms để nhường CPU, tránh treo event loop
+                await asyncio.sleep(0.01) 
+    except WebSocketDisconnect:
+        LOGGER.info("Client đã ngắt kết nối WebSocket BBoxes.")
+    except Exception as e:
+        LOGGER.error(f"Lỗi kết nối WS BBoxes: {e}")

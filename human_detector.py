@@ -1,13 +1,13 @@
 import os
 import aidcv as cv2
 import numpy as np
-from typing import List, Optional, Set
+from typing import List, Optional
 from ultralytics import YOLO
 from utils import LOGGER, uart_manager
 import time
 import threading
 from models import ROIState, SeatZone, TrackedPerson
-
+import queue
 
 class HumanDetector:
     """
@@ -36,6 +36,8 @@ class HumanDetector:
         show: bool = True,
         roi_check_mode: str = "center",
         monitored_areas: List[dict] = None,
+        display_scale: float = 1.0,
+        ws_queue: queue.Queue = None
     ):
         """
         Args:
@@ -60,6 +62,8 @@ class HumanDetector:
         self.half = half
         self.show = show
         self.roi_check_mode = roi_check_mode
+        self.display_scale = display_scale
+        self.ws_queue = ws_queue
 
         # Log info
         LOGGER.info(f"Source: {source}")
@@ -69,6 +73,7 @@ class HumanDetector:
         LOGGER.info(f"Half: {half}")
         LOGGER.info(f"Show: {show}")
         LOGGER.info(f"ROI Check Mode: {roi_check_mode}")        
+        LOGGER.info(f"Display Scale: {display_scale}")        
 
         # Initialize monitored areas -------------------------------------------------------------------------
         if monitored_areas is None:
@@ -106,6 +111,57 @@ class HumanDetector:
 
         # Khởi tạo UART Manager để gửi dữ liệu
         self.uart = uart_manager
+
+    def update_dynamic_config(
+        self, 
+        new_conf: float = None, 
+        new_roi_check_mode: str = None,
+        new_monitored_areas: List[dict] = None
+    ) -> bool:
+        """
+        Cập nhật cấu hình động (Hot Reload) cho hệ thống trong lúc đang chạy.
+
+        Args:
+            new_conf (float, optional): Ngưỡng độ tin cậy mới (0.0 - 1.0).
+            new_roi_check_mode (str, optional): Chế độ kiểm tra vùng đại diện mới ('center' hoặc 'bottom_center').
+            new_monitored_areas (List[dict], optional): Danh sách cấu hình các vùng giám sát (ROI) mới.
+
+        Returns:
+            bool: Trạng thái cập nhật thành công (luôn trả về True nếu không có ngoại lệ).
+        """
+        if new_conf is not None:
+            self.conf = float(new_conf)
+            LOGGER.info(f"Đã cập nhật ngưỡng Conf: {self.conf}")
+
+        if new_roi_check_mode is not None:
+            if new_roi_check_mode in ("center", "bottom_center"):
+                self.roi_check_mode = new_roi_check_mode
+                LOGGER.info(f"Đã cập nhật ROI Check Mode: {self.roi_check_mode}")
+
+        if new_monitored_areas is not None:
+            self.monitored_areas = new_monitored_areas
+            
+            # Tạo một dictionary tạm thời để build các vùng mới trước
+            temp_zones = {}
+            for area in self.monitored_areas:
+                name = area["name"]
+                pts = np.array(area["pts"], dtype=np.int32) if not isinstance(area["pts"], np.ndarray) else area["pts"]
+                temp_zones[name] = SeatZone(
+                    name=name,
+                    pts=pts,
+                    slam_pose=area.get("slam_pose", {})
+                )
+            
+            # Gán đè 1 lần duy nhất để thay thế dictionary cũ. 
+            # Việc này trên Python là Atomic (cực kỳ an toàn không làm crash vòng lặp)
+            self.zones = temp_zones
+            
+            # Reset lại tracking cho an toàn với vùng mới (Dùng phép gán để đảm bảo Atomic)
+            self.global_tracked_ids = {}
+            
+            LOGGER.info("Đã cập nhật ROI thành công!")
+
+        return True
 
     def _draw_monitored_areas(
         self,
@@ -490,7 +546,7 @@ class HumanDetector:
                     else:
                         person_info = self.global_tracked_ids.get(new_id)
                         
-                        # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ ngẩng mặt lên
+                        # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ xuất hiện trở lại
                         if person_info and person_info.first_seen_in_roi == zone_name:
                             zone.current_id = new_id         # Gán ID mới cho họ
                             zone.state = zone.previous_state # Khôi phục OCCUPIED
@@ -542,6 +598,41 @@ class HumanDetector:
                 # 1. Trích xuất thông tin Bounding Box
                 bboxes, confs, ids = self._parse_detections(result.boxes)
 
+                # ==========================================
+                # ĐẨY DỮ LIỆU WEBSOCKET
+                # ==========================================
+                if getattr(self, 'ws_queue', None) is not None:
+                    h, w = frame.shape[:2]
+                    objects_data = []
+                    
+                    for bbox, conf, obj_id in zip(bboxes, confs, ids):
+                        if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
+                        
+                        x1, y1, x2, y2 = bbox[:4]
+                        
+                        # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
+                        objects_data.append({
+                            "id": int(obj_id),
+                            "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
+                            "conf": float(conf)
+                        })
+                    
+                    # Đóng gói JSON
+                    ws_payload = {
+                        "timestamp": int(time.time() * 1000),
+                        "resolution": {"width": w, "height": h},
+                        "objects": objects_data
+                    }
+                    
+                    # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
+                    if self.ws_queue.full():
+                        try:
+                            self.ws_queue.get_nowait() # Đẩy frame cũ ra
+                        except queue.Empty:
+                            pass
+                    self.ws_queue.put(ws_payload) # Nhét frame mới vào
+                # ==========================================
+
                 # 2. Gắn ID vào các vùng ROI
                 bbox_roi_names, roi_current_ids = self._assign_ids_to_rois(bboxes, ids)
                 
@@ -552,10 +643,9 @@ class HumanDetector:
                 # 4. State Machine: Cập nhật trạng thái từng vùng
                 uart_payload = self._update_zone_states(roi_current_ids, current_time)
 
-                # ── 4. GỬI UART VÀ VẼ LÊN FRAME ─────────────────────────────────
-                # Nếu vòng quét frame này có bất kỳ sự kiện nào thay đổi, gửi 1 lần đi luôn
+                # 5. Gửi dữ liệu qua UART
                 if uart_payload["detected"] or uart_payload["cleared"]:
-                    # self._send_uart_payload(uart_payload)
+                    self._send_uart_payload(uart_payload)
                     total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
                     # LOGGER.info(f"Đã gộp gửi {total_events} sự kiện qua UART.")
 
@@ -578,12 +668,13 @@ class HumanDetector:
                 fps = 1.0 / (current_time - prev_time)
                 prev_time = current_time
 
-                # Hiển thị FPS
-                cv2.putText(frame, f"FPS: {fps:.1f}", (20, 50), 
-                            cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
-
                 if self.show:
-                    cv2.imshow(win_name, frame)
+                    if self.display_scale != 1.0:
+                        # Thay đổi kích thước frame trước khi hiển thị để thu/phóng cửa sổ (workaround khi không dùng waitKey)
+                        display_frame = cv2.resize(frame, None, fx=self.display_scale, fy=self.display_scale)
+                        cv2.imshow(win_name, display_frame)
+                    else:
+                        cv2.imshow(win_name, frame)
                 else:
                     LOGGER.info(f"FPS: {fps:.1f}")
                     pass

@@ -1,7 +1,8 @@
 import serial
 import json
 import time
-from utils import LOGGER
+from utils.logger import LOGGER
+from utils.load_config import load_config
 
 CONFIG_FILE = "config.json"
 DEFAULT_PORT = '/dev/ttyS4'
@@ -73,11 +74,11 @@ class UartManager:
                 # Thử parse JSON (nếu ESP32 gửi về dạng JSON)
                 try:
                     parsed_data = json.loads(raw_data)
-                    LOGGER.info(f"Recv: {parsed_data}")
+                    # LOGGER.info(f"Recv: {parsed_data}")
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường
-                    LOGGER.info(f"Recv: {raw_data}")
+                    # LOGGER.info(f"Recv: {raw_data}")
                     return raw_data
         except Exception as e:
             LOGGER.error(f"Lỗi khi đọc: {e}")
@@ -94,14 +95,6 @@ import os
 
 # Đường dẫn tuyệt đối đến config.json để tránh lỗi khi import từ thư mục khác
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-
-def load_config(file_path):
-    try:
-        with open(file_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        LOGGER.error(f"Cannot load config {file_path}, using defaults: {e}")
-        return {}
 
 config = load_config(CONFIG_FILE)
 
