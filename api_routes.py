@@ -4,6 +4,7 @@ from fastapi import APIRouter, Response, HTTPException, Request, WebSocket, WebS
 from collections import deque
 import asyncio
 from utils import LOGGER, uart_manager
+import time
 
 router = APIRouter()
 
@@ -21,7 +22,6 @@ def uart_reader_worker():
         if data and isinstance(data, dict):
             robot_data_queue.append(data)
         # Nghỉ cực ngắn để CPU không quá tải
-        import time
         time.sleep(0.01)
 
 # (Thread UART được khởi động từ main.py lifespan)

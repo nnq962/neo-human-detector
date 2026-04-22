@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from human_detector import HumanDetector
-from api_server import router as api_router, uart_reader_worker 
+from api_routes import router as api_router, uart_reader_worker 
 from utils import load_config, LOGGER
 
 CONFIG_FILE = "config.json"
@@ -47,6 +47,28 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=uart_reader_worker, daemon=True).start()
     
     yield
+    
+    # Khắc phục lỗi kẹt Port 9621 khi Ctrl+C:
+    # Khi self.show = True, thư viện aidcv tự động spawn một tiến trình con (WaitKey backend server).
+    # Tiến trình con này kế thừa socket của Uvicorn. Nếu chỉ giết tiến trình mẹ, tiến trình con vẫn sống
+    # và giữ chặt Port 9621. Do đó ta phải tìm và diệt tận gốc các tiến trình con này.
+    LOGGER.info("Server đang tắt... Tiến hành dọn dẹp các tiến trình con của AidCV.")
+    try:
+        import aidcv as cv2
+        cv2.destroyAllWindows()
+    except Exception:
+        pass
+
+    try:
+        import psutil, os, signal
+        parent = psutil.Process(os.getpid())
+        for child in parent.children(recursive=True):
+            os.kill(child.pid, signal.SIGKILL)
+    except Exception as e:
+        LOGGER.error(f"Lỗi khi dọn dẹp tiến trình con: {e}")
+        
+    import os
+    os._exit(0)
 
 # Khởi tạo App chính
 app = FastAPI(title="Edge AI Central Server", lifespan=lifespan)

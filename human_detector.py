@@ -687,6 +687,16 @@ class HumanDetector:
             if hasattr(self, 'uart'):
                 self.uart.close()
             LOGGER.info("HumanDetector Đã dừng.")
+            
+            # Dọn dẹp tiến trình con của AidCV trước khi exit để tránh kẹt port 9621
+            try:
+                import psutil, signal
+                parent = psutil.Process(os.getpid())
+                for child in parent.children(recursive=True):
+                    os.kill(child.pid, signal.SIGKILL)
+            except Exception:
+                pass
+                
             # Force-exit để tránh crash C++ runtime khi cleanup
             # RTSP stream hoặc GPU context (ultralytics/OpenCV known issue)
             os._exit(0)
