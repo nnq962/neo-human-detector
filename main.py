@@ -13,26 +13,24 @@ from utils.ai_service import do_start_ai
 
 CONFIG_FILE = "config.json"
 
-# Data queue gửi cho frontend
-data_queue = queue.Queue(maxsize=1)
-
-# Khởi tạo Detector
-config = load_config(CONFIG_FILE)
-detector = HumanDetector(
-    source=config.get("source", 0),
-    conf=config.get("conf", 0.5),
-    imgsz=config.get("imgsz", 640),
-    device=config.get("device", "cpu"),
-    show=config.get("show", True),
-    roi_check_mode=config.get("roi_check_mode", "center"),
-    monitored_areas=config.get("monitored_areas", None),
-    display_scale=config.get("display_scale", 0.55),
-    ws_queue=data_queue
-)
-
 # Quản lý vòng đời ứng dụng (Khởi động các Thread chạy ngầm ở đây)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Khởi tạo Detector & Queue bên trong lifespan để tránh bị chạy 2 lần do double import
+    config = load_config(CONFIG_FILE)
+    data_queue = queue.Queue(maxsize=1)
+    detector = HumanDetector(
+        source=config.get("source", 0),
+        conf=config.get("conf", 0.5),
+        imgsz=config.get("imgsz", 640),
+        device=config.get("device", "cpu"),
+        show=config.get("show", False),
+        roi_check_mode=config.get("roi_check_mode", "center"),
+        monitored_areas=config.get("monitored_areas", None),
+        display_scale=config.get("display_scale", 0.55),
+        ws_queue=data_queue
+    )
+
     # Cấp quyền cho router truy cập vào biến AI và Queue
     app.state.detector = detector
     app.state.data_queue = data_queue
@@ -86,9 +84,9 @@ app.include_router(api_router)
 # Mount thư mục giao diện Web
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-if __name__ == "__main__":    
+if __name__ == "__main__":
     uvicorn.run(
-        "main:app", 
+        app,          # Truyền object trực tiếp thay vì string "main:app" để tránh double import
         host="0.0.0.0", 
         port=9621, 
         reload=False

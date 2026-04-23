@@ -61,6 +61,26 @@ function updateStatusBar(online) {
     document.getElementById('statusLabel').textContent = online ? 'Đã kết nối' : 'Mất kết nối';
 }
 
+async function updateAIStatus() {
+    const dot = document.getElementById('aiStatusDot');
+    const label = document.getElementById('aiStatusLabel');
+    try {
+        const res = await fetch(`${API_BASE}/api/ai-status`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const running = data.is_running === true;
+        dot.className = 'status-dot ' + (running ? 'online' : 'idle');
+        label.textContent = 'AI: ' + (running ? 'Đang chạy' : 'Đã dừng');
+    } catch {
+        dot.className = 'status-dot error';
+        label.textContent = 'AI: Lỗi';
+    }
+}
+
+// Poll AI status mỗi 5 giây
+setInterval(updateAIStatus, 5000);
+updateAIStatus();
+
 // =====================================================
 // SECTION 1 — CONFIG CONTROLS
 // =====================================================
@@ -833,5 +853,7 @@ async function controlAI(action) {
         // Khôi phục button
         if (activeBtn) activeBtn.innerHTML = originalHTML;
         allBtns.forEach(b => { if (b) b.disabled = false; });
+        // Cập nhật AI status ngay lập tức
+        updateAIStatus();
     }
 }
