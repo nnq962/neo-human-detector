@@ -31,6 +31,7 @@ detector = HumanDetector(
 
 def start_ai_loop():
     LOGGER.info("Bắt đầu chạy luồng AI HumanDetector...")
+    detector.is_running = True
     detector.run()
 
 # Quản lý vòng đời ứng dụng (Khởi động các Thread chạy ngầm ở đây)
@@ -39,9 +40,15 @@ async def lifespan(app: FastAPI):
     # Cấp quyền cho router truy cập vào biến AI và Queue
     app.state.detector = detector
     app.state.data_queue = data_queue
+    app.state.ai_thread = None
 
     # 1. Bật luồng AI
-    threading.Thread(target=start_ai_loop, daemon=True).start()
+    if config.get("auto_start", False):
+        app.state.ai_thread = threading.Thread(target=start_ai_loop, daemon=True)
+        app.state.ai_thread.start()
+    else:
+        detector.is_running = False
+        LOGGER.info("Bỏ qua chạy AI do auto_start=false.")
     
     # 2. Bật luồng đọc UART cho Robot
     threading.Thread(target=uart_reader_worker, daemon=True).start()

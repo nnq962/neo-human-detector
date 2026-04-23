@@ -120,6 +120,7 @@ function applyConfigToUI(config) {
     setSegValue('cfg-imgsz', config.imgsz ?? 640);
     setSegValue('cfg-device', config.device ?? 'cpu');
     setSegValue('cfg-show', config.show ?? true);
+    setSegValue('cfg-auto-start', config.auto_start ?? false);
     const slider = document.getElementById('cfg-conf');
     if (slider) { slider.value = config.conf ?? 0.65; updateConfBadge(slider.value); }
     const src = document.getElementById('cfg-source');
@@ -143,6 +144,7 @@ function buildConfigFromUI() {
         roi_check_mode: getSegValue('cfg-roi'),
         uart_port: document.getElementById('cfg-uart-port')?.value?.trim() ?? '/dev/ttyS4',
         uart_baudrate: parseInt(document.getElementById('cfg-uart-baudrate')?.value ?? '115200'),
+        auto_start: getSegValue('cfg-auto-start') === 'true',
         monitored_areas: globalConfig.monitored_areas ?? []
     };
 }

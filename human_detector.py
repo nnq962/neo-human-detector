@@ -64,6 +64,7 @@ class HumanDetector:
         self.roi_check_mode = roi_check_mode
         self.display_scale = display_scale
         self.ws_queue = ws_queue
+        self.is_running = True
 
         # Log info
         LOGGER.info(f"Source: {source}")
@@ -111,6 +112,73 @@ class HumanDetector:
 
         # Khởi tạo UART Manager để gửi dữ liệu
         self.uart = uart_manager
+
+    def stop(self):
+        """Stop the detector"""
+        self.is_running = False
+        LOGGER.info("Đã nhận lệnh dừng AI")
+
+    def _cleanup_run(self):
+        """Dọn dẹp tài nguyên sau khi dừng vòng lặp run (RTSP stream, tracker, GUI)."""
+        # 1. Đóng generator YOLO (giải phóng kết nối RTSP bên trong)
+        if hasattr(self, '_results_gen') and self._results_gen is not None:
+            try:
+                self._results_gen.close()
+                LOGGER.info("Đã đóng RTSP stream generator.")
+            except Exception:
+                pass
+            self._results_gen = None
+
+        # 2. Đóng LoadStreams dataset (chứa background threads đọc RTSP liên tục)
+        #    Đây là nguyên nhân chính khiến CPU không được giải phóng sau khi dừng AI.
+        if hasattr(self, 'model') and hasattr(self.model, 'predictor') and self.model.predictor is not None:
+            predictor = self.model.predictor
+            
+            # Đóng dataset (LoadStreams) - dừng reader threads và release VideoCapture
+            if hasattr(predictor, 'dataset') and predictor.dataset is not None:
+                dataset = predictor.dataset
+                try:
+                    # LoadStreams có thuộc tính running để dừng threads
+                    if hasattr(dataset, 'running'):
+                        dataset.running = False
+                    # Đợi các reader threads kết thúc
+                    if hasattr(dataset, 'threads'):
+                        for t in dataset.threads:
+                            if t.is_alive():
+                                t.join(timeout=3)
+                    # Release các VideoCapture
+                    if hasattr(dataset, 'caps'):
+                        for cap in dataset.caps:
+                            if cap and cap.isOpened():
+                                cap.release()
+                    # Gọi close() nếu có (ultralytics >= 8.1)
+                    if hasattr(dataset, 'close'):
+                        dataset.close()
+                    LOGGER.info("Đã đóng RTSP reader threads và VideoCapture.")
+                except Exception as e:
+                    LOGGER.warning(f"Lỗi khi đóng dataset: {e}")
+            
+            # Xóa predictor để ultralytics tạo mới hoàn toàn khi gọi model.track() lần sau
+            try:
+                self.model.predictor = None
+                LOGGER.info("Đã xóa predictor (sẽ tạo mới khi start lại).")
+            except Exception:
+                pass
+
+        # 3. Reset trạng thái các zone về EMPTY
+        for zone in self.zones.values():
+            zone.reset_zone()
+        self.global_tracked_ids = {}
+
+        # 4. Đóng cửa sổ GUI
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
+
+        # 5. Thu gom rác Python để giải phóng bộ nhớ
+        import gc
+        gc.collect()
 
     def update_dynamic_config(
         self, 
@@ -577,6 +645,41 @@ class HumanDetector:
 
         return uart_payload
 
+    def _push_websocket_data(self, frame, bboxes, confs, ids):
+        """Đẩy dữ liệu bboxes qua WebSocket."""
+        if getattr(self, 'ws_queue', None) is None:
+            return
+            
+        h, w = frame.shape[:2]
+        objects_data = []
+        
+        for bbox, conf, obj_id in zip(bboxes, confs, ids):
+            if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
+            
+            x1, y1, x2, y2 = bbox[:4]
+            
+            # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
+            objects_data.append({
+                "id": int(obj_id),
+                "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
+                "conf": float(conf)
+            })
+        
+        # Đóng gói JSON
+        ws_payload = {
+            "timestamp": int(time.time() * 1000),
+            "resolution": {"width": w, "height": h},
+            "objects": objects_data
+        }
+        
+        # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
+        if self.ws_queue.full():
+            try:
+                self.ws_queue.get_nowait() # Đẩy frame cũ ra
+            except queue.Empty:
+                pass
+        self.ws_queue.put(ws_payload) # Nhét frame mới vào
+
     def run(self):
         """
         Khởi chạy vòng lặp nhận diện và giám sát đối tượng theo thời gian thực.
@@ -585,11 +688,16 @@ class HumanDetector:
         if self.show:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
 
-        results = self.inference()
+        # Lưu reference generator để có thể đóng (close) khi stop
+        self._results_gen = self.inference()
         prev_time = time.time()
 
         try:
-            for result in results:
+            for result in self._results_gen:
+                if not self.is_running:
+                    LOGGER.info("Dừng vòng lặp nhận diện.")
+                    break
+
                 # speed_dict = result.speed
                 # inference_time = speed_dict['inference']
                 
@@ -598,40 +706,8 @@ class HumanDetector:
                 # 1. Trích xuất thông tin Bounding Box
                 bboxes, confs, ids = self._parse_detections(result.boxes)
 
-                # ==========================================
-                # ĐẨY DỮ LIỆU WEBSOCKET
-                # ==========================================
-                if getattr(self, 'ws_queue', None) is not None:
-                    h, w = frame.shape[:2]
-                    objects_data = []
-                    
-                    for bbox, conf, obj_id in zip(bboxes, confs, ids):
-                        if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
-                        
-                        x1, y1, x2, y2 = bbox[:4]
-                        
-                        # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
-                        objects_data.append({
-                            "id": int(obj_id),
-                            "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
-                            "conf": float(conf)
-                        })
-                    
-                    # Đóng gói JSON
-                    ws_payload = {
-                        "timestamp": int(time.time() * 1000),
-                        "resolution": {"width": w, "height": h},
-                        "objects": objects_data
-                    }
-                    
-                    # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
-                    if self.ws_queue.full():
-                        try:
-                            self.ws_queue.get_nowait() # Đẩy frame cũ ra
-                        except queue.Empty:
-                            pass
-                    self.ws_queue.put(ws_payload) # Nhét frame mới vào
-                # ==========================================
+                # 1.1. Đẩy dữ liệu WebSocket
+                self._push_websocket_data(frame, bboxes, confs, ids)
 
                 # 2. Gắn ID vào các vùng ROI
                 bbox_roi_names, roi_current_ids = self._assign_ids_to_rois(bboxes, ids)
@@ -683,20 +759,6 @@ class HumanDetector:
             LOGGER.error(f"Lỗi xảy ra trong vòng lặp run: {e}", exc_info=True)
 
         finally:
-            cv2.destroyAllWindows()
-            if hasattr(self, 'uart'):
-                self.uart.close()
+            # Dọn dẹp tài nguyên: đóng RTSP stream, reset tracker, đóng GUI
+            self._cleanup_run()
             LOGGER.info("HumanDetector Đã dừng.")
-            
-            # Dọn dẹp tiến trình con của AidCV trước khi exit để tránh kẹt port 9621
-            try:
-                import psutil, signal
-                parent = psutil.Process(os.getpid())
-                for child in parent.children(recursive=True):
-                    os.kill(child.pid, signal.SIGKILL)
-            except Exception:
-                pass
-                
-            # Force-exit để tránh crash C++ runtime khi cleanup
-            # RTSP stream hoặc GPU context (ultralytics/OpenCV known issue)
-            os._exit(0)

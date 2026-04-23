@@ -3,10 +3,11 @@
     "conf": 0.7,
     "imgsz": 640,
     "device": "cpu",
-    "show": true,
+    "show": false,
     "roi_check_mode": "bottom_center",
     "uart_port": "/dev/ttyS4",
     "uart_baudrate": 115200,
+    "auto_start": false,
     "monitored_areas": [
         {
             "name": "kv1",

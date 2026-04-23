@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Response, HTTPException, Request, WebSocket, WebSocketDisconnect
 from collections import deque
 import asyncio
+import threading
 from utils import LOGGER, uart_manager
 import time
 
@@ -101,6 +102,58 @@ def get_config():
             return json.load(f)
     except:
         return {}
+
+
+# ==========================================
+# API 4: LẤY TRẠNG THÁI AI RUNNING
+# ==========================================
+@router.get("/api/ai-status")
+def get_ai_status(request: Request):
+    is_running = getattr(request.app.state.detector, "is_running", False)
+    return {"is_running": is_running}
+
+
+# ==========================================
+# API 5: START AI TASK
+# ==========================================
+@router.post("/api/start-ai")
+def start_ai(request: Request):
+    detector = request.app.state.detector
+    if getattr(detector, "is_running", False):
+        return {"status": "success", "message": "AI is already running"}
+        
+    detector.is_running = True
+    def run_ai():
+        LOGGER.info("Khởi động AI từ API...")
+        detector.run()
+        
+    request.app.state.ai_thread = threading.Thread(target=run_ai, daemon=True)
+    request.app.state.ai_thread.start()
+    return {"status": "success", "message": "AI started"}
+
+
+# ==========================================
+# API 6: STOP AI TASK
+# ==========================================
+@router.post("/api/stop-ai")
+def stop_ai(request: Request):
+    detector = request.app.state.detector
+    if not getattr(detector, "is_running", False):
+        return {"status": "success", "message": "AI is already stopped"}
+    
+    detector.stop()
+    
+    # Chờ thread AI kết thúc thực sự (tối đa 10s) để đảm bảo tài nguyên được giải phóng
+    ai_thread = getattr(request.app.state, "ai_thread", None)
+    if ai_thread and ai_thread.is_alive():
+        ai_thread.join(timeout=10)
+        if ai_thread.is_alive():
+            LOGGER.warning("Thread AI chưa kết thúc sau 10s timeout.")
+            return {"status": "warning", "message": "AI stop requested but thread still running"}
+    
+    request.app.state.ai_thread = None
+    return {"status": "success", "message": "AI stopped and resources released"}
+
 
 # ==========================================
 # WebSocket 1: GỬI LỆNH ĐIỀU KHIỂN ROBOT
