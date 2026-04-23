@@ -3,8 +3,8 @@ import json
 from fastapi import APIRouter, Response, HTTPException, Request, WebSocket, WebSocketDisconnect
 from collections import deque
 import asyncio
-import threading
 from utils import LOGGER, uart_manager
+from utils.ai_service import ai_lock, do_start_ai, do_stop_ai
 import time
 
 router = APIRouter()
@@ -109,8 +109,11 @@ def get_config():
 # ==========================================
 @router.get("/api/ai-status")
 def get_ai_status(request: Request):
-    is_running = getattr(request.app.state.detector, "is_running", False)
-    return {"is_running": is_running}
+    detector = request.app.state.detector
+    is_running = getattr(detector, "is_running", False)
+    ai_thread = getattr(request.app.state, "ai_thread", None)
+    thread_alive = ai_thread.is_alive() if ai_thread else False
+    return {"is_running": is_running, "thread_alive": thread_alive}
 
 
 # ==========================================
@@ -118,18 +121,24 @@ def get_ai_status(request: Request):
 # ==========================================
 @router.post("/api/start-ai")
 def start_ai(request: Request):
-    detector = request.app.state.detector
-    if getattr(detector, "is_running", False):
-        return {"status": "success", "message": "AI is already running"}
+    if not ai_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Đang xử lý lệnh start/stop khác, vui lòng thử lại.")
+    try:
+        detector = request.app.state.detector
         
-    detector.is_running = True
-    def run_ai():
-        LOGGER.info("Khởi động AI từ API...")
-        detector.run()
+        # Chống spam: AI đang chạy rồi
+        if getattr(detector, "is_running", False):
+            return {"status": "info", "message": "AI is already running"}
         
-    request.app.state.ai_thread = threading.Thread(target=run_ai, daemon=True)
-    request.app.state.ai_thread.start()
-    return {"status": "success", "message": "AI started"}
+        # Chống spam: thread cũ chưa kết thúc hẳn
+        ai_thread = getattr(request.app.state, "ai_thread", None)
+        if ai_thread and ai_thread.is_alive():
+            return {"status": "info", "message": "AI thread is still shutting down, please wait"}
+        
+        do_start_ai(request.app.state)
+        return {"status": "success", "message": "AI started"}
+    finally:
+        ai_lock.release()
 
 
 # ==========================================
@@ -137,22 +146,45 @@ def start_ai(request: Request):
 # ==========================================
 @router.post("/api/stop-ai")
 def stop_ai(request: Request):
-    detector = request.app.state.detector
-    if not getattr(detector, "is_running", False):
-        return {"status": "success", "message": "AI is already stopped"}
-    
-    detector.stop()
-    
-    # Chờ thread AI kết thúc thực sự (tối đa 10s) để đảm bảo tài nguyên được giải phóng
-    ai_thread = getattr(request.app.state, "ai_thread", None)
-    if ai_thread and ai_thread.is_alive():
-        ai_thread.join(timeout=10)
-        if ai_thread.is_alive():
-            LOGGER.warning("Thread AI chưa kết thúc sau 10s timeout.")
-            return {"status": "warning", "message": "AI stop requested but thread still running"}
-    
-    request.app.state.ai_thread = None
-    return {"status": "success", "message": "AI stopped and resources released"}
+    if not ai_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Đang xử lý lệnh start/stop khác, vui lòng thử lại.")
+    try:
+        detector = request.app.state.detector
+        
+        # Chống spam: AI đã dừng rồi
+        if not getattr(detector, "is_running", False):
+            return {"status": "info", "message": "AI is already stopped"}
+        
+        success, message = do_stop_ai(request.app.state)
+        status = "success" if success else "warning"
+        return {"status": status, "message": message}
+    finally:
+        ai_lock.release()
+
+
+# ==========================================
+# API 7: RESTART AI TASK
+# ==========================================
+@router.post("/api/restart-ai")
+def restart_ai(request: Request):
+    if not ai_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Đang xử lý lệnh start/stop khác, vui lòng thử lại.")
+    try:
+        detector = request.app.state.detector
+        
+        # Bước 1: Dừng AI nếu đang chạy
+        if getattr(detector, "is_running", False):
+            success, msg = do_stop_ai(request.app.state)
+            if not success:
+                return {"status": "warning", "message": f"Restart failed at stop phase: {msg}"}
+            LOGGER.info("Restart: Đã dừng AI thành công.")
+        
+        # Bước 2: Khởi động lại
+        do_start_ai(request.app.state)
+        LOGGER.info("Restart: Đã khởi động lại AI.")
+        return {"status": "success", "message": "AI restarted successfully"}
+    finally:
+        ai_lock.release()
 
 
 # ==========================================

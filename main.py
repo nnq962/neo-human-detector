@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from human_detector import HumanDetector
 from api_routes import router as api_router, uart_reader_worker 
 from utils import load_config, LOGGER
+from utils.ai_service import do_start_ai
 
 CONFIG_FILE = "config.json"
 
@@ -29,11 +30,6 @@ detector = HumanDetector(
     ws_queue=data_queue
 )
 
-def start_ai_loop():
-    LOGGER.info("Bắt đầu chạy luồng AI HumanDetector...")
-    detector.is_running = True
-    detector.run()
-
 # Quản lý vòng đời ứng dụng (Khởi động các Thread chạy ngầm ở đây)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,10 +38,9 @@ async def lifespan(app: FastAPI):
     app.state.data_queue = data_queue
     app.state.ai_thread = None
 
-    # 1. Bật luồng AI
+    # 1. Bật luồng AI (dùng chung logic với API start-ai)
     if config.get("auto_start", False):
-        app.state.ai_thread = threading.Thread(target=start_ai_loop, daemon=True)
-        app.state.ai_thread.start()
+        do_start_ai(app.state)
     else:
         detector.is_running = False
         LOGGER.info("Bỏ qua chạy AI do auto_start=false.")
@@ -54,11 +49,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=uart_reader_worker, daemon=True).start()
     
     yield
-    
-    # Khắc phục lỗi kẹt Port 9621 khi Ctrl+C:
-    # Khi self.show = True, thư viện aidcv tự động spawn một tiến trình con (WaitKey backend server).
-    # Tiến trình con này kế thừa socket của Uvicorn. Nếu chỉ giết tiến trình mẹ, tiến trình con vẫn sống
-    # và giữ chặt Port 9621. Do đó ta phải tìm và diệt tận gốc các tiến trình con này.
+
     LOGGER.info("Server đang tắt... Tiến hành dọn dẹp các tiến trình con của AidCV.")
     try:
         import aidcv as cv2

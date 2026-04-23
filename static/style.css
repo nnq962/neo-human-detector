@@ -173,6 +173,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: nowrap;
     gap: 16px;
     padding: 20px 28px;
     border-bottom: 1px solid var(--border);
@@ -183,6 +184,8 @@ body {
     display: flex;
     align-items: center;
     gap: 14px;
+    min-width: 0;
+    flex-shrink: 1;
 }
 
 .panel-number {
@@ -1024,6 +1027,61 @@ body {
 .text-input.slam-readonly:focus {
     box-shadow: none;
     border-color: rgba(59,125,248,0.25);
+}
+
+/* ===================================================
+   AI CONTROL BUTTONS
+   =================================================== */
+.panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.ai-control-group {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.btn-ai-start {
+    background: rgba(22,163,74,0.1);
+    border: 1px solid rgba(22,163,74,0.3);
+    color: var(--accent-green);
+}
+.btn-ai-start:hover:not(:disabled) {
+    background: rgba(22,163,74,0.2);
+    transform: translateY(-1px);
+}
+
+.btn-ai-stop {
+    background: rgba(220,38,38,0.1);
+    border: 1px solid rgba(220,38,38,0.3);
+    color: var(--accent-red);
+}
+.btn-ai-stop:hover:not(:disabled) {
+    background: rgba(220,38,38,0.2);
+    transform: translateY(-1px);
+}
+
+.btn-ai-restart {
+    background: rgba(217,119,6,0.1);
+    border: 1px solid rgba(217,119,6,0.3);
+    color: var(--accent-amber);
+}
+.btn-ai-restart:hover:not(:disabled) {
+    background: rgba(217,119,6,0.2);
+    transform: translateY(-1px);
+}
+
+.btn-ai-start:disabled,
+.btn-ai-stop:disabled,
+.btn-ai-restart:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
 }
 
 /* ===================================================

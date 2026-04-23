@@ -295,15 +295,46 @@
                         <p class="panel-sub">Dữ liệu sẽ được ghi vào file <code>config.json</code></p>
                     </div>
                 </div>
-                <button class="btn btn-save" id="btnSave" onclick="saveConfigToServer()">
-                    <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                        <polyline points="17 21 17 13 7 13 7 21" />
-                        <polyline points="7 3 7 8 15 8" />
-                    </svg>
-                    Lưu cấu hình
-                </button>
+                <div class="panel-header-actions">
+                    <div class="ai-control-group">
+                        <button class="btn btn-ai-start" id="btnStartAI" onclick="controlAI('start')">
+                            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                            </svg>
+                            Start
+                        </button>
+                        <button class="btn btn-ai-stop" id="btnStopAI" onclick="controlAI('stop')">
+                            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <rect x="6" y="6" width="12" height="12" rx="2" />
+                            </svg>
+                            Stop
+                        </button>
+                        <button class="btn btn-ai-restart" id="btnRestartAI" onclick="controlAI('restart')">
+                            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <polyline points="23 4 23 10 17 10" />
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                            </svg>
+                            Restart
+                        </button>
+                    </div>
+                    <div class="toolbar-sep"></div>
+                    <button class="btn btn-save" id="btnSave" onclick="saveConfigToServer()">
+                        <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                        Lưu cấu hình
+                    </button>
+                </div>
             </div>
             <div class="panel-body">
                 <div class="json-viewer-wrapper">

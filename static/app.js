@@ -796,3 +796,42 @@ function showToast(message, type = 'info') {
         setTimeout(() => toast.remove(), 220);
     }, 3000);
 }
+
+// =====================================================
+// AI CONTROL (Start / Stop / Restart)
+// =====================================================
+async function controlAI(action) {
+    const btnStart = document.getElementById('btnStartAI');
+    const btnStop = document.getElementById('btnStopAI');
+    const btnRestart = document.getElementById('btnRestartAI');
+    const allBtns = [btnStart, btnStop, btnRestart];
+
+    // Disable tất cả button khi đang xử lý
+    allBtns.forEach(b => { if (b) b.disabled = true; });
+
+    const labels = { start: 'Đang khởi động...', stop: 'Đang dừng...', restart: 'Đang khởi động lại...' };
+    const activeBtn = action === 'start' ? btnStart : action === 'stop' ? btnStop : btnRestart;
+    const originalHTML = activeBtn ? activeBtn.innerHTML : '';
+    if (activeBtn) activeBtn.textContent = labels[action] || '...';
+
+    try {
+        const res = await fetch(`${API_BASE}/api/${action}-ai`, { method: 'POST' });
+        const data = await res.json();
+
+        if (res.status === 409) {
+            showToast('⏳ ' + (data.detail || 'Đang xử lý lệnh khác'), 'info');
+        } else if (data.status === 'success') {
+            showToast('✅ ' + data.message, 'success');
+        } else if (data.status === 'info') {
+            showToast('ℹ️ ' + data.message, 'info');
+        } else {
+            showToast('⚠️ ' + data.message, 'error');
+        }
+    } catch {
+        showToast('❌ Không thể kết nối server', 'error');
+    } finally {
+        // Khôi phục button
+        if (activeBtn) activeBtn.innerHTML = originalHTML;
+        allBtns.forEach(b => { if (b) b.disabled = false; });
+    }
+}

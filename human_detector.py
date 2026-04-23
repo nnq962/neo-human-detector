@@ -74,7 +74,10 @@ class HumanDetector:
         LOGGER.info(f"Half: {half}")
         LOGGER.info(f"Show: {show}")
         LOGGER.info(f"ROI Check Mode: {roi_check_mode}")        
-        LOGGER.info(f"Display Scale: {display_scale}")        
+        LOGGER.info(f"Display Scale: {display_scale}")
+
+        if not self.show:
+            LOGGER.warning("Show is disabled, AI will run in background")     
 
         # Initialize monitored areas -------------------------------------------------------------------------
         if monitored_areas is None:
@@ -725,34 +728,27 @@ class HumanDetector:
                     total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
                     # LOGGER.info(f"Đã gộp gửi {total_events} sự kiện qua UART.")
 
-                # Vẽ các vùng giám sát
-                frame = self._draw_monitored_areas(
-                    frame
-                )
-
-                # Vẽ các đối tượng được phát hiện
-                frame = self._draw_detections(
-                    frame, 
-                    bboxes, 
-                    confs, 
-                    ids,
-                    bbox_roi_names
-                )
-
                 # Tính FPS
                 current_time = time.time()
                 fps = 1.0 / (current_time - prev_time)
                 prev_time = current_time
 
                 if self.show:
+                    # Vẽ các vùng giám sát
+                    frame = self._draw_monitored_areas(frame)
+
+                    # Vẽ các đối tượng được phát hiện
+                    frame = self._draw_detections(frame, bboxes, confs, ids, bbox_roi_names)
+
+                    # Vẽ FPS lên góc trên bên trái
+                    cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+
                     if self.display_scale != 1.0:
-                        # Thay đổi kích thước frame trước khi hiển thị để thu/phóng cửa sổ (workaround khi không dùng waitKey)
                         display_frame = cv2.resize(frame, None, fx=self.display_scale, fy=self.display_scale)
                         cv2.imshow(win_name, display_frame)
                     else:
                         cv2.imshow(win_name, frame)
                 else:
-                    LOGGER.info(f"FPS: {fps:.1f}")
                     pass
 
         except Exception as e:
