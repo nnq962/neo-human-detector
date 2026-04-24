@@ -12,6 +12,22 @@ ai_lock = threading.Lock()
 
 def do_start_ai(app_state):
     """Khởi động thread AI mới. Caller phải đảm bảo đã acquire ai_lock."""
+    # Khởi tạo lại một đối tượng HumanDetector mới với config mới nhất
+    from utils import load_config
+    from human_detector import HumanDetector
+    
+    config = load_config("config.json")
+    app_state.detector = HumanDetector(
+        source=config.get("source", 0),
+        conf=config.get("conf", 0.5),
+        imgsz=config.get("imgsz", 640),
+        device=config.get("device", "cpu"),
+        show=config.get("show", False),
+        roi_check_mode=config.get("roi_check_mode", "center"),
+        monitored_areas=config.get("monitored_areas", None),
+        display_scale=config.get("display_scale", 0.55),
+        ws_queue=app_state.data_queue
+    )
     detector = app_state.detector
     detector.is_running = True
     

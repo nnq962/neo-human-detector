@@ -74,20 +74,53 @@ async def save_config(request: Request):
         # Nhận chuỗi JSON từ giao diện Web gửi xuống
         new_config = await request.json()
         
-        # Ghi đè vào file config.json
+        # 1. Đọc cấu hình cũ để so sánh
+        old_config = {}
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                old_config = json.load(f)
+        except Exception:
+            pass
+            
+        # 2. Ghi đè vào file config.json
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(new_config, f, indent=4, ensure_ascii=False)
             
-        # Nạp cấu hình nóng (Hot Reload) vào AI đang chạy
-        if hasattr(request.app.state, "detector"):
-            request.app.state.detector.update_dynamic_config(
-                new_conf=new_config.get("conf"),
-                new_roi_check_mode=new_config.get("roi_check_mode"),
-                new_monitored_areas=new_config.get("monitored_areas")
-            )
+        # 3. Phân loại cấu hình thay đổi
+        needs_restart = (
+            old_config.get("source") != new_config.get("source") or
+            old_config.get("imgsz") != new_config.get("imgsz") or
+            old_config.get("show") != new_config.get("show")
+        )
             
-        return {"status": "success", "message": "Đã lưu cấu hình ROI thành công!"}
+        # 4. Hành động
+        if needs_restart:
+            if not ai_lock.acquire(blocking=False):
+                raise HTTPException(status_code=409, detail="Đang xử lý lệnh start/stop khác, vui lòng thử lại.")
+            try:
+                detector = getattr(request.app.state, "detector", None)
+                # Nếu AI đang chạy thì mới Stop và Start lại
+                if detector and getattr(detector, "is_running", False):
+                    LOGGER.info("Phát hiện thay đổi source/imgsz/show, tiến hành khởi động lại AI...")
+                    success, msg = do_stop_ai(request.app.state)
+                    if not success:
+                        return {"status": "warning", "message": f"Lưu thành công, nhưng khởi động lại thất bại: {msg}"}
+                    do_start_ai(request.app.state)
+            finally:
+                ai_lock.release()
+            return {"status": "success", "message": "Đã lưu cấu hình và khởi động lại AI thành công!"}
+        else:
+            # Nạp cấu hình nóng (Hot Reload) vào AI đang chạy
+            if hasattr(request.app.state, "detector") and request.app.state.detector:
+                request.app.state.detector.update_dynamic_config(
+                    new_conf=new_config.get("conf"),
+                    new_roi_check_mode=new_config.get("roi_check_mode"),
+                    new_monitored_areas=new_config.get("monitored_areas")
+                )
+            return {"status": "success", "message": "Đã lưu cấu hình (Hot Reload) thành công!"}
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi lưu file: {str(e)}")
 

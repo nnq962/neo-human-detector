@@ -67,18 +67,18 @@ class UartManager:
             
         try:
             if self.serial_conn.in_waiting > 0:
-                raw_data = self.serial_conn.readline().decode('utf-8').strip()
+                raw_data = self.serial_conn.readline().decode('utf-8', errors='ignore').strip()
                 if not raw_data:
                     return None
                     
                 # Thử parse JSON (nếu ESP32 gửi về dạng JSON)
                 try:
                     parsed_data = json.loads(raw_data)
-                    # LOGGER.info(f"Recv: {parsed_data}")
+                    LOGGER.info(f"Recv: {parsed_data}")
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường
-                    # LOGGER.info(f"Recv: {raw_data}")
+                    LOGGER.info(f"Recv: {raw_data}")
                     return raw_data
         except Exception as e:
             LOGGER.error(f"Lỗi khi đọc: {e}")

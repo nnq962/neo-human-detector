@@ -104,7 +104,7 @@ class HumanDetector:
         # Time Thresholds
         self.CONFIRM_ENTER_TIME = 10.0      # Ngồi liên tục > 10s mới tính là OCCUPIED
         self.CONFIRM_EXIT_TIME = 8.0        # Mất dấu > 8s mới tính là EMPTY
-        self.ID_GARBAGE_COLLECT_TIME = 5.0 # Quá 5s không thấy ID trên toàn camera -> Dọn rác
+        self.ID_GARBAGE_COLLECT_TIME = 5.0  # Quá 5s không thấy ID trên toàn camera -> Dọn rác
         # -----------------------------------------------------------------------------------------------------
 
         # Load model
