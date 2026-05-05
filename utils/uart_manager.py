@@ -78,7 +78,7 @@ class UartManager:
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường
-                    LOGGER.info(f"Recv: {raw_data}")
+                    # LOGGER.info(f"Recv: {raw_data}")
                     return raw_data
         except Exception as e:
             LOGGER.error(f"Lỗi khi đọc: {e}")
@@ -133,4 +133,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         # Bắt sự kiện bấm Ctrl+C để đóng cổng an toàn
         esp32.close()
-        LOGGER.infor("\nĐã thoát chương trình.")
+        LOGGER.info("\nĐã thoát chương trình.")

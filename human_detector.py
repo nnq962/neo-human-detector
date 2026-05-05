@@ -473,6 +473,7 @@ class HumanDetector:
             
             if boxes.id is not None:
                 ids = boxes.id.cpu().numpy().astype(int)
+                ids = ids % 999  # Giới hạn ID tối đa để tránh quá lớn
             else:
                 ids = np.full((len(bboxes),), -1, dtype=int)
         else:
