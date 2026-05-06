@@ -619,9 +619,6 @@ class HumanDetector:
                 # 1. Trích xuất thông tin Bounding Box
                 bboxes, confs, ids = self._parse_detections(result.boxes)
 
-                # 1.1. Đẩy dữ liệu WebSocket
-                self._push_websocket_data(frame, bboxes, confs, ids)
-
                 # 2. Gắn ID vào các vùng ROI
                 bbox_roi_names, roi_current_ids = self._assign_ids_to_rois(bboxes, ids)
                 
@@ -632,7 +629,10 @@ class HumanDetector:
                 # 4. State Machine: Cập nhật trạng thái từng vùng
                 uart_payload = self._update_zone_states(roi_current_ids, current_time)
 
-                # 5. Gửi dữ liệu qua UART
+                # 5. Đẩy dữ liệu WebSocket cho web preview
+                self._push_websocket_data(frame, bboxes, confs, ids)
+
+                # 6. Gửi dữ liệu qua UART
                 if uart_payload["detected"] or uart_payload["cleared"]:
                     self._send_uart_payload(uart_payload)
                     total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
@@ -693,7 +693,9 @@ class HumanDetector:
         ws_payload = {
             "timestamp": int(time.time() * 1000),
             "resolution": {"width": w, "height": h},
-            "objects": objects_data
+            "count": len(objects_data),
+            "objects": objects_data,
+            "zones": {name: zone.state.value for name, zone in self.zones.items()}
         }
         
         # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
