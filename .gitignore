@@ -1,7 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 /models
 /examples
 device.txt
 /test
-/__pycache__
 config.json
 /frontend

@@ -7,7 +7,7 @@
     "roi_check_mode": "bottom_center",
     "uart_port": "/dev/ttyS4",
     "uart_baudrate": 115200,
-    "auto_start": false,
+    "auto_start": true,
     "monitored_areas": [
         {
             "name": "ghe1",
