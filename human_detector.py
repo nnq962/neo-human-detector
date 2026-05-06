@@ -372,62 +372,6 @@ class HumanDetector:
         result = cv2.pointPolygonTest(roi_pts, point, measureDist=False)
         return result >= 0
 
-    def _send_uart_payload(self, payload: dict):
-        """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
-        if not payload or not hasattr(self, 'uart'):
-            return
-            
-        detected = payload.get("detected", [])
-        cleared = payload.get("cleared", [])
-        
-        # Hàm phụ đóng gói chuỗi
-        def build_string(det_list, clr_list):
-            parts = []
-            if det_list:
-                d_str = "d:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in det_list])
-                parts.append(d_str)
-            if clr_list:
-                c_str = "c:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in clr_list])
-                parts.append(c_str)
-            return "-".join(parts)
-
-        MAX_BYTES = 250
-        all_events = [("d", d) for d in detected] + [("c", c) for c in cleared]
-        
-        current_det = []
-        current_clr = []
-        
-        for event_type, event_data in all_events:
-            # Thêm tạm vào nhóm hiện tại
-            if event_type == "d":
-                current_det.append(event_data)
-            else:
-                current_clr.append(event_data)
-                
-            test_str = build_string(current_det, current_clr)
-            
-            # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
-            if len(test_str.encode('utf-8')) > MAX_BYTES:
-                # Nhả event vừa thêm ra để lấy chuỗi an toàn
-                if event_type == "d":
-                    current_det.pop()
-                else:
-                    current_clr.pop()
-                    
-                full_str = build_string(current_det, current_clr)
-                if full_str:
-                    threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
-                    time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
-                    
-                # Bắt đầu mẻ mới với đồ đạc vừa bị loại ra
-                current_det = [event_data] if event_type == "d" else []
-                current_clr = [event_data] if event_type == "c" else []
-        
-        # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
-        final_str = build_string(current_det, current_clr)
-        if final_str:
-            threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()
-
     def inference(self):
         """
         Thực hiện nhận diện và theo dõi đối tượng trên luồng dữ liệu đầu vào.
@@ -649,41 +593,6 @@ class HumanDetector:
 
         return uart_payload
 
-    def _push_websocket_data(self, frame, bboxes, confs, ids):
-        """Đẩy dữ liệu bboxes qua WebSocket."""
-        if getattr(self, 'ws_queue', None) is None:
-            return
-            
-        h, w = frame.shape[:2]
-        objects_data = []
-        
-        for bbox, conf, obj_id in zip(bboxes, confs, ids):
-            if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
-            
-            x1, y1, x2, y2 = bbox[:4]
-            
-            # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
-            objects_data.append({
-                "id": int(obj_id),
-                "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
-                "conf": float(conf)
-            })
-        
-        # Đóng gói JSON
-        ws_payload = {
-            "timestamp": int(time.time() * 1000),
-            "resolution": {"width": w, "height": h},
-            "objects": objects_data
-        }
-        
-        # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
-        if self.ws_queue.full():
-            try:
-                self.ws_queue.get_nowait() # Đẩy frame cũ ra
-            except queue.Empty:
-                pass
-        self.ws_queue.put(ws_payload) # Nhét frame mới vào
-
     def run(self):
         """
         Khởi chạy vòng lặp nhận diện và giám sát đối tượng theo thời gian thực.
@@ -759,3 +668,94 @@ class HumanDetector:
             # Dọn dẹp tài nguyên: đóng RTSP stream, reset tracker, đóng GUI
             self._cleanup_run()
             LOGGER.info("HumanDetector Đã dừng.")
+
+    def _push_websocket_data(self, frame, bboxes, confs, ids):
+        """Đẩy dữ liệu bboxes qua WebSocket."""
+        if getattr(self, 'ws_queue', None) is None:
+            return
+            
+        h, w = frame.shape[:2]
+        objects_data = []
+        
+        for bbox, conf, obj_id in zip(bboxes, confs, ids):
+            if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
+            
+            x1, y1, x2, y2 = bbox[:4]
+            
+            # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
+            objects_data.append({
+                "id": int(obj_id),
+                "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
+                "conf": float(conf)
+            })
+        
+        # Đóng gói JSON
+        ws_payload = {
+            "timestamp": int(time.time() * 1000),
+            "resolution": {"width": w, "height": h},
+            "objects": objects_data
+        }
+        
+        # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
+        if self.ws_queue.full():
+            try:
+                self.ws_queue.get_nowait() # Đẩy frame cũ ra
+            except queue.Empty:
+                pass
+        self.ws_queue.put(ws_payload) # Nhét frame mới vào
+
+    def _send_uart_payload(self, payload: dict):
+        """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
+        if not payload or not hasattr(self, 'uart'):
+            return
+            
+        detected = payload.get("detected", [])
+        cleared = payload.get("cleared", [])
+        
+        # Hàm phụ đóng gói chuỗi
+        def build_string(det_list, clr_list):
+            parts = []
+            if det_list:
+                d_str = "d:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in det_list])
+                parts.append(d_str)
+            if clr_list:
+                c_str = "c:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in clr_list])
+                parts.append(c_str)
+            return "-".join(parts)
+
+        MAX_BYTES = 250
+        all_events = [("d", d) for d in detected] + [("c", c) for c in cleared]
+        
+        current_det = []
+        current_clr = []
+        
+        for event_type, event_data in all_events:
+            # Thêm tạm vào nhóm hiện tại
+            if event_type == "d":
+                current_det.append(event_data)
+            else:
+                current_clr.append(event_data)
+                
+            test_str = build_string(current_det, current_clr)
+            
+            # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
+            if len(test_str.encode('utf-8')) > MAX_BYTES:
+                # Nhả event vừa thêm ra để lấy chuỗi an toàn
+                if event_type == "d":
+                    current_det.pop()
+                else:
+                    current_clr.pop()
+                    
+                full_str = build_string(current_det, current_clr)
+                if full_str:
+                    threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
+                    time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
+                    
+                # Bắt đầu mẻ mới với đồ đạc vừa bị loại ra
+                current_det = [event_data] if event_type == "d" else []
+                current_clr = [event_data] if event_type == "c" else []
+        
+        # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
+        final_str = build_string(current_det, current_clr)
+        if final_str:
+            threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()
