@@ -1,0 +1,78 @@
+auto_start: true
+detector:
+  source: rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101
+  model_path: weights/head/yolo8n_rknn_model
+  conf: 0.7
+  show: true
+  show_scale: 0.55
+  vid_stride: 1
+  verbose: true
+uart:
+  port: /dev/ttyS4
+  baudrate: 115200
+zones:
+  - name: ghe1
+    goal_pose:
+      x: 13.1
+      y: -4.2
+      theta: 90
+    points:
+      - [86, 722]
+      - [426, 718]
+      - [380, 1010]
+      - [45, 1014]
+
+  - name: ghe2
+    goal_pose:
+      x: 123
+      y: 321
+      theta: 36
+    points:
+      - [912, 187]
+      - [1046, 191]
+      - [1041, 265]
+      - [910, 264]
+
+  - name: ghe4
+    goal_pose:
+      x: 275
+      y: 154
+      theta: 285
+    points:
+      - [798, 774]
+      - [1209, 773]
+      - [1215, 1073]
+      - [785, 1073]
+
+  - name: ghe7
+    goal_pose:
+      x: 216
+      y: 157
+      theta: 250
+    points:
+      - [850, 349]
+      - [1038, 351]
+      - [1035, 512]
+      - [845, 506]
+
+  - name: ghe5
+    goal_pose:
+      x: 0
+      y: 0
+      theta: 90
+    points:
+      - [1226, 238]
+      - [1360, 238]
+      - [1360, 309]
+      - [1224, 310]
+
+  - name: ghe6
+    goal_pose:
+      x: 0
+      y: 0
+      theta: 90
+    points:
+      - [1177, 168]
+      - [1301, 168]
+      - [1292, 238]
+      - [1180, 235]

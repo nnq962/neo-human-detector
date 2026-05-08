@@ -11,7 +11,7 @@ try:
 except ImportError:
     COLORLOG_AVAILABLE = False
 
-LOGGING_NAME = "Human Detector"
+LOGGING_NAME = "People Counter"
 
 
 class DualTimezoneFormatter(logging.Formatter):

@@ -1,10 +1,10 @@
 import serial
 import json
 import time
-from utils.logger import LOGGER
-from utils.load_config import load_config
+from utils import LOGGER
+from utils import load_config
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = "configs/default.yaml"
 DEFAULT_PORT = '/dev/ttyS4'
 DEFAULT_BAUDRATE = 115200
 DEFAULT_TIMEOUT = 1
@@ -75,10 +75,12 @@ class UartManager:
                 try:
                     parsed_data = json.loads(raw_data)
                     LOGGER.info(f"Recv: {parsed_data}")
+                    print(f"Recv with print: {parsed_data}")
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường
-                    # LOGGER.info(f"Recv: {raw_data}")
+                    LOGGER.info(f"Recv: {raw_data}")
+                    print(f"Recv with print: {raw_data}")
                     return raw_data
         except Exception as e:
             LOGGER.error(f"Lỗi khi đọc: {e}")
@@ -93,14 +95,15 @@ class UartManager:
 
 import os
 
-# Đường dẫn tuyệt đối đến config.json để tránh lỗi khi import từ thư mục khác
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+# Đường dẫn tuyệt đối đến cấu hình mặc định (YAML)
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs/default.yaml")
 
 config = load_config(CONFIG_FILE)
+uart_cfg = config.get("uart", {})
 
 uart_manager = UartManager(
-    port=config.get("uart_port", DEFAULT_PORT), 
-    baudrate=config.get("uart_baudrate", DEFAULT_BAUDRATE),
+    port=uart_cfg.get("port", DEFAULT_PORT), 
+    baudrate=uart_cfg.get("baudrate", DEFAULT_BAUDRATE),
     timeout=DEFAULT_TIMEOUT
 )
 # =================================================================

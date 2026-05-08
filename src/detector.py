@@ -1,15 +1,15 @@
-import os
 import aidcv as cv2
 import numpy as np
 from typing import List, Optional
 from ultralytics import YOLO
-from utils import LOGGER, uart_manager, restore_level_names
 import time
 import threading
-from models import ROIState, SeatZone, TrackedPerson
 import queue
+from src.models import Zone, ZoneState, TrackedPerson
+from uart.uart_manager import uart_manager
+from utils import LOGGER, restore_level_names
 
-class HumanDetector:
+class Detector:
     """
     Phát hiện người dùng YOLO, hỗ trợ 2 mode:
         - 'person'     : Phát hiện toàn thân người (dùng model COCO, filter class=0)
@@ -21,87 +21,67 @@ class HumanDetector:
         - str file  : "path/to/video.mp4" hoặc "path/to/image.jpg"
     """
 
-    DEFAULT_MODELS = "models/head/yolov8_nano_rknn_model"
-
-    COLOR_BBOX_NORMAL = (255, 0, 0)    # xanh dương — bbox ngoài ROI
-    COLOR_BBOX_IN_ROI = (0, 200, 0)    # xanh lá   — bbox trong ROI
+    COLOR_BBOX_NORMAL = (255, 0, 0)    # xanh dương — bbox ngoài zone
+    COLOR_BBOX_IN_ZONE = (0, 200, 0)    # xanh lá   — bbox trong zone
 
     def __init__(
         self,
         source=0,
+        model_path: str = "weights/head/yolov8_nano_rknn_model",
         conf: float = 0.50,
-        imgsz: int = 640,
-        device: int = 0,
-        half: bool = True,
-        show: bool = True,
-        roi_check_mode: str = "center",
-        monitored_areas: List[dict] = None,
-        display_scale: float = 1.0,
-        ws_queue: queue.Queue = None
+        show: bool = False,
+        show_scale: float = 1.0,
+        vid_stride: int = 1,
+        zones: Optional[List[Zone]] = None,
+        zone_check_mode: str = "center",
+        verbose: bool = True,
     ):
         """
         Args:
             source         : int (USB cam), str (file/RTSP)
+            model_path     : Path to the YOLO RKNN model
             conf           : Ngưỡng confidence (0.0 - 1.0)
-            imgsz          : Kích thước ảnh đầu vào
-            device         : GPU index (0, 1, ...) hoặc 'cpu'
-            half           : Dùng FP16 để tăng tốc (chỉ hoạt động với GPU)
             show           : Hiển thị cửa sổ kết quả
-            roi_check_mode : Cách xác định điểm đại diện khi kiểm tra ROI:
+            show_scale     : Tỷ lệ hiển thị cửa sổ kết quả (mặc định 1.0)
+            vid_stride     : Bước lặp khi xử lý video (mặc định 1)
+            zones          : Danh sách các Zone được giám sát
+            zone_check_mode : Cách xác định điểm đại diện khi kiểm tra zone:
                                'center'        — tâm bbox (mặc định)
                                'bottom_center' — giữa cạnh dưới bbox
+            verbose        : Hiển thị log chi tiết
         """
 
-        if roi_check_mode not in ("center", "bottom_center"):
-            raise ValueError(f"roi_check_mode phải là 'center' hoặc 'bottom_center'")
+        if zone_check_mode not in ("center", "bottom_center"):
+            raise ValueError(f"zone_check_mode phải là 'center' hoặc 'bottom_center'")
 
         self.source = source
+        self.model_path = model_path
         self.conf = conf
-        self.imgsz = imgsz
-        self.device = device
-        self.half = half
         self.show = show
-        self.roi_check_mode = roi_check_mode
-        self.display_scale = display_scale
-        self.ws_queue = ws_queue
-        self.is_running = True
+        self.zone_check_mode = zone_check_mode
+        self.show_scale = show_scale
+        self.zones = zones or []
+        self.verbose = verbose
+        self.vid_stride = vid_stride
 
         # Log info
-        LOGGER.info(f"Source: {source}")
-        LOGGER.info(f"Conf: {conf}")
-        LOGGER.info(f"Imgsz: {imgsz}")
-        LOGGER.info(f"Device: {device}")
-        LOGGER.info(f"Half: {half}")
-        LOGGER.info(f"Show: {show}")
-        LOGGER.info(f"ROI Check Mode: {roi_check_mode}")        
-        LOGGER.info(f"Display Scale: {display_scale}")
+        LOGGER.info(f"Source: {self.source}")
+        LOGGER.info(f"Model path: {self.model_path}")
+        LOGGER.info(f"Conf: {self.conf}")
+        LOGGER.info(f"Show: {self.show}")
+        LOGGER.info(f"Show scale: {self.show_scale}")
+        LOGGER.info(f"Number of zones: {len(self.zones)}")
+        LOGGER.info(f"Zone check mode: {self.zone_check_mode}")
+        LOGGER.info(f"Video stride: {self.vid_stride}")
+        LOGGER.info(f"Verbose: {self.verbose}")
 
         if not self.show:
             LOGGER.warning("Show is disabled, AI will run in background")     
 
-        # Initialize monitored areas -------------------------------------------------------------------------
-        if monitored_areas is None:
-            raise ValueError("monitored_areas must not be None")
-
-        self.monitored_areas = monitored_areas
-        self.zones = {} 
-
-        for area in self.monitored_areas:
-            name = area["name"]
-            # Ép kiểu numpy array ngay tại đây
-            pts = np.array(area["pts"], dtype=np.int32) if not isinstance(area["pts"], np.ndarray) else area["pts"]
-            
-            # Khởi tạo Object SeatZone
-            self.zones[name] = SeatZone(
-                name=name,
-                pts=pts,
-                slam_pose=area.get("slam_pose", {})
-            )
-
         # Global ID Tracker
         self.global_tracked_ids = {}
 
-        # Time Thresholds
+        # Time Thresholds -------------------------------------------------------------------------------------
         self.CONFIRM_ENTER_TIME = 10.0      # Ngồi liên tục > 10s mới tính là OCCUPIED
         self.CONFIRM_EXIT_TIME = 8.0        # Mất dấu > 8s mới tính là EMPTY
         self.ID_GARBAGE_COLLECT_TIME = 5.0  # Quá 5s không thấy ID trên toàn camera -> Dọn rác
@@ -109,11 +89,13 @@ class HumanDetector:
 
         # Load model
         self.model = YOLO(
-            self.DEFAULT_MODELS, 
+            self.model_path, 
             task="detect"
         )
 
-        # Khởi tạo UART Manager để gửi dữ liệu
+        self.is_running = True
+
+        # # Khởi tạo UART Manager để gửi dữ liệu
         self.uart = uart_manager
 
     def stop(self):
@@ -169,7 +151,7 @@ class HumanDetector:
                 pass
 
         # 3. Reset trạng thái các zone về EMPTY
-        for zone in self.zones.values():
+        for zone in self.zones:
             zone.reset_zone()
         self.global_tracked_ids = {}
 
@@ -183,74 +165,37 @@ class HumanDetector:
         import gc
         gc.collect()
 
-    def update_dynamic_config(
-        self, 
-        new_conf: float = None, 
-        new_roi_check_mode: str = None,
-        new_monitored_areas: List[dict] = None
-    ) -> bool:
+    def update_detector_params(self, verbose: bool):
         """
-        Cập nhật cấu hình động (Hot Reload) cho hệ thống trong lúc đang chạy.
-
-        Args:
-            new_conf (float, optional): Ngưỡng độ tin cậy mới (0.0 - 1.0).
-            new_roi_check_mode (str, optional): Chế độ kiểm tra vùng đại diện mới ('center' hoặc 'bottom_center').
-            new_monitored_areas (List[dict], optional): Danh sách cấu hình các vùng giám sát (ROI) mới.
-
-        Returns:
-            bool: Trạng thái cập nhật thành công (luôn trả về True nếu không có ngoại lệ).
+        Update detector parameters.
         """
-        if new_conf is not None:
-            self.conf = float(new_conf)
-            LOGGER.info(f"Đã cập nhật ngưỡng Conf: {self.conf}")
+        self.verbose = verbose
+        LOGGER.info("Detector params updated")
 
-        if new_roi_check_mode is not None:
-            if new_roi_check_mode in ("center", "bottom_center"):
-                self.roi_check_mode = new_roi_check_mode
-                LOGGER.info(f"Đã cập nhật ROI Check Mode: {self.roi_check_mode}")
+    def update_zone(self, zones: Optional[List[Zone]]):
+        """
+        Update the detection zone.
+        """
+        self.zones = zones or []
+        LOGGER.info("Detector zones updated")
 
-        if new_monitored_areas is not None:
-            self.monitored_areas = new_monitored_areas
-            
-            # Tạo một dictionary tạm thời để build các vùng mới trước
-            temp_zones = {}
-            for area in self.monitored_areas:
-                name = area["name"]
-                pts = np.array(area["pts"], dtype=np.int32) if not isinstance(area["pts"], np.ndarray) else area["pts"]
-                temp_zones[name] = SeatZone(
-                    name=name,
-                    pts=pts,
-                    slam_pose=area.get("slam_pose", {})
-                )
-            
-            # Gán đè 1 lần duy nhất để thay thế dictionary cũ. 
-            # Việc này trên Python là Atomic (cực kỳ an toàn không làm crash vòng lặp)
-            self.zones = temp_zones
-            
-            # Reset lại tracking cho an toàn với vùng mới (Dùng phép gán để đảm bảo Atomic)
-            self.global_tracked_ids = {}
-            
-            LOGGER.info("Đã cập nhật ROI thành công!")
-
-        return True
-
-    def _draw_monitored_areas(
+    def _draw_zones(
         self,
         frame: np.ndarray,
     ) -> np.ndarray:
         """
-        Vẽ lớp phủ các vùng giám sát (ROI) lên khung hình.
-        Sử dụng màu sắc tương ứng với trạng thái của từng vùng dựa trên ROIColor.
+        Vẽ lớp phủ các vùng lên khung hình.
+        Sử dụng màu sắc tương ứng với trạng thái của từng vùng dựa trên ZoneColor.
 
         Args:
             frame (np.ndarray): Khung hình ảnh gốc (hệ màu BGR).
 
         Returns:
-            np.ndarray: Khung hình đã được chèn các hiệu ứng hình ảnh của ROI.
+            np.ndarray: Khung hình đã được chèn các hiệu ứng hình ảnh của zone.
         """
 
         overlay = frame.copy()
-        for zone in self.zones.values():
+        for zone in self.zones:
             pts  = zone.pts
             name = zone.name
             color = zone.get_current_color()
@@ -274,13 +219,13 @@ class HumanDetector:
         cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
         return frame
 
-    def _draw_detections(
+    def _draw_overlay(
         self,
         frame: np.ndarray,
         bboxes: np.ndarray,
         confs: np.ndarray,
         ids: np.ndarray,
-        bbox_roi_names: List[Optional[str]],
+        zone_names: List[Optional[str]],
     ) -> np.ndarray:
         """
         Vẽ khung nhận diện (Bounding Box) và thông tin đối tượng lên khung hình.
@@ -291,25 +236,25 @@ class HumanDetector:
             bboxes (np.ndarray): Mảng tọa độ các khung nhận diện (N, 4).
             confs (np.ndarray): Mảng giá trị độ tin cậy (N,).
             ids (np.ndarray): Mảng ID của các đối tượng (N,).
-            bbox_roi_names (List[Optional[str]]): Danh sách tên ROI tương ứng của mỗi đối tượng.
+            zone_names (List[Optional[str]]): Danh sách tên zone tương ứng của mỗi đối tượng.
 
         Returns:
             np.ndarray: Khung hình đã được vẽ thông tin nhận diện.
         """
 
-        for bbox, conf, obj_id, roi_name in zip(bboxes, confs, ids, bbox_roi_names):
+        for bbox, conf, obj_id, zone_name in zip(bboxes, confs, ids, zone_names):
             x1, y1, x2, y2 = map(int, bbox[:4])
-            in_roi = roi_name is not None
-            color  = self.COLOR_BBOX_IN_ROI if in_roi else self.COLOR_BBOX_NORMAL
+            in_zone = zone_name is not None
+            color  = self.COLOR_BBOX_IN_ZONE if in_zone else self.COLOR_BBOX_NORMAL
 
             # Vẽ bounding box
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness=2)
 
-            # Tạo label: luôn hiện id, conf, thêm tên ROI nếu trong vùng
+            # Tạo label: luôn hiện id, conf, thêm tên zone nếu trong vùng
             id_text = f"ID {obj_id}" if obj_id != -1 else "ID:?"
-            if in_roi:
-                # Nếu nằm trong ROI, hiện tên ROI
-                label = f"[{id_text}] [{conf:.2f}] [{roi_name}]"
+            if in_zone:
+                # Nếu nằm trong zone, hiện tên zone
+                label = f"[{id_text}] [{conf:.2f}] [{zone_name}]"
             else:
                 # Nếu chạy rông bên ngoài, chỉ hiện ID và Conf
                 label = f"[{id_text}] [{conf:.2f}]"
@@ -328,24 +273,24 @@ class HumanDetector:
 
         return frame
 
-    def is_bbox_in_roi(
+    def _is_bbox_in_zone(
         self,
         bbox: tuple,
-        roi_pts: np.ndarray,
+        points: np.ndarray,
         mode: str = "center",
     ) -> bool:
         """
-        Kiểm tra một bounding box có nằm trong vùng đa giác (ROI) hay không.
+        Kiểm tra một bounding box có nằm trong vùng đa giác zone hay không.
 
         Args:
             bbox (tuple/np.ndarray): Tọa độ khung nhận diện (x1, y1, x2, y2).
-            roi_pts (np.ndarray): Mảng các đỉnh của đa giác ROI (N, 2).
+            points (np.ndarray): Mảng các đỉnh của đa giác zone (N, 2).
             mode (str): Chế độ kiểm tra: 
                 - 'center': Dựa trên điểm tâm khung.
                 - 'bottom_center': Dựa trên điểm giữa cạnh dưới.
 
         Returns:
-            bool: True nếu điểm đại diện nằm trong hoặc trên cạnh ROI.
+            bool: True nếu điểm đại diện nằm trong hoặc trên cạnh zone.
 
         Raises:
             ValueError: Nếu `mode` không hợp lệ.
@@ -369,10 +314,10 @@ class HumanDetector:
         #   > 0  : điểm nằm trong đa giác
         #   = 0  : điểm nằm trên cạnh đa giác
         #   < 0  : điểm nằm ngoài đa giác
-        result = cv2.pointPolygonTest(roi_pts, point, measureDist=False)
+        result = cv2.pointPolygonTest(points, point, measureDist=False)
         return result >= 0
 
-    def inference(self):
+    def _inference(self):
         """
         Thực hiện nhận diện và theo dõi đối tượng trên luồng dữ liệu đầu vào.
 
@@ -388,12 +333,10 @@ class HumanDetector:
             conf=self.conf,
             persist=True,
             tracker="bytetrack.yaml",
-            imgsz=self.imgsz,
-            device=self.device,
-            half=self.half,
             show=False,
             stream=True,
             verbose=False,
+            vid_stride=self.vid_stride,
         )
 
         return results
@@ -427,11 +370,11 @@ class HumanDetector:
             
         return bboxes, confs, ids
 
-    def _assign_ids_to_rois(self, bboxes, ids):
+    def _assign_ids_to_zones(self, bboxes, ids):
         """
-        Gắn từng đối tượng phát hiện được vào các vùng giám sát (ROI) tương ứng.
+        Gắn từng đối tượng phát hiện được vào các vùng giám sát tương ứng.
         
-        Mỗi bounding box sẽ được kiểm tra xem điểm đại diện của nó có nằm trong bất kỳ ROI nào không.
+        Mỗi bounding box sẽ được kiểm tra xem điểm đại diện của nó có nằm trong bất kỳ zone nào không.
         Giả định mỗi người chỉ nằm trong tối đa một vùng giám sát (sẽ ngừng kiểm tra khi đã tìm thấy).
         
         Args:
@@ -439,27 +382,28 @@ class HumanDetector:
             ids (np.ndarray): Mảng ID tương ứng.
             
         Returns:
-            tuple: (bbox_roi_names, roi_current_ids)
-                - bbox_roi_names (List[Optional[str]]): Tên vùng ROI chứa bbox tương ứng, hoặc None nếu nằm ngoài.
-                - roi_current_ids (dict): Từ điển map tên ROI với danh sách ID đang nằm trong ROI đó.
+            tuple: (zone_names, zone_current_ids)
+                - zone_names (List[Optional[str]]): Tên vùng zone chứa bbox tương ứng, hoặc None nếu nằm ngoài.
+                - zone_current_ids (dict): Từ điển map tên zone với danh sách ID đang nằm trong zone đó.
         """
-        # Tạo 1 list để lưu tên ROI tương ứng với từng bbox
-        bbox_roi_names: List[Optional[str]] = [None] * len(bboxes)
+        # Tạo 1 list để lưu tên zone tương ứng với từng bbox
+        zone_names: List[Optional[str]] = [None] * len(bboxes)
 
-        # Dictionary chứa danh sách các ID đang nằm trong từng ROI
-        roi_current_ids = {zone_name: [] for zone_name in self.zones.keys()}
+        # Dictionary chứa danh sách các ID đang nằm trong từng zone
+        zone_current_ids = {zone.name: [] for zone in self.zones}
 
         if len(bboxes) > 0:
             for i, (bbox, obj_id) in enumerate(zip(bboxes, ids)):
-                for zone_name, zone in self.zones.items():
-                    if self.is_bbox_in_roi(bbox, zone.pts, mode=self.roi_check_mode):
-                        bbox_roi_names[i] = zone_name
-                        roi_current_ids[zone_name].append(obj_id)
+                # Kiểm tra bbox này thuộc zone nào
+                for zone in self.zones:
+                    if self._is_bbox_in_zone(bbox, zone.pts, mode=self.zone_check_mode):
+                        zone_names[i] = zone.name
+                        zone_current_ids[zone.name].append(obj_id)
                         break # Ngừng kiểm tra vì 1 người chỉ ngồi 1 ghế
 
-        return bbox_roi_names, roi_current_ids
+        return zone_names, zone_current_ids
 
-    def _update_global_tracking(self, ids, bbox_roi_names, current_time):
+    def _update_global_tracking(self, ids, zone_names, current_time):
         """
         Cập nhật hệ thống theo dõi ID toàn cục (Global Tracker).
         
@@ -468,10 +412,10 @@ class HumanDetector:
         
         Args:
             ids (np.ndarray): Mảng ID hiện tại trên khung hình.
-            bbox_roi_names (List[Optional[str]]): Tên vùng ROI mà mỗi ID đang đứng (để biết nơi khai sinh).
+            zone_names (List[Optional[str]]): Tên vùng zone mà mỗi ID đang đứng (để biết nơi khai sinh).
             current_time (float): Mốc thời gian hệ thống hiện tại.
         """
-        for obj_id, roi_name in zip(ids, bbox_roi_names):
+        for obj_id, zone_name in zip(ids, zone_names):
             if obj_id == -1: continue # Bỏ qua ID không hợp lệ
             
             if obj_id not in self.global_tracked_ids:
@@ -479,7 +423,7 @@ class HumanDetector:
                 self.global_tracked_ids[obj_id] = TrackedPerson(
                     id=obj_id,
                     first_seen_time=current_time,
-                    first_seen_in_roi=roi_name, # Nếu đang đứng ngoài, nó sẽ lưu là None
+                    first_seen_in_zone=zone_name, # Nếu đang đứng ngoài, nó sẽ lưu là None
                     last_seen_time=current_time
                 )
             else:
@@ -492,7 +436,7 @@ class HumanDetector:
         for k in expired_ids:
             del self.global_tracked_ids[k]
 
-    def _update_zone_states(self, roi_current_ids, current_time):
+    def _update_zone_states(self, zone_current_ids, current_time):
         """
         Cập nhật trạng thái (State Machine) cho từng vùng giám sát và tạo payload gửi UART.
         
@@ -504,7 +448,7 @@ class HumanDetector:
           Nếu trong thời gian này YOLO tự nối lại ID hoặc có ID mới 'khai sinh' tại chỗ -> OCCUPIED.
           
         Args:
-            roi_current_ids (dict): Từ điển chứa các ID đang nằm trong từng vùng.
+            zone_current_ids (dict): Từ điển chứa các ID đang nằm trong từng vùng.
             current_time (float): Mốc thời gian hệ thống hiện tại.
             
         Returns:
@@ -515,40 +459,40 @@ class HumanDetector:
             "cleared": []
         }
 
-        for zone_name, zone in self.zones.items():
+        for zone in self.zones:
             # Lấy các ID hợp lệ đang ở trong vùng này (bỏ qua ID = -1)
-            valid_ids_in_zone = [i for i in roi_current_ids[zone_name] if i != -1]
+            valid_ids_in_zone = [i for i in zone_current_ids[zone.name] if i != -1]
 
             # LOGIC 1: ĐANG TRỐNG -> CÓ NGƯỜI VÀO
-            if zone.state == ROIState.EMPTY:
+            if zone.state == ZoneState.EMPTY:
                 if valid_ids_in_zone:
                     zone.current_id = valid_ids_in_zone[0]
-                    zone.state = ROIState.PENDING_ENTER
+                    zone.state = ZoneState.PENDING_ENTER
                     zone.enter_time = current_time
 
             # LOGIC 2: ĐANG CHỜ ĐỦ 10S
-            elif zone.state == ROIState.PENDING_ENTER:
+            elif zone.state == ZoneState.PENDING_ENTER:
                 if zone.current_id in valid_ids_in_zone:
                     if current_time - zone.enter_time >= self.CONFIRM_ENTER_TIME:
-                        zone.state = ROIState.OCCUPIED
+                        zone.state = ZoneState.OCCUPIED
                         uart_payload["detected"].append({
-                            "area_name": zone_name,
-                            "slam_pose": zone.slam_pose
+                            "zone_name": zone.name,
+                            "goal_pose": zone.goal_pose
                         })
                 else:
                     zone.reset_zone()
 
             # LOGIC 3: ĐÃ XÁC NHẬN NGỒI
-            elif zone.state == ROIState.OCCUPIED:
+            elif zone.state == ZoneState.OCCUPIED:
                 if zone.current_id in valid_ids_in_zone:
                     pass
                 else:
-                    zone.previous_state = ROIState.OCCUPIED
-                    zone.state = ROIState.PENDING_EXIT
+                    zone.previous_state = ZoneState.OCCUPIED
+                    zone.state = ZoneState.PENDING_EXIT
                     zone.lost_time = current_time
 
             # LOGIC 4: ĐANG CHỜ XÁC NHẬN RỜI ĐI HOẶC NỐI ID
-            elif zone.state == ROIState.PENDING_EXIT:
+            elif zone.state == ZoneState.PENDING_EXIT:
 
                 # TRƯỜNG HỢP A: CÓ MỘT ID ĐANG XUẤT HIỆN TRONG GHẾ
                 if valid_ids_in_zone:
@@ -563,7 +507,7 @@ class HumanDetector:
                         person_info = self.global_tracked_ids.get(new_id)
                         
                         # Nếu ID lạ này "khai sinh" ngay chính giữa cái ghế này -> Người cũ xuất hiện trở lại
-                        if person_info and person_info.first_seen_in_roi == zone_name:
+                        if person_info and person_info.first_seen_in_zone == zone.name:
                             zone.current_id = new_id         # Gán ID mới cho họ
                             zone.state = zone.previous_state # Khôi phục OCCUPIED
                             
@@ -578,7 +522,7 @@ class HumanDetector:
                             # 2. Xóa thông tin người cũ, cho người mới bắt đầu đếm 10s PENDING_ENTER luôn
                             zone.reset_zone()
                             zone.current_id = new_id
-                            zone.state = ROIState.PENDING_ENTER
+                            zone.state = ZoneState.PENDING_ENTER
                             zone.enter_time = current_time
 
                 # TRƯỜNG HỢP B: VẪN KHÔNG THẤY AI (BẮT ĐẦU ĐẾM NGƯỢC)
@@ -602,7 +546,7 @@ class HumanDetector:
             cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
 
         # Lưu reference generator để có thể đóng (close) khi stop
-        self._results_gen = self.inference()
+        self._results_gen = self._inference()
         prev_time = time.time()
         # Restore logger level names
         _restored = False
@@ -625,15 +569,15 @@ class HumanDetector:
                 # 1. Trích xuất thông tin Bounding Box
                 bboxes, confs, ids = self._parse_detections(result.boxes)
 
-                # 2. Gắn ID vào các vùng ROI
-                bbox_roi_names, roi_current_ids = self._assign_ids_to_rois(bboxes, ids)
+                # 2. Gắn ID vào các vùng zones
+                zone_names, zone_current_ids = self._assign_ids_to_zones(bboxes, ids)
                 
                 # 3. Cập nhật Global Tracker
                 current_time = time.time()
-                self._update_global_tracking(ids, bbox_roi_names, current_time)
+                self._update_global_tracking(ids, zone_names, current_time)
 
                 # 4. State Machine: Cập nhật trạng thái từng vùng
-                uart_payload = self._update_zone_states(roi_current_ids, current_time)
+                uart_payload = self._update_zone_states(zone_current_ids, current_time)
 
                 # 5. Đẩy dữ liệu WebSocket cho web preview
                 self._push_websocket_data(frame, bboxes, confs, ids)
@@ -649,21 +593,23 @@ class HumanDetector:
                 fps = 1.0 / (current_time - prev_time)
                 prev_time = current_time
 
-                LOGGER.debug(f"FPS: {fps:.1f}")
+                # Verbose log
+                if self.verbose:
+                    LOGGER.info(f"FPS: {fps:.1f}")
 
                 if self.show:
                     # Vẽ các vùng giám sát
-                    frame = self._draw_monitored_areas(frame)
+                    frame = self._draw_zones(frame)
 
                     # Vẽ các đối tượng được phát hiện
-                    frame = self._draw_detections(frame, bboxes, confs, ids, bbox_roi_names)
+                    frame = self._draw_overlay(frame, bboxes, confs, ids, zone_names)
 
                     # Vẽ FPS lên góc trên bên trái
                     cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
-                    if self.display_scale != 1.0:
+                    if self.show_scale != 1.0:
                         h, w = frame.shape[:2]
-                        new_dim = (int(w * self.display_scale), int(h * self.display_scale))
+                        new_dim = (int(w * self.show_scale), int(h * self.show_scale))
                         resized_frame = cv2.resize(frame, new_dim)
 
                         padded_frame = cv2.copyMakeBorder(
@@ -689,7 +635,7 @@ class HumanDetector:
 
     def _push_websocket_data(self, frame, bboxes, confs, ids):
         """Đẩy dữ liệu bboxes qua WebSocket."""
-        if getattr(self, 'ws_queue', None) is None:
+        if getattr(self, 'ws_manager', None) is None:
             return
             
         h, w = frame.shape[:2]
@@ -713,16 +659,11 @@ class HumanDetector:
             "resolution": {"width": w, "height": h},
             "count": len(objects_data),
             "objects": objects_data,
-            "zones": {name: zone.state.value for name, zone in self.zones.items()}
+            "zones": {zone.name: zone.state.value for zone in self.zones}
         }
         
         # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
-        if self.ws_queue.full():
-            try:
-                self.ws_queue.get_nowait() # Đẩy frame cũ ra
-            except queue.Empty:
-                pass
-        self.ws_queue.put(ws_payload) # Nhét frame mới vào
+        self.ws_manager.latest_payload = ws_payload
 
     def _send_uart_payload(self, payload: dict):
         """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""

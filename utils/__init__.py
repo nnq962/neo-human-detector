@@ -1,6 +1,11 @@
+# utils package
 from utils.logger import LOGGER, restore_level_names
 from utils.load_config import load_config
-from utils.uart_manager import uart_manager
-from utils import ai_service
+from utils.load_zones import load_zones
 
-__all__ = ["LOGGER", "uart_manager", "load_config", "ai_service", "restore_level_names"]
+__all__ = [
+    "LOGGER",
+    "restore_level_names",
+    "load_config",
+    "load_zones"
+    ]
