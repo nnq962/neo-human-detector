@@ -3,7 +3,7 @@ import aidcv as cv2
 import numpy as np
 from typing import List, Optional
 from ultralytics import YOLO
-from utils import LOGGER, uart_manager
+from utils import LOGGER, uart_manager, restore_level_names
 import time
 import threading
 from models import ROIState, SeatZone, TrackedPerson
@@ -604,12 +604,18 @@ class HumanDetector:
         # Lưu reference generator để có thể đóng (close) khi stop
         self._results_gen = self.inference()
         prev_time = time.time()
+        # Restore logger level names
+        _restored = False
 
         try:
             for result in self._results_gen:
                 if not self.is_running:
                     LOGGER.info("Dừng vòng lặp nhận diện.")
                     break
+                
+                if not _restored:
+                    restore_level_names()
+                    _restored = True
 
                 # speed_dict = result.speed
                 # inference_time = speed_dict['inference']
@@ -643,6 +649,8 @@ class HumanDetector:
                 fps = 1.0 / (current_time - prev_time)
                 prev_time = current_time
 
+                LOGGER.debug(f"FPS: {fps:.1f}")
+
                 if self.show:
                     # Vẽ các vùng giám sát
                     frame = self._draw_monitored_areas(frame)
@@ -654,8 +662,18 @@ class HumanDetector:
                     cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
                     if self.display_scale != 1.0:
-                        display_frame = cv2.resize(frame, None, fx=self.display_scale, fy=self.display_scale)
-                        cv2.imshow(win_name, display_frame)
+                        h, w = frame.shape[:2]
+                        new_dim = (int(w * self.display_scale), int(h * self.display_scale))
+                        resized_frame = cv2.resize(frame, new_dim)
+
+                        padded_frame = cv2.copyMakeBorder(
+                            resized_frame,
+                            20, 20, 20, 20,
+                            cv2.BORDER_CONSTANT,
+                            value=(255, 255, 255)  # trắng
+                        )
+
+                        cv2.imshow(win_name, padded_frame)
                     else:
                         cv2.imshow(win_name, frame)
                 else:

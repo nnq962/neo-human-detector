@@ -117,6 +117,14 @@ def set_logging(name=LOGGING_NAME, verbose=True, debug=False):
             setattr(logger, fn.__name__, lambda x: fn(str(x)))
 
 
+def restore_level_names():
+    logging.addLevelName(10, 'DEBUG')
+    logging.addLevelName(20, 'INFO')
+    logging.addLevelName(30, 'WARNING')
+    logging.addLevelName(40, 'ERROR')
+    logging.addLevelName(50, 'CRITICAL')
+
+
 # Gọi khởi tạo logger
 set_logging(debug=True)
 LOGGER = logging.getLogger(LOGGING_NAME)
