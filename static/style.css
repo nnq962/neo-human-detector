@@ -497,13 +497,12 @@ body {
     min-height: 120px;
 }
 
-/* JSON syntax coloring */
-.json-key    { color: #1d4ed8; }
-.json-string { color: #15803d; }
-.json-number { color: #b45309; }
-.json-bool   { color: #7c3aed; }
-.json-null   { color: var(--text-muted); }
-.json-bracket{ color: var(--text-primary); opacity: 0.7; }
+/* YAML syntax coloring */
+.yaml-key    { color: #1d4ed8; }
+.yaml-colon  { color: var(--text-muted); }
+.yaml-number { color: #b45309; }
+.yaml-bool   { color: #7c3aed; }
+.yaml-string { color: #15803d; }
 
 /* ===================================================
    BUTTONS

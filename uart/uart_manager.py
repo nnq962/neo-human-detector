@@ -1,6 +1,8 @@
+import os
 import serial
 import json
 import time
+import threading
 from utils import LOGGER
 from utils import load_config
 
@@ -16,6 +18,12 @@ class UartManager:
         self.baudrate = baudrate
         self.timeout = timeout
         self.serial_conn = None
+        
+        # Dữ liệu mới nhất nhận được
+        self.latest_received_data = None
+        self.is_listening = False
+        self.listen_thread = None
+        
         self.connect()
 
     def connect(self):
@@ -23,8 +31,58 @@ class UartManager:
         try:
             self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             LOGGER.info(f"Đã kết nối UART tại {self.port}")
+            self.start_listening()
         except serial.SerialException as e:
             LOGGER.error(f"Lỗi mở cổng {self.port}: {e}")
+
+    def start_listening(self):
+        """Khởi động luồng chạy ngầm để liên tục đọc dữ liệu"""
+        if self.is_listening:
+            return
+            
+        self.is_listening = True
+        self.listen_thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self.listen_thread.start()
+        LOGGER.info("Đã khởi động luồng lắng nghe UART.")
+
+    def stop_listening(self):
+        """Dừng luồng lắng nghe"""
+        self.is_listening = False
+        if self.listen_thread and self.listen_thread.is_alive():
+            self.listen_thread.join(timeout=2)
+            
+    def _listen_loop(self):
+        """Vòng lặp ngầm liên tục gọi receive_data()"""
+        while self.is_listening:
+            
+            # Kiểm tra nếu kết nối bị mất đột ngột
+            if not self.serial_conn or not self.serial_conn.is_open:
+                LOGGER.warning("Mất kết nối UART, đang thử kết nối lại...")
+                time.sleep(2)
+                self.connect()
+                continue
+            
+            data = self.receive_data()
+            if data is not None:
+                if isinstance(data, dict):
+                    # Nếu là JSON -> Cập nhật lên Web Config
+                    self.latest_received_data = {
+                        "timestamp": time.time(),
+                        "payload": data
+                    }
+                elif isinstance(data, str):
+                    # Nếu là Chuỗi -> Xử lý lệnh điều khiển
+                    cmd = data.strip()
+                    
+                    if cmd == "sync":
+                        # Lấy dữ liệu tọa độ mới nhất từ AI
+                        from api.services.detector import get_latest_ws_payload
+                        payload = get_latest_ws_payload()
+                        if payload:
+                            # Phản hồi lại xuống UART
+                            self.send_json({"type": "SYNC", "data": payload})
+                            
+            time.sleep(0.01) # Tránh ăn CPU
 
     def send_json(self, data_dict):
         """Đóng gói Dictionary thành JSON và gửi đi"""
@@ -75,12 +133,10 @@ class UartManager:
                 try:
                     parsed_data = json.loads(raw_data)
                     LOGGER.info(f"Recv: {parsed_data}")
-                    print(f"Recv with print: {parsed_data}")
                     return parsed_data
                 except json.JSONDecodeError:
                     # Nếu ESP32 chỉ in log dạng text bình thường
                     LOGGER.info(f"Recv: {raw_data}")
-                    print(f"Recv with print: {raw_data}")
                     return raw_data
         except Exception as e:
             LOGGER.error(f"Lỗi khi đọc: {e}")
@@ -89,11 +145,11 @@ class UartManager:
 
     def close(self):
         """Đóng kết nối an toàn"""
+        self.stop_listening()
         if self.serial_conn and self.serial_conn.is_open:
             self.serial_conn.close()
             LOGGER.info("Đã ngắt kết nối UART.")
 
-import os
 
 # Đường dẫn tuyệt đối đến cấu hình mặc định (YAML)
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "configs/default.yaml")
@@ -106,34 +162,3 @@ uart_manager = UartManager(
     baudrate=uart_cfg.get("baudrate", DEFAULT_BAUDRATE),
     timeout=DEFAULT_TIMEOUT
 )
-# =================================================================
-# CÁCH SỬ DỤNG (Bạn có thể import class này vào file khác)
-# =================================================================
-if __name__ == "__main__":
-    # 1. Khởi tạo đối tượng
-    esp32 = UartManager(port='/dev/ttyS4', baudrate=115200)
-
-    try:
-        while True:
-            # 2. Tạo một gói dữ liệu điều khiển (Dictionary)
-            payload = {
-                "device": "LED_MAIN",
-                "action": "ON",
-                "brightness": 85,
-                "color": [255, 0, 0] # Đỏ
-            }
-            
-            # Gửi đi
-            esp32.send_json(payload)
-            
-            # Chờ 0.1s và kiểm tra phản hồi
-            time.sleep(0.1)
-            response = esp32.receive_data()
-            
-            LOGGER.debug("-" * 40)
-            time.sleep(2) # Chờ 2s rồi lặp lại
-            
-    except KeyboardInterrupt:
-        # Bắt sự kiện bấm Ctrl+C để đóng cổng an toàn
-        esp32.close()
-        LOGGER.info("\nĐã thoát chương trình.")

@@ -5,5 +5,5 @@ if __name__ == "__main__":
         "api.server:app", 
         host="0.0.0.0", 
         port=9621,
-        reload=False
+        reload=True
     )

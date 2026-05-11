@@ -1,3 +1,4 @@
+import os
 import platform
 import sys
 import logging
@@ -19,10 +20,23 @@ class DualTimezoneFormatter(logging.Formatter):
     converter = lambda *args: __import__('time').gmtime(args[1])
     
     def format(self, record):
-        # Thêm VN time vào record
+        # 1. Thêm VN time vào record
         utc_dt = datetime.fromtimestamp(record.created, tz=pytz.UTC)
         vn_dt = utc_dt.astimezone(pytz.timezone('Asia/Saigon'))
         record.vn_time = vn_dt.strftime('%H:%M:%S')
+        
+        # 2. TẠO mod_path TỪ ĐƯỜNG DẪN FILE
+        try:
+            # Lấy đường dẫn tương đối từ thư mục chạy code
+            rel_path = os.path.relpath(record.pathname, os.getcwd())
+            # Bỏ đuôi .py
+            mod_path = os.path.splitext(rel_path)[0]
+            # Đổi dấu slash chuẩn cho log (đề phòng chạy trên Windows)
+            record.mod_path = mod_path.replace(os.sep, '/')
+        except Exception:
+            # Fallback về mặc định nếu lỗi
+            record.mod_path = record.module
+
         return super().format(record)
 
 
@@ -31,16 +45,25 @@ class DualTimezoneColoredFormatter(colorlog.ColoredFormatter):
     converter = lambda *args: __import__('time').gmtime(args[1])
     
     def format(self, record):
-        # Thêm VN time vào record
+        # 1. Thêm VN time vào record
         utc_dt = datetime.fromtimestamp(record.created, tz=pytz.UTC)
         vn_dt = utc_dt.astimezone(pytz.timezone('Asia/Saigon'))
         record.vn_time = vn_dt.strftime('%H:%M:%S')
+        
+        # 2. TẠO mod_path TỪ ĐƯỜNG DẪN FILE (Copy giống hệt class trên)
+        try:
+            rel_path = os.path.relpath(record.pathname, os.getcwd())
+            mod_path = os.path.splitext(rel_path)[0]
+            record.mod_path = mod_path.replace(os.sep, '/')
+        except Exception:
+            record.mod_path = record.module
+
         return super().format(record)
 
 
 def set_logging(name=LOGGING_NAME, verbose=True, debug=False):
     level = logging.DEBUG if debug else (logging.INFO if verbose else logging.WARNING)
-    formatter_str = "%(vn_time)s | %(levelname)s | %(module)s:%(lineno)d | %(message)s"
+    formatter_str = "%(vn_time)s | %(levelname)s | %(mod_path)s:%(lineno)d | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
     # Formatters

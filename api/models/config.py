@@ -5,6 +5,7 @@ class DetectorConfig(BaseModel):
     source: str = "rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101"
     model_path: str = "models/head/yolo8n_rknn_model"
     conf: float = Field(0.70, ge=0.0, le=1.0)
+    zone_check_mode: str = "center"
     vid_stride: int = Field(1, ge=1)
     verbose: bool = True
 

@@ -3,7 +3,6 @@ from typing import Optional
 from src.detector import Detector
 from src.detector import Detector
 from api.services import config as config_service
-from api.services.websocket import ws_manager
 from utils import LOGGER
 
 _detector: Optional[Detector] = None
@@ -19,6 +18,13 @@ def get_status() -> dict:
         "vid_stride": _detector.vid_stride if _detector else None,
         "verbose": _detector.verbose if _detector else None,
     }
+
+def get_latest_ws_payload():
+    """Hàm trung gian để FastAPI có thể lấy dữ liệu websocket mới nhất từ Detector."""
+    global _detector
+    if _detector:
+        return _detector.latest_ws_payload
+    return None
 
 
 def update_zone(zones_cfg: list) -> None:
@@ -65,7 +71,6 @@ def start() -> dict:
         zones=zones,
         **cfg.get("detector", {})
     )
-    _detector.ws_manager = ws_manager
 
     _thread = Thread(target=_detector.run, daemon=True)
     _thread.start()

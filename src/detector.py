@@ -78,6 +78,9 @@ class Detector:
         if not self.show:
             LOGGER.warning("Show is disabled, AI will run in background")     
 
+        # Dữ liệu WebSocket mới nhất để gửi xuống Frontend
+        self.latest_ws_payload = None
+
         # Global ID Tracker
         self.global_tracked_ids = {}
 
@@ -95,89 +98,8 @@ class Detector:
 
         self.is_running = True
 
-        # # Khởi tạo UART Manager để gửi dữ liệu
+        # Khởi tạo UART Manager để gửi dữ liệu
         self.uart = uart_manager
-
-    def stop(self):
-        """Stop the detector"""
-        self.is_running = False
-        LOGGER.info("Đã nhận lệnh dừng AI")
-
-    def _cleanup_run(self):
-        """Dọn dẹp tài nguyên sau khi dừng vòng lặp run (RTSP stream, tracker, GUI)."""
-        # 1. Đóng generator YOLO (giải phóng kết nối RTSP bên trong)
-        if hasattr(self, '_results_gen') and self._results_gen is not None:
-            try:
-                self._results_gen.close()
-                LOGGER.info("Đã đóng RTSP stream generator.")
-            except Exception:
-                pass
-            self._results_gen = None
-
-        # 2. Đóng LoadStreams dataset (chứa background threads đọc RTSP liên tục)
-        #    Đây là nguyên nhân chính khiến CPU không được giải phóng sau khi dừng AI.
-        if hasattr(self, 'model') and hasattr(self.model, 'predictor') and self.model.predictor is not None:
-            predictor = self.model.predictor
-            
-            # Đóng dataset (LoadStreams) - dừng reader threads và release VideoCapture
-            if hasattr(predictor, 'dataset') and predictor.dataset is not None:
-                dataset = predictor.dataset
-                try:
-                    # LoadStreams có thuộc tính running để dừng threads
-                    if hasattr(dataset, 'running'):
-                        dataset.running = False
-                    # Đợi các reader threads kết thúc
-                    if hasattr(dataset, 'threads'):
-                        for t in dataset.threads:
-                            if t.is_alive():
-                                t.join(timeout=3)
-                    # Release các VideoCapture
-                    if hasattr(dataset, 'caps'):
-                        for cap in dataset.caps:
-                            if cap and cap.isOpened():
-                                cap.release()
-                    # Gọi close() nếu có (ultralytics >= 8.1)
-                    if hasattr(dataset, 'close'):
-                        dataset.close()
-                    LOGGER.info("Đã đóng RTSP reader threads và VideoCapture.")
-                except Exception as e:
-                    LOGGER.warning(f"Lỗi khi đóng dataset: {e}")
-            
-            # Xóa predictor để ultralytics tạo mới hoàn toàn khi gọi model.track() lần sau
-            try:
-                self.model.predictor = None
-                LOGGER.info("Đã xóa predictor (sẽ tạo mới khi start lại).")
-            except Exception:
-                pass
-
-        # 3. Reset trạng thái các zone về EMPTY
-        for zone in self.zones:
-            zone.reset_zone()
-        self.global_tracked_ids = {}
-
-        # 4. Đóng cửa sổ GUI
-        try:
-            cv2.destroyAllWindows()
-        except Exception:
-            pass
-
-        # 5. Thu gom rác Python để giải phóng bộ nhớ
-        import gc
-        gc.collect()
-
-    def update_detector_params(self, verbose: bool):
-        """
-        Update detector parameters.
-        """
-        self.verbose = verbose
-        LOGGER.info("Detector params updated")
-
-    def update_zone(self, zones: Optional[List[Zone]]):
-        """
-        Update the detection zone.
-        """
-        self.zones = zones or []
-        LOGGER.info("Detector zones updated")
 
     def _draw_zones(
         self,
@@ -515,8 +437,8 @@ class Detector:
                         else:
                             # 1. Gửi lệnh chốt báo người cũ ĐÃ ĐI
                             uart_payload["cleared"].append({
-                                "area_name": zone_name,
-                                "slam_pose": zone.slam_pose
+                                "zone_name": zone.name,
+                                "goal_pose": zone.goal_pose
                             })
                             
                             # 2. Xóa thông tin người cũ, cho người mới bắt đầu đếm 10s PENDING_ENTER luôn
@@ -530,12 +452,175 @@ class Detector:
                     if current_time - zone.lost_time >= self.CONFIRM_EXIT_TIME:
                         # Đã quá 5s không có ai xuất hiện -> Chính thức báo trống
                         uart_payload["cleared"].append({
-                            "area_name": zone_name,
-                            "slam_pose": zone.slam_pose
+                            "zone_name": zone.name,
+                            "goal_pose": zone.goal_pose
                         })
                         zone.reset_zone()
 
         return uart_payload
+
+    def _push_websocket_data(self, frame, bboxes, confs, ids):
+        """Đẩy dữ liệu bboxes qua WebSocket bằng cách lưu vào biến class."""
+        h, w = frame.shape[:2]
+        objects_data = []
+        
+        for bbox, conf, obj_id in zip(bboxes, confs, ids):
+            if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
+            
+            x1, y1, x2, y2 = bbox[:4]
+            
+            # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
+            objects_data.append({
+                "id": int(obj_id),
+                "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
+                "conf": float(conf)
+            })
+        
+        # Đóng gói JSON
+        self.latest_ws_payload = {
+            "timestamp": int(time.time() * 1000),
+            "resolution": {"width": w, "height": h},
+            "count": len(objects_data),
+            "objects": objects_data,
+            "zones": {zone.name: zone.state.value for zone in self.zones}
+        }
+
+    def _send_uart_payload(self, payload: dict):
+        """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
+        if not payload or not hasattr(self, 'uart'):
+            return
+            
+        detected = payload.get("detected", [])
+        cleared = payload.get("cleared", [])
+        
+        # Hàm phụ đóng gói chuỗi
+        def build_string(det_list, clr_list):
+            parts = []
+            if det_list:
+                d_str = "d:" + ";".join([f"{item['zone_name']},{item['goal_pose'].get('x',0)},{item['goal_pose'].get('y',0)},{item['goal_pose'].get('theta',0)}" for item in det_list])
+                parts.append(d_str)
+            if clr_list:
+                c_str = "c:" + ";".join([f"{item['zone_name']},{item['goal_pose'].get('x',0)},{item['goal_pose'].get('y',0)},{item['goal_pose'].get('theta',0)}" for item in clr_list])
+                parts.append(c_str)
+            return "-".join(parts)
+
+        MAX_BYTES = 250
+        all_events = [("d", d) for d in detected] + [("c", c) for c in cleared]
+        
+        current_det = []
+        current_clr = []
+        
+        for event_type, event_data in all_events:
+            # Thêm tạm vào nhóm hiện tại
+            if event_type == "d":
+                current_det.append(event_data)
+            else:
+                current_clr.append(event_data)
+                
+            test_str = build_string(current_det, current_clr)
+            
+            # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
+            if len(test_str.encode('utf-8')) > MAX_BYTES:
+                # Nhả event vừa thêm ra để lấy chuỗi an toàn
+                if event_type == "d":
+                    current_det.pop()
+                else:
+                    current_clr.pop()
+                    
+                full_str = build_string(current_det, current_clr)
+                if full_str:
+                    threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
+                    time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
+                    
+                # Bắt đầu mẻ mới với đồ đạc vừa bị loại ra
+                current_det = [event_data] if event_type == "d" else []
+                current_clr = [event_data] if event_type == "c" else []
+        
+        # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
+        final_str = build_string(current_det, current_clr)
+        if final_str:
+            threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()
+
+    def _cleanup_run(self):
+        """Dọn dẹp tài nguyên sau khi dừng vòng lặp run (RTSP stream, tracker, GUI)."""
+        # 1. Đóng generator YOLO (giải phóng kết nối RTSP bên trong)
+        if hasattr(self, '_results_gen') and self._results_gen is not None:
+            try:
+                self._results_gen.close()
+                LOGGER.info("Đã đóng RTSP stream generator.")
+            except Exception:
+                pass
+            self._results_gen = None
+
+        # 2. Đóng LoadStreams dataset (chứa background threads đọc RTSP liên tục)
+        #    Đây là nguyên nhân chính khiến CPU không được giải phóng sau khi dừng AI.
+        if hasattr(self, 'model') and hasattr(self.model, 'predictor') and self.model.predictor is not None:
+            predictor = self.model.predictor
+            
+            # Đóng dataset (LoadStreams) - dừng reader threads và release VideoCapture
+            if hasattr(predictor, 'dataset') and predictor.dataset is not None:
+                dataset = predictor.dataset
+                try:
+                    # LoadStreams có thuộc tính running để dừng threads
+                    if hasattr(dataset, 'running'):
+                        dataset.running = False
+                    # Đợi các reader threads kết thúc
+                    if hasattr(dataset, 'threads'):
+                        for t in dataset.threads:
+                            if t.is_alive():
+                                t.join(timeout=3)
+                    # Release các VideoCapture
+                    if hasattr(dataset, 'caps'):
+                        for cap in dataset.caps:
+                            if cap and cap.isOpened():
+                                cap.release()
+                    # Gọi close() nếu có (ultralytics >= 8.1)
+                    if hasattr(dataset, 'close'):
+                        dataset.close()
+                    LOGGER.info("Đã đóng RTSP reader threads và VideoCapture.")
+                except Exception as e:
+                    LOGGER.warning(f"Lỗi khi đóng dataset: {e}")
+            
+            # Xóa predictor để ultralytics tạo mới hoàn toàn khi gọi model.track() lần sau
+            try:
+                self.model.predictor = None
+                LOGGER.info("Đã xóa predictor (sẽ tạo mới khi start lại).")
+            except Exception:
+                pass
+
+        # 3. Reset trạng thái các zone về EMPTY
+        for zone in self.zones:
+            zone.reset_zone()
+        self.global_tracked_ids = {}
+
+        # 4. Đóng cửa sổ GUI
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
+
+        # 5. Thu gom rác Python để giải phóng bộ nhớ
+        import gc
+        gc.collect()
+
+    def stop(self):
+        """Stop the detector"""
+        self.is_running = False
+        LOGGER.info("Đã nhận lệnh dừng AI")
+
+    def update_detector_params(self, verbose: bool):
+        """
+        Update detector parameters.
+        """
+        self.verbose = verbose
+        LOGGER.info("Detector params updated")
+
+    def update_zone(self, zones: Optional[List[Zone]]):
+        """
+        Update the detection zone.
+        """
+        self.zones = zones or []
+        LOGGER.info("Detector zones updated")
 
     def run(self):
         """
@@ -632,91 +717,3 @@ class Detector:
             # Dọn dẹp tài nguyên: đóng RTSP stream, reset tracker, đóng GUI
             self._cleanup_run()
             LOGGER.info("HumanDetector Đã dừng.")
-
-    def _push_websocket_data(self, frame, bboxes, confs, ids):
-        """Đẩy dữ liệu bboxes qua WebSocket."""
-        if getattr(self, 'ws_manager', None) is None:
-            return
-            
-        h, w = frame.shape[:2]
-        objects_data = []
-        
-        for bbox, conf, obj_id in zip(bboxes, confs, ids):
-            if obj_id == -1: continue # Bỏ qua người chưa được ByteTrack gán ID
-            
-            x1, y1, x2, y2 = bbox[:4]
-            
-            # Chuẩn hóa tọa độ (0.0 - 1.0) cho Frontend
-            objects_data.append({
-                "id": int(obj_id),
-                "bbox": [float(x1/w), float(y1/h), float((x2-x1)/w), float((y2-y1)/h)],
-                "conf": float(conf)
-            })
-        
-        # Đóng gói JSON
-        ws_payload = {
-            "timestamp": int(time.time() * 1000),
-            "resolution": {"width": w, "height": h},
-            "count": len(objects_data),
-            "objects": objects_data,
-            "zones": {zone.name: zone.state.value for zone in self.zones}
-        }
-        
-        # Cập nhật Queue (Chiến thuật: Luôn giữ frame mới nhất)
-        self.ws_manager.latest_payload = ws_payload
-
-    def _send_uart_payload(self, payload: dict):
-        """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
-        if not payload or not hasattr(self, 'uart'):
-            return
-            
-        detected = payload.get("detected", [])
-        cleared = payload.get("cleared", [])
-        
-        # Hàm phụ đóng gói chuỗi
-        def build_string(det_list, clr_list):
-            parts = []
-            if det_list:
-                d_str = "d:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in det_list])
-                parts.append(d_str)
-            if clr_list:
-                c_str = "c:" + ";".join([f"{item['area_name']},{item['slam_pose'].get('x',0)},{item['slam_pose'].get('y',0)},{item['slam_pose'].get('theta',0)}" for item in clr_list])
-                parts.append(c_str)
-            return "-".join(parts)
-
-        MAX_BYTES = 250
-        all_events = [("d", d) for d in detected] + [("c", c) for c in cleared]
-        
-        current_det = []
-        current_clr = []
-        
-        for event_type, event_data in all_events:
-            # Thêm tạm vào nhóm hiện tại
-            if event_type == "d":
-                current_det.append(event_data)
-            else:
-                current_clr.append(event_data)
-                
-            test_str = build_string(current_det, current_clr)
-            
-            # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
-            if len(test_str.encode('utf-8')) > MAX_BYTES:
-                # Nhả event vừa thêm ra để lấy chuỗi an toàn
-                if event_type == "d":
-                    current_det.pop()
-                else:
-                    current_clr.pop()
-                    
-                full_str = build_string(current_det, current_clr)
-                if full_str:
-                    threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
-                    time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
-                    
-                # Bắt đầu mẻ mới với đồ đạc vừa bị loại ra
-                current_det = [event_data] if event_type == "d" else []
-                current_clr = [event_data] if event_type == "c" else []
-        
-        # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
-        final_str = build_string(current_det, current_clr)
-        if final_str:
-            threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()

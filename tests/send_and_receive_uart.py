@@ -19,7 +19,8 @@ def receive_loop():
         # Nhận liên tục, bất kể luồng chính đang làm gì
         data = uart_manager.receive_data()
         if data:
-            LOGGER.info(f"Kết quả nhận: {data}")
+            # LOGGER.info(f"Kết quả nhận: {data}")
+            pass
         
         # Nghỉ 10ms để tránh làm CPU chạy 100%
         time.sleep(0.01) 
@@ -32,7 +33,7 @@ rx_thread.start()
 while True:
     for point in data_points:
         name, x, y, theta = point["name"], point["x"], point["y"], point["theta"]
-        LOGGER.info(f"Đang gửi: {name}, x={x}, y={y}, theta={theta}")
+        # LOGGER.info(f"Đang gửi: {name}, x={x}, y={y}, theta={theta}")
         uart_manager.send_string(f"d:{name},{x},{y},{theta}")
         
         # Bạn không cần chờ 0.1s ở đây nữa, luồng nhận sẽ tự bắt được phản hồi

@@ -1,8 +1,9 @@
-auto_start: false
+auto_start: true
 detector:
   source: rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101
   model_path: weights/head/yolo8n_rknn_model
-  conf: 0.71
+  conf: 0.7
+  zone_check_mode: bottom_center
   vid_stride: 1
   verbose: true
 uart:
@@ -19,3 +20,13 @@ zones:
   - [426, 718]
   - [380, 1010]
   - [45, 1014]
+- name: area_2
+  goal_pose:
+    x: 0.0
+    y: 0.0
+    theta: 90.0
+  points:
+  - [687, 620]
+  - [730, 753]
+  - [597, 948]
+  - [526, 812]

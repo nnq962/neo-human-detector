@@ -66,36 +66,25 @@
                         <span class="field-hint">Điểm tham chiếu để kiểm tra nằm trong vùng</span>
                     </div>
                     <div class="field-group">
-                        <label class="field-label"><span class="label-icon">📏</span> Kích thước ảnh (imgsz)</label>
-                        <div class="seg-control" id="cfg-imgsz" data-field="imgsz">
-                            <button class="seg-btn" data-value="320">320</button>
-                            <button class="seg-btn active" data-value="640">640</button>
-                        </div>
-                        <span class="field-hint">Độ phân giải đầu vào model (pixels)</span>
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label"><span class="label-icon">🖥️</span> Thiết bị xử lý</label>
-                        <div class="seg-control" id="cfg-device" data-field="device">
-                            <button class="seg-btn active" data-value="cpu">cpu</button>
-                            <button class="seg-btn" data-value="0">GPU 0</button>
-                        </div>
-                        <span class="field-hint">CPU hoặc GPU (index 0)</span>
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label"><span class="label-icon">👁️</span> Hiển thị cửa sổ preview</label>
-                        <div class="seg-control" id="cfg-show" data-field="show">
-                            <button class="seg-btn active" data-value="true">true</button>
-                            <button class="seg-btn" data-value="false">false</button>
-                        </div>
-                        <span class="field-hint">Bật/tắt cửa sổ preview trực tiếp</span>
-                    </div>
-                    <div class="field-group">
                         <label class="field-label"><span class="label-icon">🚀</span> Tự động khởi động (auto_start)</label>
                         <div class="seg-control" id="cfg-auto-start" data-field="auto_start">
                             <button class="seg-btn" data-value="true">true</button>
                             <button class="seg-btn active" data-value="false">false</button>
                         </div>
                         <span class="field-hint">Tự động chạy detector khi khởi động server</span>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label"><span class="label-icon">🎞️</span> Video Stride (vid_stride)</label>
+                        <input type="number" id="cfg-vid-stride" class="text-input" min="1" step="1" value="1">
+                        <span class="field-hint">Số frame bỏ qua (stride) khi xử lý video</span>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label"><span class="label-icon">📝</span> Log chi tiết (verbose)</label>
+                        <div class="seg-control" id="cfg-verbose" data-field="verbose">
+                            <button class="seg-btn active" data-value="true">true</button>
+                            <button class="seg-btn" data-value="false">false</button>
+                        </div>
+                        <span class="field-hint">In ra console log chi tiết quá trình AI</span>
                     </div>
                     <div class="field-group full-width">
                         <label class="field-label">
@@ -288,14 +277,14 @@
             </div>
         </section>
 
-        <!-- PHẦN 3: JSON PREVIEW -->
-        <section class="panel" id="section-json">
+        <!-- PHẦN 3: YAML PREVIEW -->
+        <section class="panel" id="section-yaml">
             <div class="panel-header">
                 <div class="panel-title-group">
                     <span class="panel-number">03</span>
                     <div>
-                        <h2 class="panel-title">Xem Trước Cấu Hình JSON</h2>
-                        <p class="panel-sub">Dữ liệu sẽ được ghi vào file <code>config.json</code></p>
+                        <h2 class="panel-title">Xem Trước Cấu Hình YAML</h2>
+                        <p class="panel-sub">Dữ liệu sẽ được ghi vào file <code>default.yaml</code></p>
                     </div>
                 </div>
                 <div class="panel-header-actions">
@@ -341,7 +330,7 @@
             </div>
             <div class="panel-body">
                 <div class="json-viewer-wrapper">
-                    <pre class="json-viewer" id="jsonPreview"></pre>
+                    <pre class="json-viewer" id="yamlPreview"></pre>
                 </div>
             </div>
         </section>

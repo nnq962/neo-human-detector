@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function initSystem() {
     try {
-        const res = await fetch(`${API_BASE}/api/get-config`);
+        const res = await fetch(`${API_BASE}/api/config`);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const config = await res.json();
         applyConfigToUI(config);
@@ -65,7 +65,7 @@ async function updateAIStatus() {
     const dot = document.getElementById('aiStatusDot');
     const label = document.getElementById('aiStatusLabel');
     try {
-        const res = await fetch(`${API_BASE}/api/ai-status`);
+        const res = await fetch(`${API_BASE}/api/detector/status`);
         if (!res.ok) throw new Error();
         const data = await res.json();
         const running = data.is_running === true;
@@ -90,7 +90,7 @@ function initSegControls() {
             btn.addEventListener('click', () => {
                 group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                updateJSONPreview();
+                updateYAMLPreview();
             });
         });
     });
@@ -101,20 +101,23 @@ function initSlider() {
     if (!slider) return;
     slider.addEventListener('input', () => {
         updateConfBadge(slider.value);
-        updateJSONPreview();
+        updateYAMLPreview();
     });
 }
 
 function initSourceInput() {
     const src = document.getElementById('cfg-source');
-    if (src) src.addEventListener('input', updateJSONPreview);
+    if (src) src.addEventListener('input', updateYAMLPreview);
+    
+    const vidStride = document.getElementById('cfg-vid-stride');
+    if (vidStride) vidStride.addEventListener('input', updateYAMLPreview);
 }
 
 function initUartInputs() {
     const port = document.getElementById('cfg-uart-port');
-    if (port) port.addEventListener('input', updateJSONPreview);
+    if (port) port.addEventListener('input', updateYAMLPreview);
     const baud = document.getElementById('cfg-uart-baudrate');
-    if (baud) baud.addEventListener('change', updateJSONPreview);
+    if (baud) baud.addEventListener('change', updateYAMLPreview);
 }
 
 function setSegValue(groupId, value) {
@@ -136,36 +139,43 @@ function updateConfBadge(v) {
 }
 
 function applyConfigToUI(config) {
-    setSegValue('cfg-roi', config.roi_check_mode ?? 'bottom_center');
-    setSegValue('cfg-imgsz', config.imgsz ?? 640);
-    setSegValue('cfg-device', config.device ?? 'cpu');
-    setSegValue('cfg-show', config.show ?? true);
+    const det = config.detector ?? {};
+    const uart = config.uart ?? {};
+
+    setSegValue('cfg-roi', det.zone_check_mode ?? 'center');
     setSegValue('cfg-auto-start', config.auto_start ?? false);
+    setSegValue('cfg-verbose', det.verbose ?? false);
+    
+    const vidStride = document.getElementById('cfg-vid-stride');
+    if (vidStride) vidStride.value = det.vid_stride ?? 1;
     const slider = document.getElementById('cfg-conf');
-    if (slider) { slider.value = config.conf ?? 0.65; updateConfBadge(slider.value); }
+    if (slider) { slider.value = det.conf ?? 0.65; updateConfBadge(slider.value); }
     const src = document.getElementById('cfg-source');
-    if (src) src.value = config.source ?? '';
+    if (src) src.value = det.source ?? '';
     const uartPort = document.getElementById('cfg-uart-port');
-    if (uartPort) uartPort.value = config.uart_port ?? '/dev/ttyS4';
+    if (uartPort) uartPort.value = uart.port ?? '/dev/ttyS4';
     const uartBaud = document.getElementById('cfg-uart-baudrate');
-    if (uartBaud) uartBaud.value = String(config.uart_baudrate ?? 115200);
-    globalConfig = { ...config };
-    updateJSONPreview();
+    if (uartBaud) uartBaud.value = String(uart.baudrate ?? 115200);
+    globalConfig = JSON.parse(JSON.stringify(config));
+    updateYAMLPreview();
     renderAreaList();
 }
 
 function buildConfigFromUI() {
     return {
-        source: document.getElementById('cfg-source')?.value?.trim() ?? '',
-        conf: parseFloat(parseFloat(document.getElementById('cfg-conf')?.value ?? 0.65).toFixed(2)),
-        imgsz: parseInt(getSegValue('cfg-imgsz')),
-        device: getSegValue('cfg-device'),
-        show: getSegValue('cfg-show') === 'true',
-        roi_check_mode: getSegValue('cfg-roi'),
-        uart_port: document.getElementById('cfg-uart-port')?.value?.trim() ?? '/dev/ttyS4',
-        uart_baudrate: parseInt(document.getElementById('cfg-uart-baudrate')?.value ?? '115200'),
         auto_start: getSegValue('cfg-auto-start') === 'true',
-        monitored_areas: globalConfig.monitored_areas ?? []
+        detector: {
+            source: document.getElementById('cfg-source')?.value?.trim() ?? '',
+            conf: parseFloat(parseFloat(document.getElementById('cfg-conf')?.value ?? 0.65).toFixed(2)),
+            zone_check_mode: getSegValue('cfg-roi'),
+            vid_stride: parseInt(document.getElementById('cfg-vid-stride')?.value ?? '1'),
+            verbose: getSegValue('cfg-verbose') === 'true',
+        },
+        uart: {
+            port: document.getElementById('cfg-uart-port')?.value?.trim() ?? '/dev/ttyS4',
+            baudrate: parseInt(document.getElementById('cfg-uart-baudrate')?.value ?? '115200'),
+        },
+        zones: globalConfig.zones ?? []
     };
 }
 
@@ -230,7 +240,7 @@ async function refreshSnapshot() {
     if (btn) btn.disabled = true;
 
     try {
-        const imgUrl = `${API_BASE}/api/get-snapshot?t=${Date.now()}`;
+        const imgUrl = `${API_BASE}/api/config/get-snapshot?t=${Date.now()}`;
         await new Promise((resolve, reject) => {
             fabric.Image.fromURL(imgUrl, img => {
                 if (!img || img.width === 0) { reject(new Error('Invalid image')); return; }
@@ -252,7 +262,7 @@ async function refreshSnapshot() {
                     fabricCanvas.renderAll();
                     resolve();
                 });
-            }, { crossOrigin: 'anonymous' });
+            });
         });
 
         loadingEl.style.display = 'none';
@@ -261,8 +271,14 @@ async function refreshSnapshot() {
         document.getElementById('snapshotTime').textContent =
             `Cập nhật lúc: ${now.toLocaleTimeString('vi-VN')} — ${now.toLocaleDateString('vi-VN')}`;
 
-        drawAllPolygons();
-    } catch {
+        // Vẽ polygon riêng — lỗi vẽ polygon không được phép đè lớp phủ lỗi camera
+        try {
+            drawAllPolygons();
+        } catch (polyErr) {
+            console.error('Lỗi khi vẽ polygon:', polyErr);
+        }
+    } catch (e) {
+        console.error('Lỗi khi tải ảnh snapshot:', e);
         loadingEl.style.display = 'none';
         errorEl.style.display = 'flex';
         document.getElementById('canvasErrorMsg').textContent = 'Không thể kết nối đến camera. Kiểm tra RTSP URL.';
@@ -277,16 +293,16 @@ async function refreshSnapshot() {
 function drawAllPolygons() {
     // Remove existing polygons
     fabricCanvas.getObjects('polygon').forEach(p => fabricCanvas.remove(p));
-    (globalConfig.monitored_areas ?? []).forEach((_, idx) => addPolygonToCanvas(idx));
+    (globalConfig.zones ?? []).forEach((_, idx) => addPolygonToCanvas(idx));
     fabricCanvas.renderAll();
     renderAreaList();
 }
 
 function addPolygonToCanvas(idx) {
-    const area = globalConfig.monitored_areas[idx];
+    const area = globalConfig.zones[idx];
     if (!area) return null;
     const color = AREA_COLORS[idx % AREA_COLORS.length];
-    const points = area.pts.map(pt => imgToCanvas(pt[0], pt[1]));
+    const points = area.points.map(pt => imgToCanvas(pt[0], pt[1]));
 
     const poly = new fabric.Polygon(points, {
         fill: color.fill,
@@ -308,10 +324,10 @@ function addPolygonToCanvas(idx) {
 
 function syncPolygonToConfig(polygon) {
     const idx = polygon.areaIndex;
-    if (idx === undefined || !globalConfig.monitored_areas?.[idx]) return;
+    if (idx === undefined || !globalConfig.zones?.[idx]) return;
     const absPoints = getAbsolutePoints(polygon);
-    globalConfig.monitored_areas[idx].pts = absPoints.map(p => canvasToImg(p.x, p.y));
-    updateJSONPreview();
+    globalConfig.zones[idx].points = absPoints.map(p => canvasToImg(p.x, p.y));
+    updateYAMLPreview();
     renderAreaList();
 }
 
@@ -474,7 +490,7 @@ function exitDrawingMode() {
 
 function addTempPoint(x, y) {
     tempPoints.push({ x, y });
-    const color = AREA_COLORS[(globalConfig.monitored_areas?.length ?? 0) % AREA_COLORS.length];
+    const color = AREA_COLORS[(globalConfig.zones?.length ?? 0) % AREA_COLORS.length];
     const circle = new fabric.Circle({
         left: x - 5, top: y - 5, radius: 5,
         fill: color.stroke, stroke: '#fff', strokeWidth: 1.5,
@@ -494,12 +510,12 @@ function finishDrawing() {
     if (previewLine) { fabricCanvas.remove(previewLine); previewLine = null; }
 
     // Create new area
-    const newIdx = (globalConfig.monitored_areas ?? []).length;
-    if (!globalConfig.monitored_areas) globalConfig.monitored_areas = [];
-    globalConfig.monitored_areas.push({
+    const newIdx = (globalConfig.zones ?? []).length;
+    if (!globalConfig.zones) globalConfig.zones = [];
+    globalConfig.zones.push({
         name: 'area_' + (newIdx + 1),
-        slam_pose: { x: 0, y: 0, theta: 90 },
-        pts: tempPoints.map(p => canvasToImg(p.x, p.y))
+        goal_pose: { x: 0, y: 0, theta: 90 },
+        points: tempPoints.map(p => canvasToImg(p.x, p.y))
     });
 
     tempPoints = []; tempCircles = [];
@@ -508,7 +524,7 @@ function finishDrawing() {
     addPolygonToCanvas(newIdx);
     fabricCanvas.renderAll();
     renderAreaList();
-    updateJSONPreview();
+    updateYAMLPreview();
 
     // Auto-select new polygon
     const polys = fabricCanvas.getObjects('polygon');
@@ -558,7 +574,7 @@ function renderAreaList() {
     const list = document.getElementById('areaList');
     const empty = document.getElementById('areaEmpty');
     const badge = document.getElementById('areaCountBadge');
-    const areas = globalConfig.monitored_areas ?? [];
+    const areas = globalConfig.zones ?? [];
 
     badge.textContent = areas.length;
 
@@ -574,7 +590,7 @@ function renderAreaList() {
         return `<div class="area-list-item ${sel}" onclick="selectAreaByIdx(${idx})">
             <span class="area-color-dot" style="background:${color.stroke}"></span>
             <span class="area-name">${area.name || 'Vùng ' + (idx + 1)}</span>
-            <span class="area-pts-count">${area.pts.length} đỉnh</span>
+            <span class="area-pts-count">${area.points.length} đỉnh</span>
         </div>`;
     }).join('');
 }
@@ -590,13 +606,13 @@ function selectAreaByIdx(idx) {
 }
 
 function populateAreaForm(idx) {
-    const area = globalConfig.monitored_areas?.[idx];
+    const area = globalConfig.zones?.[idx];
     if (!area) return;
     document.getElementById('areaForm').style.display = 'flex';
     document.getElementById('areaName').value = area.name ?? '';
-    document.getElementById('areaSlam_x').value = area.slam_pose?.x ?? 0;
-    document.getElementById('areaSlam_y').value = area.slam_pose?.y ?? 0;
-    document.getElementById('areaSlam_theta').value = area.slam_pose?.theta ?? 90;
+    document.getElementById('areaSlam_x').value = area.goal_pose?.x ?? 0;
+    document.getElementById('areaSlam_y').value = area.goal_pose?.y ?? 0;
+    document.getElementById('areaSlam_theta').value = area.goal_pose?.theta ?? 90;
 
     // Luôn reset switch về OFF khi chọn vùng mới
     disconnectSlamWs();
@@ -608,26 +624,26 @@ function populateAreaForm(idx) {
 
 function applyAreaProperties() {
     if (selectedAreaIdx === null) return;
-    const area = globalConfig.monitored_areas?.[selectedAreaIdx];
+    const area = globalConfig.zones?.[selectedAreaIdx];
     if (!area) return;
     area.name = document.getElementById('areaName').value.trim() || area.name;
-    area.slam_pose = {
+    area.goal_pose = {
         x: parseFloat(document.getElementById('areaSlam_x').value) || 0,
         y: parseFloat(document.getElementById('areaSlam_y').value) || 0,
         theta: parseFloat(document.getElementById('areaSlam_theta').value) || 90,
     };
-    updateJSONPreview();
+    updateYAMLPreview();
     renderAreaList();
     showToast('Đã cập nhật thông tin vùng', 'success');
 }
 
 function deleteSelectedArea() {
     if (selectedAreaIdx === null) return;
-    globalConfig.monitored_areas.splice(selectedAreaIdx, 1);
+    globalConfig.zones.splice(selectedAreaIdx, 1);
 
     // Rebuild all polygons (re-index)
     fabricCanvas.getObjects('polygon').forEach(p => fabricCanvas.remove(p));
-    (globalConfig.monitored_areas ?? []).forEach((_, i) => addPolygonToCanvas(i));
+    (globalConfig.zones ?? []).forEach((_, i) => addPolygonToCanvas(i));
     fabricCanvas.discardActiveObject();
     fabricCanvas.renderAll();
 
@@ -635,32 +651,87 @@ function deleteSelectedArea() {
     document.getElementById('areaForm').style.display = 'none';
     document.getElementById('btnVertexEdit').disabled = true;
     renderAreaList();
-    updateJSONPreview();
+    updateYAMLPreview();
     showToast('Đã xóa vùng', 'info');
 }
 
 // =====================================================
-// SECTION 3 — JSON PREVIEW & SAVE
+// SECTION 3 — YAML PREVIEW & SAVE
 // =====================================================
-function updateJSONPreview() {
-    const preview = document.getElementById('jsonPreview');
+function updateYAMLPreview() {
+    const preview = document.getElementById('yamlPreview');
     if (!preview) return;
-    preview.innerHTML = syntaxHighlightJSON(JSON.stringify(buildConfigFromUI(), null, 4));
+    const config = buildConfigFromUI();
+    const yamlStr = jsonToYaml(config);
+    preview.innerHTML = syntaxHighlightYAML(yamlStr);
 }
 
-function syntaxHighlightJSON(str) {
+/** Chuyển đổi object JS thành chuỗi YAML đơn giản */
+function jsonToYaml(obj, indent = 0) {
+    const pad = '  '.repeat(indent);
+    let lines = [];
+    for (const [key, value] of Object.entries(obj)) {
+        if (value === null || value === undefined) {
+            lines.push(`${pad}${key}: null`);
+        } else if (Array.isArray(value)) {
+            if (value.length === 0) {
+                lines.push(`${pad}${key}: []`);
+            } else {
+                lines.push(`${pad}${key}:`);
+                value.forEach(item => {
+                    if (Array.isArray(item)) {
+                        // Inline array cho points: - [x, y]
+                        lines.push(`${pad}- [${item.join(', ')}]`);
+                    } else if (typeof item === 'object' && item !== null) {
+                        const entries = Object.entries(item);
+                        // First key trên cùng dòng với -
+                        entries.forEach((entry, i) => {
+                            const [k, v] = entry;
+                            const prefix = i === 0 ? `${pad}- ` : `${pad}  `;
+                            if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+                                lines.push(`${prefix}${k}:`);
+                                lines.push(jsonToYaml(v, indent + 2));
+                            } else if (Array.isArray(v)) {
+                                lines.push(`${prefix}${k}:`);
+                                v.forEach(pt => {
+                                    if (Array.isArray(pt)) lines.push(`${pad}    - [${pt.join(', ')}]`);
+                                    else lines.push(`${pad}    - ${pt}`);
+                                });
+                            } else {
+                                lines.push(`${prefix}${k}: ${formatYamlValue(v)}`);
+                            }
+                        });
+                    } else {
+                        lines.push(`${pad}- ${formatYamlValue(item)}`);
+                    }
+                });
+            }
+        } else if (typeof value === 'object') {
+            lines.push(`${pad}${key}:`);
+            lines.push(jsonToYaml(value, indent + 1));
+        } else {
+            lines.push(`${pad}${key}: ${formatYamlValue(value)}`);
+        }
+    }
+    return lines.join('\n');
+}
+
+function formatYamlValue(v) {
+    if (typeof v === 'string') return v;
+    if (typeof v === 'boolean') return v ? 'true' : 'false';
+    if (typeof v === 'number') return String(v);
+    return String(v);
+}
+
+function syntaxHighlightYAML(str) {
     return str
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(
-            /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-            m => {
-                let c = 'json-number';
-                if (/^"/.test(m)) c = /:$/.test(m) ? 'json-key' : 'json-string';
-                else if (/true|false/.test(m)) c = 'json-bool';
-                else if (/null/.test(m)) c = 'json-null';
-                return `<span class="${c}">${m}</span>`;
-            }
-        );
+        .replace(/^(\s*)(- )?([\w_]+)(:)/gm, (m, sp, dash, key, colon) => {
+            return `${sp}${dash || ''}<span class="yaml-key">${key}</span><span class="yaml-colon">${colon}</span>`;
+        })
+        .replace(/:\s+(true|false)$/gm, (m, val) => `: <span class="yaml-bool">${val}</span>`)
+        .replace(/:\s+(-?\d+\.?\d*)$/gm, (m, val) => `: <span class="yaml-number">${val}</span>`)
+        .replace(/- \[(.*?)\]/g, (m, inner) => `- [<span class="yaml-number">${inner}</span>]`);
 }
 
 async function saveConfigToServer() {
@@ -668,13 +739,13 @@ async function saveConfigToServer() {
     const btn = document.getElementById('btnSave');
     if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu...'; }
     try {
-        const res = await fetch(`${API_BASE}/api/save-config`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(`${API_BASE}/api/config`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
         const data = await res.json();
         if (data.status === 'success') {
-            globalConfig = config;
+            globalConfig = JSON.parse(JSON.stringify(config));
             showToast('✅ Đã lưu cấu hình thành công!', 'success');
         } else {
             showToast('❌ Lỗi: ' + (data.detail ?? 'Không rõ'), 'error');
@@ -719,7 +790,7 @@ function connectSlamWs() {
         slamWs = null;
     }
 
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/robot`;
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/uart`;
     const statusBar = document.getElementById('realtimeWsStatus');
     const dot = document.getElementById('wsStatusDot');
     const txt = document.getElementById('wsStatusText');
@@ -835,7 +906,7 @@ async function controlAI(action) {
     if (activeBtn) activeBtn.textContent = labels[action] || '...';
 
     try {
-        const res = await fetch(`${API_BASE}/api/${action}-ai`, { method: 'POST' });
+        const res = await fetch(`${API_BASE}/api/detector/${action}`, { method: 'POST' });
         const data = await res.json();
 
         if (res.status === 409) {
