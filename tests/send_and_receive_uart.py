@@ -14,20 +14,20 @@ data_points = [
 ]
 
 # --- 1. LUỒNG NHẬN (RX THREAD) ---
-def receive_loop():
-    while True:
-        # Nhận liên tục, bất kể luồng chính đang làm gì
-        data = uart_manager.receive_data()
-        if data:
-            # LOGGER.info(f"Kết quả nhận: {data}")
-            pass
+# def receive_loop():
+#     while True:
+#         # Nhận liên tục, bất kể luồng chính đang làm gì
+#         data = uart_manager.receive_data()
+#         if data:
+#             # LOGGER.info(f"Kết quả nhận: {data}")
+#             pass
         
-        # Nghỉ 10ms để tránh làm CPU chạy 100%
-        time.sleep(0.01) 
+#         # Nghỉ 10ms để tránh làm CPU chạy 100%
+#         time.sleep(0.01) 
 
-# Khởi chạy luồng nhận ở chế độ chạy ngầm (daemon)
-rx_thread = threading.Thread(target=receive_loop, daemon=True)
-rx_thread.start()
+# # Khởi chạy luồng nhận ở chế độ chạy ngầm (daemon)
+# rx_thread = threading.Thread(target=receive_loop, daemon=True)
+# rx_thread.start()
 
 # --- 2. LUỒNG GỬI (TX THREAD - LUỒNG CHÍNH) ---
 while True:

@@ -3,6 +3,7 @@ import os
 import aidcv as cv2
 
 CONFIG_PATH = "configs/default.yaml"
+TEST_CONFIG_PATH = "configs/test.yaml"
 
 class FlowList(list):
     """Lớp hỗ trợ in mảng thành chuỗi inline [x, y] trong YAML."""
@@ -38,6 +39,30 @@ def save_config_data(config_dict: dict) -> None:
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    try:
+        test_config = {}
+        if os.path.exists(TEST_CONFIG_PATH):
+            with open(TEST_CONFIG_PATH, "r", encoding="utf-8") as f:
+                test_config = yaml.safe_load(f) or {}
+
+        import copy
+        new_test_config = copy.deepcopy(config_dict)
+        
+        # Khôi phục các tham số đặc biệt cho test.yaml
+        if "detector" in test_config:
+            if "show" in test_config["detector"]:
+                new_test_config.setdefault("detector", {})["show"] = test_config["detector"]["show"]
+            if "show_scale" in test_config["detector"]:
+                new_test_config.setdefault("detector", {})["show_scale"] = test_config["detector"]["show_scale"]
+                
+        # Xóa auto_start trong test.yaml
+        new_test_config.pop("auto_start", None)
+
+        with open(TEST_CONFIG_PATH, "w", encoding="utf-8") as f:
+            yaml.dump(new_test_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    except Exception as e:
+        pass # Ignore errors if test.yaml doesn't exist or isn't writable
 
     # Bắn tín hiệu hot-reload sang detector sau khi lưu file
     try:

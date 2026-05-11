@@ -26,6 +26,11 @@ def get_latest_ws_payload():
         return _detector.latest_ws_payload
     return None
 
+def sync_uart_payload():
+    """Gọi Detector gửi lại dữ liệu UART gần nhất."""
+    global _detector
+    if _detector:
+        _detector.sync_uart()
 
 def update_zone(zones_cfg: list) -> None:
     """Cập nhật riêng cấu hình Zones."""

@@ -81,6 +81,9 @@ class Detector:
         # Dữ liệu WebSocket mới nhất để gửi xuống Frontend
         self.latest_ws_payload = None
 
+        # Dữ liệu UART mới nhất đã gửi đi
+        self.latest_uart_payload = None
+
         # Global ID Tracker
         self.global_tracked_ids = {}
 
@@ -485,7 +488,15 @@ class Detector:
             "zones": {zone.name: zone.state.value for zone in self.zones}
         }
 
-    def _send_uart_payload(self, payload: dict):
+    def sync_uart(self):
+        """Gửi lại dữ liệu UART gần nhất khi nhận được lệnh sync."""
+        if self.latest_uart_payload:
+            self._send_uart_payload(self.latest_uart_payload, is_sync=True)
+            LOGGER.info("Đã gửi lại dữ liệu UART gần nhất theo lệnh sync.")
+        else:
+            LOGGER.info("Không có dữ liệu UART nào trước đó để gửi lại.")
+
+    def _send_uart_payload(self, payload: dict, is_sync: bool = False):
         """Chuyển đổi dữ liệu sang định dạng string d:kv...-c:kv... và chia nhỏ nếu vượt quá 250 bytes"""
         if not payload or not hasattr(self, 'uart'):
             return
@@ -494,8 +505,11 @@ class Detector:
         cleared = payload.get("cleared", [])
         
         # Hàm phụ đóng gói chuỗi
-        def build_string(det_list, clr_list):
+        def build_string(det_list, clr_list, is_sync_flag):
             parts = []
+            if is_sync_flag:
+                parts.append("sync")
+                
             if det_list:
                 d_str = "d:" + ";".join([f"{item['zone_name']},{item['goal_pose'].get('x',0)},{item['goal_pose'].get('y',0)},{item['goal_pose'].get('theta',0)}" for item in det_list])
                 parts.append(d_str)
@@ -517,7 +531,7 @@ class Detector:
             else:
                 current_clr.append(event_data)
                 
-            test_str = build_string(current_det, current_clr)
+            test_str = build_string(current_det, current_clr, is_sync)
             
             # Nếu vượt quá số bytes giới hạn, gửi lô cũ trước
             if len(test_str.encode('utf-8')) > MAX_BYTES:
@@ -527,7 +541,7 @@ class Detector:
                 else:
                     current_clr.pop()
                     
-                full_str = build_string(current_det, current_clr)
+                full_str = build_string(current_det, current_clr, is_sync)
                 if full_str:
                     threading.Thread(target=self.uart.send_string, args=(full_str,), daemon=True).start()
                     time.sleep(0.02) # Nháy chậm lại xíu tránh tràn buffer bên nhận
@@ -537,7 +551,7 @@ class Detector:
                 current_clr = [event_data] if event_type == "c" else []
         
         # Gửi mẻ cuối (hoặc mẻ duy nhất nếu tổng dữ liệu nhỏ)
-        final_str = build_string(current_det, current_clr)
+        final_str = build_string(current_det, current_clr, is_sync)
         if final_str:
             threading.Thread(target=self.uart.send_string, args=(final_str,), daemon=True).start()
 
@@ -669,6 +683,7 @@ class Detector:
 
                 # 6. Gửi dữ liệu qua UART
                 if uart_payload["detected"] or uart_payload["cleared"]:
+                    self.latest_uart_payload = uart_payload
                     self._send_uart_payload(uart_payload)
                     total_events = len(uart_payload["detected"]) + len(uart_payload["cleared"])
                     # LOGGER.info(f"Đã gộp gửi {total_events} sự kiện qua UART.")
