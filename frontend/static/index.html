@@ -146,7 +146,7 @@
                     <span class="panel-number">02</span>
                     <div>
                         <h2 class="panel-title">Xem Trước Camera & Vùng Theo Dõi</h2>
-                        <p class="panel-sub">Kết nối luồng video, vẽ và chỉnh sửa đa giác vùng theo dõi</p>
+                        <p class="panel-sub">Tải ảnh, vẽ và chỉnh sửa đa giác vùng theo dõi</p>
                     </div>
                 </div>
                 <div class="snapshot-toolbar">
@@ -156,7 +156,7 @@
                             <polyline points="23 4 23 10 17 10" />
                             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                         </svg>
-                        Làm mới luồng
+                        Làm mới ảnh
                     </button>
                     <div class="toolbar-sep"></div>
                     <button class="btn btn-add-area" id="btnAddArea" onclick="startDrawing()">
@@ -191,11 +191,10 @@
                     <!-- Canvas column -->
                     <div class="canvas-col">
                         <div class="canvas-wrapper" id="canvasWrapper">
-                            <video id="webrtcVideo" autoplay playsinline muted></video>
                             <canvas id="roiCanvas"></canvas>
                             <div class="canvas-overlay" id="canvasLoading">
                                 <div class="spinner"></div>
-                                <p>Đang kết nối luồng camera...</p>
+                                <p>Đang tải ảnh camera...</p>
                             </div>
                             <div class="canvas-overlay canvas-error" id="canvasError" style="display:none">
                                 <span style="font-size:28px">⚠️</span>

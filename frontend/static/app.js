@@ -14,7 +14,6 @@ let tempPoints = [];       // {x,y} in canvas coords
 let tempCircles = [];      // fabric.Circle markers
 let previewLine = null;    // dashed preview line
 let lastClickMs = 0;
-let videoStreamReady = false;
 
 // ─── Realtime SLAM WebSocket ───────────────────────────────────
 let slamWs = null;          // WebSocket instance
@@ -53,8 +52,8 @@ async function initSystem() {
         updateStatusBar(false);
         showToast('Không thể kết nối server API', 'error');
     }
-    // Auto-connect camera stream on startup
-    refreshVideoStream();
+    // Auto-load snapshot on startup
+    refreshSnapshot();
 }
 
 function updateStatusBar(online) {
@@ -228,117 +227,62 @@ function getAbsolutePoints(polygon) {
 }
 
 // =====================================================
-// WEBRTC STREAMING FROM MEDIAMTX
+// SNAPSHOT LOADING
 // =====================================================
-let webrtcPc = null;
-
 async function refreshSnapshot() {
-    return refreshVideoStream();
-}
-
-function isVideoReadyForDrawing() {
-    const videoEl = document.getElementById('webrtcVideo');
-    return videoStreamReady &&
-        videoEl &&
-        videoEl.readyState >= HTMLMediaElement.HAVE_METADATA &&
-        originalImgW > 0 &&
-        originalImgH > 0 &&
-        fabricCanvas.width > 0 &&
-        fabricCanvas.height > 0;
-}
-
-async function refreshVideoStream() {
     const loadingEl = document.getElementById('canvasLoading');
     const errorEl = document.getElementById('canvasError');
     const metaEl = document.getElementById('snapshotMeta');
     const btn = document.getElementById('btnRefreshSnapshot');
-    const videoEl = document.getElementById('webrtcVideo');
 
-    videoStreamReady = false;
     loadingEl.style.display = 'flex';
     errorEl.style.display = 'none';
-    if (metaEl) metaEl.style.display = 'none';
     if (btn) btn.disabled = true;
 
-    // Đóng kết nối cũ nếu có
-    if (webrtcPc) {
-        webrtcPc.close();
-        webrtcPc = null;
-    }
-    if (videoEl) videoEl.srcObject = null;
-
     try {
-        const pc = new RTCPeerConnection();
-        webrtcPc = pc;
+        const imgUrl = `${API_BASE}/api/config/get-snapshot?t=${Date.now()}`;
+        await new Promise((resolve, reject) => {
+            fabric.Image.fromURL(imgUrl, img => {
+                if (!img || img.width === 0) { reject(new Error('Invalid image')); return; }
+                originalImgW = img.width;
+                originalImgH = img.height;
 
-        // Khi nhận được track video
-        pc.ontrack = (event) => {
-            if (videoEl.srcObject !== event.streams[0]) {
-                videoEl.srcObject = event.streams[0];
-                
-                // Khi video đã load xong metadata (biết được width/height)
-                videoEl.onloadedmetadata = () => {
-                    originalImgW = videoEl.videoWidth || 1920;
-                    originalImgH = videoEl.videoHeight || 1080;
+                // Resize canvas to match image aspect ratio based on wrapper width
+                const wrapper = document.getElementById('canvasWrapper');
+                const newW = wrapper.clientWidth;
+                const newH = Math.round(newW * originalImgH / originalImgW);
+                fabricCanvas.setWidth(newW);
+                fabricCanvas.setHeight(newH);
 
-                    // Tính toán kích thước hiển thị thực tế của video (object-fit: contain)
-                    const wrapper = document.getElementById('canvasWrapper');
-                    const wrapperW = wrapper.clientWidth;
-                    const wrapperH = wrapper.clientHeight;
-                    
-                    const scale = Math.min(wrapperW / originalImgW, wrapperH / originalImgH);
-                    const renderW = Math.round(originalImgW * scale);
-                    const renderH = Math.round(originalImgH * scale);
-
-                    // Thay đổi kích thước fabric canvas để khớp vừa vặn với video
-                    fabricCanvas.setWidth(renderW);
-                    fabricCanvas.setHeight(renderH);
-                    videoStreamReady = true;
-
-                    // Vẽ lại polygon
-                    try {
-                        drawAllPolygons();
-                    } catch (polyErr) {
-                        console.error('Lỗi khi vẽ polygon:', polyErr);
-                    }
-
-                    loadingEl.style.display = 'none';
-                    metaEl.style.display = 'block';
-                    const now = new Date();
-                    document.getElementById('snapshotTime').textContent =
-                        `Luồng trực tiếp: ${now.toLocaleTimeString('vi-VN')} — ${now.toLocaleDateString('vi-VN')}`;
-                    if (btn) btn.disabled = false;
-                };
-            }
-        };
-
-        pc.addTransceiver('video', { direction: 'recvonly' });
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        // Gửi WHEP request lên MediaMTX (chú ý URL)
-        const response = await fetch('http://192.168.0.121:8889/reception/whep', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/sdp' },
-            body: pc.localDescription.sdp
+                img.scaleX = newW / img.width;
+                img.scaleY = newH / img.height;
+                img.selectable = false;
+                img.evented = false;
+                fabricCanvas.setBackgroundImage(img, () => {
+                    fabricCanvas.renderAll();
+                    resolve();
+                });
+            });
         });
 
-        if (!response.ok) {
-            throw new Error(`MediaMTX WHEP Error: ${response.status}`);
+        loadingEl.style.display = 'none';
+        metaEl.style.display = 'block';
+        const now = new Date();
+        document.getElementById('snapshotTime').textContent =
+            `Cập nhật lúc: ${now.toLocaleTimeString('vi-VN')} — ${now.toLocaleDateString('vi-VN')}`;
+
+        // Vẽ polygon riêng — lỗi vẽ polygon không được phép đè lớp phủ lỗi camera
+        try {
+            drawAllPolygons();
+        } catch (polyErr) {
+            console.error('Lỗi khi vẽ polygon:', polyErr);
         }
-
-        const answerSdp = await response.text();
-        await pc.setRemoteDescription(new RTCSessionDescription({
-            type: 'answer',
-            sdp: answerSdp
-        }));
-
     } catch (e) {
-        console.error('Lỗi khi tải stream WebRTC:', e);
+        console.error('Lỗi khi tải ảnh snapshot:', e);
         loadingEl.style.display = 'none';
         errorEl.style.display = 'flex';
-        document.getElementById('canvasErrorMsg').textContent = 'Không thể kết nối đến camera.';
+        document.getElementById('canvasErrorMsg').textContent = 'Không thể kết nối đến camera. Kiểm tra RTSP URL.';
+    } finally {
         if (btn) btn.disabled = false;
     }
 }
@@ -512,8 +456,8 @@ function toggleVertexEdit() {
 // DRAWING NEW POLYGON
 // =====================================================
 function startDrawing() {
-    if (!isVideoReadyForDrawing()) {
-        showToast('Vui lòng kết nối luồng camera trước khi vẽ', 'error'); return;
+    if (!fabricCanvas.backgroundImage) {
+        showToast('Vui lòng tải ảnh camera trước khi vẽ', 'error'); return;
     }
     if (isDrawingMode) return;
     isDrawingMode = true;
