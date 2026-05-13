@@ -1,3 +1,5 @@
+export type DetectionZoneStatus = 'EMPTY' | 'OCCUPIED' | 'PENDING_ENTER' | 'PENDING_EXIT'
+
 export interface DetectionBoxesPayload {
     timestamp: number
     resolution: {
@@ -6,7 +8,7 @@ export interface DetectionBoxesPayload {
     }
     count: number
     objects: DetectionObject[]
-    zones?: Record<string, string>
+    zones?: Record<string, DetectionZoneStatus>
 }
 
 export interface DetectionObject {

@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { Canvas, Circle, FabricText, Point, Polygon, Polyline, controlsUtils } from 'fabric'
 import { useDetectionBoxes } from '../../hooks/useDetectionBoxes'
 import type { Zone } from '../../types/config'
-import type { DetectionBoxesPayload } from '../../types/detection'
+import type { DetectionBoxesPayload, DetectionZoneStatus } from '../../types/detection'
 
 type CameraPreviewProps = {
     src: string
     reconnectKey?: number
     zones?: Zone[]
+    detectionZones?: Zone[]
     selectedZoneIndex?: number | null
+    showZonesOverlay?: boolean
     isEditingVertices?: boolean
     isAddingZone?: boolean
+    onZoneSelect?: (zoneIndex: number) => void
     onZonePointsChange?: (zoneIndex: number, points: number[][]) => void
     onZoneAdd?: (points: number[][]) => void
 }
@@ -186,9 +189,101 @@ function getContainedVideoRect(previewSize: PreviewSize, sourceSize: VideoSize) 
     }
 }
 
+const detectionZoneColors: Record<DetectionZoneStatus, { fill: string; stroke: string; label: string }> = {
+    EMPTY: {
+        fill: 'rgba(239, 68, 68, 0.18)',
+        stroke: '#ef4444',
+        label: 'EMPTY',
+    },
+    OCCUPIED: {
+        fill: 'rgba(34, 197, 94, 0.18)',
+        stroke: '#22c55e',
+        label: 'OCCUPIED',
+    },
+    PENDING_ENTER: {
+        fill: 'rgba(245, 158, 11, 0.2)',
+        stroke: '#f59e0b',
+        label: 'PENDING ENTER',
+    },
+    PENDING_EXIT: {
+        fill: 'rgba(59, 130, 246, 0.2)',
+        stroke: '#3b82f6',
+        label: 'PENDING EXIT',
+    },
+}
+
+const fallbackDetectionZoneColor = {
+    fill: 'rgba(148, 163, 184, 0.16)',
+    stroke: '#94a3b8',
+    label: 'UNKNOWN',
+}
+
+function isDetectionZoneStatus(status: string | undefined): status is DetectionZoneStatus {
+    return status === 'EMPTY' ||
+        status === 'OCCUPIED' ||
+        status === 'PENDING_ENTER' ||
+        status === 'PENDING_EXIT'
+}
+
+function drawDetectionZones(
+    context: CanvasRenderingContext2D,
+    zones: Zone[],
+    payload: DetectionBoxesPayload,
+    sourceSize: VideoSize,
+    videoRect: NonNullable<ReturnType<typeof getContainedVideoRect>>,
+) {
+    if (!payload.zones) {
+        return
+    }
+
+    zones.forEach((zone) => {
+        const status = payload.zones?.[zone.name]
+        const color = isDetectionZoneStatus(status) ? detectionZoneColors[status] : fallbackDetectionZoneColor
+        const points = zone.points.map(([x, y]) => ({
+            x: videoRect.offsetX + (x / sourceSize.width) * videoRect.width,
+            y: videoRect.offsetY + (y / sourceSize.height) * videoRect.height,
+        }))
+
+        if (points.length < 3) {
+            return
+        }
+
+        context.beginPath()
+        context.moveTo(points[0].x, points[0].y)
+        points.slice(1).forEach((point) => context.lineTo(point.x, point.y))
+        context.closePath()
+
+        context.fillStyle = color.fill
+        context.strokeStyle = color.stroke
+        context.lineWidth = 2
+        context.fill()
+        context.stroke()
+
+        const labelPoint = points.reduce(
+            (current, point) => ({
+                x: current.x + point.x / points.length,
+                y: current.y + point.y / points.length,
+            }),
+            { x: 0, y: 0 },
+        )
+        const label = `${zone.name}`
+        const labelWidth = context.measureText(label).width + 12
+        const labelHeight = 22
+        const labelX = Math.max(videoRect.offsetX, labelPoint.x - labelWidth / 2)
+        const labelY = Math.max(videoRect.offsetY, labelPoint.y - labelHeight / 2)
+
+        context.fillStyle = color.stroke
+        context.fillRect(labelX, labelY, labelWidth, labelHeight)
+        context.fillStyle = '#ffffff'
+        context.fillText(label, labelX + 6, labelY + 5)
+    })
+}
+
 function drawDetectionBoxes(
     canvas: HTMLCanvasElement,
     payload: DetectionBoxesPayload | null,
+    zones: Zone[],
+    shouldDrawZones: boolean,
     previewSize: PreviewSize,
     videoSize: VideoSize,
 ) {
@@ -219,6 +314,10 @@ function drawDetectionBoxes(
     context.font = '12px system-ui, -apple-system, sans-serif'
     context.textBaseline = 'top'
 
+    if (shouldDrawZones) {
+        drawDetectionZones(context, zones, payload, sourceSize, videoRect)
+    }
+
     payload.objects.forEach((object) => {
         const [x, y, width, height] = object.bbox
         const boxX = videoRect.offsetX + x * videoRect.width
@@ -227,8 +326,8 @@ function drawDetectionBoxes(
         const boxHeight = height * videoRect.height
         const label = `#${object.id} ${(object.conf * 100).toFixed(0)}%`
 
-        context.strokeStyle = '#22c55e'
-        context.fillStyle = 'rgba(34, 197, 94, 0.12)'
+        context.strokeStyle = '#22d3ee'
+        context.fillStyle = 'rgba(34, 211, 238, 0.14)'
         context.strokeRect(boxX, boxY, boxWidth, boxHeight)
         context.fillRect(boxX, boxY, boxWidth, boxHeight)
 
@@ -256,9 +355,12 @@ function CameraPreview({
     src,
     reconnectKey = 0,
     zones = [],
+    detectionZones = zones,
     selectedZoneIndex = null,
+    showZonesOverlay = true,
     isEditingVertices = false,
     isAddingZone = false,
+    onZoneSelect,
     onZonePointsChange,
     onZoneAdd,
 }: CameraPreviewProps) {
@@ -367,114 +469,120 @@ function CameraPreview({
         const offsetX = (previewSize.width - renderedWidth) / 2
         const offsetY = (previewSize.height - renderedHeight) / 2
 
-        zones.forEach((zone, index) => {
-            const color = zoneColors[index % zoneColors.length]
-            const isSelected = index === selectedZoneIndex
-            const points = zone.points.map(([x, y]) => ({
-                x: offsetX + x * scale,
-                y: offsetY + y * scale,
-            }))
+        if (showZonesOverlay) {
+            zones.forEach((zone, index) => {
+                const color = zoneColors[index % zoneColors.length]
+                const isSelected = index === selectedZoneIndex
+                const points = zone.points.map(([x, y]) => ({
+                    x: offsetX + x * scale,
+                    y: offsetY + y * scale,
+                }))
 
-            if (points.length < 3) {
-                return
-            }
-
-            const polygon = new Polygon(points, {
-                fill: color.fill,
-                stroke: color.stroke,
-                strokeWidth: isSelected ? 3 : 2,
-                objectCaching: false,
-                selectable: isEditingVertices && isSelected,
-                evented: isEditingVertices && isSelected,
-                hasControls: isEditingVertices && isSelected,
-                hasBorders: false,
-                lockScalingX: true,
-                lockScalingY: true,
-                lockRotation: true,
-                cornerColor: '#ffffff',
-                cornerStrokeColor: color.stroke,
-                cornerStyle: 'circle',
-                transparentCorners: false,
-                hoverCursor: isEditingVertices && isSelected ? 'move' : 'default',
-                moveCursor: 'move',
-            })
-
-            const syncPolygonPoints = () => {
-                if (!isEditingVertices || !isSelected) {
+                if (points.length < 3) {
                     return
                 }
 
-                const nextPoints = getAbsolutePolygonPoints(polygon).map((point) => {
-                    const imageX = Math.round((point.x - offsetX) / scale)
-                    const imageY = Math.round((point.y - offsetY) / scale)
-
-                    return [
-                        Math.min(Math.max(imageX, 0), videoSize.width),
-                        Math.min(Math.max(imageY, 0), videoSize.height),
-                    ]
+                const polygon = new Polygon(points, {
+                    fill: color.fill,
+                    stroke: color.stroke,
+                    strokeWidth: isSelected ? 3 : 2,
+                    objectCaching: false,
+                    selectable: isEditingVertices && isSelected,
+                    evented: isEditingVertices,
+                    hasControls: isEditingVertices && isSelected,
+                    hasBorders: false,
+                    lockScalingX: true,
+                    lockScalingY: true,
+                    lockRotation: true,
+                    cornerColor: '#ffffff',
+                    cornerStrokeColor: color.stroke,
+                    cornerStyle: 'circle',
+                    transparentCorners: false,
+                    hoverCursor: isEditingVertices && isSelected ? 'move' : 'default',
+                    moveCursor: 'move',
                 })
 
-                onZonePointsChange?.(index, nextPoints)
-            }
+                const syncPolygonPoints = () => {
+                    if (!isEditingVertices || !isSelected) {
+                        return
+                    }
 
-            const labelPoint = points.reduce(
-                (current, point) => ({
-                    x: current.x + point.x / points.length,
-                    y: current.y + point.y / points.length,
-                }),
-                { x: 0, y: 0 },
-            )
+                    const nextPoints = getAbsolutePolygonPoints(polygon).map((point) => {
+                        const imageX = Math.round((point.x - offsetX) / scale)
+                        const imageY = Math.round((point.y - offsetY) / scale)
 
-            const label = new FabricText(zone.name, {
-                left: labelPoint.x,
-                top: labelPoint.y,
-                originX: 'center',
-                originY: 'center',
-                fill: '#ffffff',
-                fontSize: 13,
-                fontWeight: '700',
-                backgroundColor: color.stroke,
-                padding: 5,
-                selectable: false,
-                evented: false,
-            })
+                        return [
+                            Math.min(Math.max(imageX, 0), videoSize.width),
+                            Math.min(Math.max(imageY, 0), videoSize.height),
+                        ]
+                    })
 
-            const updateLabelPosition = () => {
-                const absolutePoints = getAbsolutePolygonPoints(polygon)
-                const nextLabelPoint = absolutePoints.reduce(
+                    onZonePointsChange?.(index, nextPoints)
+                }
+
+                const labelPoint = points.reduce(
                     (current, point) => ({
-                        x: current.x + point.x / absolutePoints.length,
-                        y: current.y + point.y / absolutePoints.length,
+                        x: current.x + point.x / points.length,
+                        y: current.y + point.y / points.length,
                     }),
                     { x: 0, y: 0 },
                 )
 
-                label.set({
-                    left: nextLabelPoint.x,
-                    top: nextLabelPoint.y,
+                const label = new FabricText(zone.name, {
+                    left: labelPoint.x,
+                    top: labelPoint.y,
+                    originX: 'center',
+                    originY: 'center',
+                    fill: '#ffffff',
+                    fontSize: 13,
+                    fontWeight: '700',
+                    backgroundColor: color.stroke,
+                    padding: 5,
+                    selectable: false,
+                    evented: false,
                 })
-                label.setCoords()
-                canvas.requestRenderAll()
-            }
 
-            if (isEditingVertices && isSelected) {
-                polygon.controls = controlsUtils.createPolyControls(polygon, {
-                    cursorStyle: 'crosshair',
-                    render: controlsUtils.renderCircleControl,
-                    sizeX: 12,
-                    sizeY: 12,
-                })
-                polygon.on('moving', updateLabelPosition)
-                polygon.on('modifyPoly', updateLabelPosition)
-                polygon.on('modified', syncPolygonPoints)
-            }
+                const updateLabelPosition = () => {
+                    const absolutePoints = getAbsolutePolygonPoints(polygon)
+                    const nextLabelPoint = absolutePoints.reduce(
+                        (current, point) => ({
+                            x: current.x + point.x / absolutePoints.length,
+                            y: current.y + point.y / absolutePoints.length,
+                        }),
+                        { x: 0, y: 0 },
+                    )
 
-            canvas.add(polygon, label)
+                    label.set({
+                        left: nextLabelPoint.x,
+                        top: nextLabelPoint.y,
+                    })
+                    label.setCoords()
+                    canvas.requestRenderAll()
+                }
 
-            if (isEditingVertices && isSelected) {
-                canvas.setActiveObject(polygon)
-            }
-        })
+                if (isEditingVertices && isSelected) {
+                    polygon.controls = controlsUtils.createPolyControls(polygon, {
+                        cursorStyle: 'crosshair',
+                        render: controlsUtils.renderCircleControl,
+                        sizeX: 12,
+                        sizeY: 12,
+                    })
+                    polygon.on('moving', updateLabelPosition)
+                    polygon.on('modifyPoly', updateLabelPosition)
+                    polygon.on('modified', syncPolygonPoints)
+                }
+
+                if (isEditingVertices) {
+                    polygon.on('mousedown', () => onZoneSelect?.(index))
+                }
+
+                canvas.add(polygon, label)
+
+                if (isEditingVertices && isSelected) {
+                    canvas.setActiveObject(polygon)
+                }
+            })
+        }
 
         if (isAddingZone && draftPoints.length > 0) {
             const color = zoneColors[zones.length % zoneColors.length]
@@ -520,9 +628,11 @@ function CameraPreview({
         videoSize,
         zones,
         selectedZoneIndex,
+        showZonesOverlay,
         isEditingVertices,
         isAddingZone,
         draftPoints,
+        onZoneSelect,
         onZonePointsChange,
     ])
 
@@ -533,8 +643,8 @@ function CameraPreview({
             return
         }
 
-        drawDetectionBoxes(canvas, detectionBoxes, previewSize, videoSize)
-    }, [detectionBoxes, previewSize, videoSize])
+        drawDetectionBoxes(canvas, detectionBoxes, detectionZones, !isEditingVertices, previewSize, videoSize)
+    }, [detectionBoxes, detectionZones, isEditingVertices, previewSize, videoSize])
 
     useEffect(() => {
         const canvas = fabricCanvasRef.current

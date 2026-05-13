@@ -136,7 +136,7 @@ function Topbar({ onSaveConfig, saveStatus, canSave }: TopbarProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-3 px-4 py-4 sm:flex-col sm:items-stretch sm:gap-4 sm:px-6 lg:px-8 xl:flex-row xl:items-center xl:justify-between">
-        <div className="hidden sm:block">
+        <div className="hidden xl:block">
           <h1 className="text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">
             Configuration Panel
           </h1>

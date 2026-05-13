@@ -7,12 +7,22 @@ import type { ZoneRealtimePose } from '../../types/realtime'
 import CameraPreview from '../video/CameraPreview'
 
 type ZonesConfigProps = {
+    reloadKey?: number
     onZonesChange?: (zones: Zone[]) => void
 }
 
-function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
+function cloneZones(zones: Zone[]) {
+    return zones.map((zone) => ({
+        ...zone,
+        goal_pose: { ...zone.goal_pose },
+        points: zone.points.map((point) => [...point]),
+    }))
+}
+
+function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
     const [reconnectKey, setReconnectKey] = useState(0)
     const [zones, setZones] = useState<Zone[]>([])
+    const [detectionZones, setDetectionZones] = useState<Zone[]>([])
     const [selectedZoneIndex, setSelectedZoneIndex] = useState<number | null>(null)
     const [isEditingVertices, setIsEditingVertices] = useState(false)
     const [isAddingZone, setIsAddingZone] = useState(false)
@@ -31,7 +41,8 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
                 const config = await getConfig()
 
                 if (!ignore) {
-                    setZones(config.zones)
+                    setZones(cloneZones(config.zones))
+                    setDetectionZones(cloneZones(config.zones))
                     setSelectedZoneIndex(null)
                 }
             } catch (error) {
@@ -50,7 +61,7 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
         return () => {
             ignore = true
         }
-    }, [])
+    }, [reloadKey])
 
     useEffect(() => {
         if (!isLoadingZones) {
@@ -102,6 +113,26 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
             ),
         )
     }, [])
+
+    const selectZone = useCallback((zoneIndex: number) => {
+        setSelectedZoneIndex(zoneIndex)
+        setIsAddingZone(false)
+        setIsRealtimeEnabled(false)
+    }, [])
+
+    const toggleVertexEditing = useCallback(() => {
+        setIsEditingVertices((current) => {
+            if (current) {
+                return false
+            }
+
+            if (selectedZoneIndex === null && zones.length > 0) {
+                setSelectedZoneIndex(0)
+            }
+
+            return true
+        })
+    }, [selectedZoneIndex, zones.length])
 
     const updateSelectedZoneName = useCallback((name: string) => {
         if (selectedZoneIndex === null) {
@@ -240,8 +271,8 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setIsEditingVertices((current) => !current)}
-                                disabled={!selectedZone || isAddingZone}
+                                onClick={toggleVertexEditing}
+                                disabled={zones.length === 0 || isAddingZone}
                                 className={`${toolButtonClass} ${isEditingVertices
                                         ? '!border-sky-200 !bg-sky-50 !text-sky-700 hover:!border-sky-200 hover:!bg-sky-50 hover:!text-sky-700'
                                         : ''
@@ -276,11 +307,7 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
                                 <button
                                     key={zone.name}
                                     type="button"
-                                    onClick={() => {
-                                        setSelectedZoneIndex(index)
-                                        setIsAddingZone(false)
-                                        setIsRealtimeEnabled(false)
-                                    }}
+                                    onClick={() => selectZone(index)}
                                     className={`flex h-12 w-full items-center justify-between gap-3 rounded-lg border px-3 text-left text-sm font-semibold shadow-sm transition-colors ${selectedZoneIndex === index
                                             ? 'border-sky-200 bg-sky-50 text-sky-700'
                                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:text-slate-950'
@@ -371,9 +398,12 @@ function ZonesConfig({ onZonesChange }: ZonesConfigProps) {
                             src={CAMERA_NEO_URL}
                             reconnectKey={reconnectKey}
                             zones={zones}
+                            detectionZones={detectionZones}
                             selectedZoneIndex={selectedZoneIndex}
+                            showZonesOverlay={isEditingVertices}
                             isEditingVertices={isEditingVertices}
                             isAddingZone={isAddingZone}
+                            onZoneSelect={selectZone}
                             onZonePointsChange={updateZonePoints}
                             onZoneAdd={addZone}
                         />

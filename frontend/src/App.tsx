@@ -13,6 +13,7 @@ function AppContent() {
   const [generalConfig, setGeneralConfig] = useState<Omit<AppConfig, 'zones'> | null>(null)
   const [zones, setZones] = useState<Zone[] | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+  const [configReloadKey, setConfigReloadKey] = useState(0)
   const toast = useToast()
 
   const saveConfig = useCallback(async () => {
@@ -27,6 +28,7 @@ function AppContent() {
         ...generalConfig,
         zones,
       })
+      setConfigReloadKey((current) => current + 1)
       setSaveStatus('saved')
       toast.success('Config saved successfully.')
       window.setTimeout(() => setSaveStatus('idle'), 1600)
@@ -44,8 +46,8 @@ function AppContent() {
         canSave={generalConfig !== null && zones !== null}
       />
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <GeneralConfig onConfigChange={setGeneralConfig} />
-        <ZonesConfig onZonesChange={setZones} />
+        <GeneralConfig reloadKey={configReloadKey} onConfigChange={setGeneralConfig} />
+        <ZonesConfig reloadKey={configReloadKey} onZonesChange={setZones} />
       </div>
     </main>
   )

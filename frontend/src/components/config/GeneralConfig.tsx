@@ -211,10 +211,11 @@ function CustomSelect<T extends SelectValue>({
 }
 
 type GeneralConfigProps = {
+    reloadKey?: number
     onConfigChange?: (config: GeneralConfigState) => void
 }
 
-function GeneralConfig({ onConfigChange }: GeneralConfigProps) {
+function GeneralConfig({ reloadKey = 0, onConfigChange }: GeneralConfigProps) {
     const [config, setConfig] = useState(defaultConfig)
     const [isLoading, setIsLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
@@ -248,7 +249,7 @@ function GeneralConfig({ onConfigChange }: GeneralConfigProps) {
         return () => {
             ignore = true
         }
-    }, [])
+    }, [reloadKey])
 
     useEffect(() => {
         if (!isLoading) {
