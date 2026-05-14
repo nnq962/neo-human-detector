@@ -263,7 +263,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                                     setIsRealtimeEnabled(false)
                                 }}
                                 className={`${toolButtonClass} ${isAddingZone
-                                        ? '!border-emerald-200 !bg-emerald-50 !text-emerald-700 hover:!border-emerald-200 hover:!bg-emerald-50 hover:!text-emerald-700'
+                                        ? '!border-red-200 !bg-red-50 !text-red-700 hover:!border-red-200 hover:!bg-red-50 hover:!text-red-700'
                                         : ''
                                     }`}
                             >

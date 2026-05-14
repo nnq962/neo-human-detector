@@ -2,7 +2,7 @@ detector:
   source: rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101
   model_path: weights/head/yolo8n_rknn_model
   conf: 0.5
-  zone_check_mode: bottom_center
+  zone_check_mode: center
   vid_stride: 1
   verbose: false
   show: true
@@ -11,53 +11,23 @@ uart:
   port: /dev/ttyS4
   baudrate: 115200
 zones:
-- name: diem-moi-khach-3
+- name: diem_tiep_khach1
   goal_pose:
-    x: -4.3818913
-    y: -1.5259991
-    theta: 1.0780727
+    x: -4.349722
+    y: -1.7225691
+    theta: 0.87882423
   points:
-  - [915, 305]
-  - [1172, 301]
-  - [1182, 527]
-  - [923, 527]
-- name: diem-moi-khach-2
+  - [921, 302]
+  - [1199, 314]
+  - [1218, 526]
+  - [931, 520]
+- name: diem_tiep_khach2
   goal_pose:
-    x: -3.83895
-    y: -0.32382596
-    theta: 2.0547128
+    x: -1.4081253
+    y: -0.7808004
+    theta: -0.8338396
   points:
-  - [1557, 438]
-  - [1833, 672]
-  - [1593, 847]
-  - [1360, 577]
-- name: diem-moi-khach-1
-  goal_pose:
-    x: -5.5157356
-    y: -3.2667286
-    theta: 1.0970405
-  points:
-  - [1350, 199]
-  - [1555, 253]
-  - [1524, 380]
-  - [1323, 318]
-- name: giam-doc
-  goal_pose:
-    x: -1.7357546
-    y: -0.12019497
-    theta: 0.22405007
-  points:
-  - [440, 819]
-  - [804, 816]
-  - [800, 1074]
-  - [436, 1071]
-- name: doanh
-  goal_pose:
-    x: -0.968414
-    y: -2.2161543
-    theta: -1.2214335
-  points:
-  - [537, 300]
-  - [722, 302]
-  - [732, 478]
-  - [529, 476]
+  - [494, 285]
+  - [766, 285]
+  - [772, 459]
+  - [492, 459]

@@ -324,7 +324,7 @@ function drawDetectionBoxes(
         const boxY = videoRect.offsetY + y * videoRect.height
         const boxWidth = width * videoRect.width
         const boxHeight = height * videoRect.height
-        const label = `#${object.id} ${(object.conf * 100).toFixed(0)}%`
+        const label = `${(object.conf * 100).toFixed(0)}%`
 
         context.strokeStyle = '#22d3ee'
         context.fillStyle = 'rgba(34, 211, 238, 0.14)'

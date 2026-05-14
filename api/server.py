@@ -36,4 +36,4 @@ app.include_router(websocket.router)
 
 # ────────────────────────────────────────────────────────────────
 # Mount frontend build
-app.mount("/", StaticFiles(directory="static", html=True), name="frontend")
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")

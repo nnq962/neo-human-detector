@@ -31,11 +31,6 @@ data_points = [
 
 # --- 2. LUỒNG GỬI (TX THREAD - LUỒNG CHÍNH) ---
 while True:
-    for point in data_points:
-        name, x, y, theta = point["name"], point["x"], point["y"], point["theta"]
-        # LOGGER.info(f"Đang gửi: {name}, x={x}, y={y}, theta={theta}")
-        uart_manager.send_string(f"d:{name},{x},{y},{theta}")
-        
-        # Bạn không cần chờ 0.1s ở đây nữa, luồng nhận sẽ tự bắt được phản hồi
-        # Cứ gửi xong là chờ 10s như cũ
-        time.sleep(10)
+    for send_string in range(1, 1001):
+        uart_manager.send_string(str(send_string))
+        time.sleep(0.5)

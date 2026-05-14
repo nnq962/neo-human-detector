@@ -12,7 +12,6 @@ export interface DetectionBoxesPayload {
 }
 
 export interface DetectionObject {
-    id: number
     bbox: [number, number, number, number]
     conf: number
 }
