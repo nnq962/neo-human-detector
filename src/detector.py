@@ -82,8 +82,8 @@ class Detector:
         self.latest_uart_payload = None
 
         self.zone_state_machine = ZoneStateMachine(
-            confirm_enter_time=8.0,
-            confirm_exit_time=8.0,
+            confirm_enter_time=5.0,
+            confirm_exit_time=5.0,
             pending_enter_miss_grace_time=1.5,
         )
 

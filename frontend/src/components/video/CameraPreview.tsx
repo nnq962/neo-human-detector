@@ -36,6 +36,9 @@ type OfferData = {
     medias: string[]
 }
 
+const DOUBLE_TAP_MAX_DELAY_MS = 350
+const DOUBLE_TAP_MAX_DISTANCE_PX = 28
+
 function getWhepUrl(src: string) {
     const trimmedSrc = src.trim()
 
@@ -371,6 +374,7 @@ function CameraPreview({
     const fabricCanvasRef = useRef<Canvas | null>(null)
     const isFinishingDraftRef = useRef(false)
     const draftPointsRef = useRef<number[][]>([])
+    const lastDraftTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
     const [status, setStatus] = useState<StreamStatus>('connecting')
     const [errorMessage, setErrorMessage] = useState('')
     const [resolution, setResolution] = useState('Detecting...')
@@ -676,26 +680,48 @@ function CameraPreview({
             ]
         }
 
+        const isDoubleTap = (event: MouseEvent | PointerEvent | TouchEvent, point: Point) => {
+            const now = event.timeStamp || Date.now()
+            const lastTap = lastDraftTapRef.current
+
+            if (!lastTap) {
+                lastDraftTapRef.current = { time: now, x: point.x, y: point.y }
+                return false
+            }
+
+            const elapsed = now - lastTap.time
+            const distance = Math.hypot(point.x - lastTap.x, point.y - lastTap.y)
+
+            lastDraftTapRef.current = { time: now, x: point.x, y: point.y }
+            return elapsed <= DOUBLE_TAP_MAX_DELAY_MS && distance <= DOUBLE_TAP_MAX_DISTANCE_PX
+        }
+
+        const finishDraft = () => {
+            if (isFinishingDraftRef.current) {
+                return
+            }
+
+            isFinishingDraftRef.current = true
+            const currentPoints = draftPointsRef.current
+
+            if (currentPoints.length < 2) {
+                isFinishingDraftRef.current = false
+                return
+            }
+
+            draftPointsRef.current = []
+            lastDraftTapRef.current = null
+            setDraftPoints([])
+            onZoneAdd?.(currentPoints)
+        }
+
         const handleMouseDown = (event: { e: MouseEvent | PointerEvent | TouchEvent }) => {
             const point = canvas.getScenePoint(event.e)
             const nextPoint = canvasToImagePoint(point)
+            const shouldFinishDraft = event.e.detail >= 2 || isDoubleTap(event.e, point)
 
-            if (event.e.detail >= 2) {
-                if (isFinishingDraftRef.current) {
-                    return
-                }
-
-                isFinishingDraftRef.current = true
-                const currentPoints = draftPointsRef.current
-
-                if (currentPoints.length < 2) {
-                    isFinishingDraftRef.current = false
-                    return
-                }
-
-                draftPointsRef.current = []
-                setDraftPoints([])
-                onZoneAdd?.(currentPoints)
+            if (shouldFinishDraft) {
+                finishDraft()
                 return
             }
 
@@ -717,6 +743,7 @@ function CameraPreview({
             draftPointsRef.current = []
             setDraftPoints([])
             isFinishingDraftRef.current = false
+            lastDraftTapRef.current = null
         }
     }, [isAddingZone])
 

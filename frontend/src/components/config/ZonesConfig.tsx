@@ -19,6 +19,16 @@ function cloneZones(zones: Zone[]) {
     }))
 }
 
+function isDuplicateZoneName(zones: Zone[], selectedIndex: number, name: string) {
+    const normalizedName = name.trim()
+
+    if (!normalizedName) {
+        return false
+    }
+
+    return zones.some((zone, index) => index !== selectedIndex && zone.name.trim() === normalizedName)
+}
+
 function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
     const [reconnectKey, setReconnectKey] = useState(0)
     const [zones, setZones] = useState<Zone[]>([])
@@ -29,6 +39,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
     const [isRealtimeEnabled, setIsRealtimeEnabled] = useState(false)
     const [isLoadingZones, setIsLoadingZones] = useState(true)
     const [zonesError, setZonesError] = useState('')
+    const [zoneNameError, setZoneNameError] = useState('')
 
     useEffect(() => {
         let ignore = false
@@ -44,6 +55,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                     setZones(cloneZones(config.zones))
                     setDetectionZones(cloneZones(config.zones))
                     setSelectedZoneIndex(null)
+                    setZoneNameError('')
                 }
             } catch (error) {
                 if (!ignore) {
@@ -118,6 +130,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
         setSelectedZoneIndex(zoneIndex)
         setIsAddingZone(false)
         setIsRealtimeEnabled(false)
+        setZoneNameError('')
     }, [])
 
     const toggleVertexEditing = useCallback(() => {
@@ -139,6 +152,12 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
             return
         }
 
+        if (isDuplicateZoneName(zones, selectedZoneIndex, name)) {
+            setZoneNameError(`Zone name "${name.trim()}" already exists.`)
+            return
+        }
+
+        setZoneNameError('')
         setZones((currentZones) =>
             currentZones.map((zone, index) =>
                 index === selectedZoneIndex
@@ -149,7 +168,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                     : zone,
             ),
         )
-    }, [selectedZoneIndex])
+    }, [selectedZoneIndex, zones])
 
     const updateSelectedZoneGoalPose = useCallback((
         field: 'x' | 'y' | 'theta',
@@ -196,6 +215,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
             setIsAddingZone(false)
             setIsEditingVertices(true)
             setIsRealtimeEnabled(false)
+            setZoneNameError('')
 
             return nextZones
         })
@@ -213,6 +233,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
 
             setSelectedZoneIndex(nextSelectedIndex)
             setIsRealtimeEnabled(false)
+            setZoneNameError('')
 
             if (nextSelectedIndex === null) {
                 setIsEditingVertices(false)
@@ -305,7 +326,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
 
                             {zones.map((zone, index) => (
                                 <button
-                                    key={zone.name}
+                                    key={`${zone.name}-${index}`}
                                     type="button"
                                     onClick={() => selectZone(index)}
                                     className={`flex h-12 w-full items-center justify-between gap-3 rounded-lg border px-3 text-left text-sm font-semibold shadow-sm transition-colors ${selectedZoneIndex === index
@@ -355,8 +376,15 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                                     value={selectedZone?.name ?? ''}
                                     disabled={!selectedZone}
                                     onChange={(event) => updateSelectedZoneName(event.target.value)}
-                                    className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                                    aria-invalid={zoneNameError ? 'true' : 'false'}
+                                    className={`h-11 w-full min-w-0 rounded-lg border bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:ring-2 ${zoneNameError
+                                            ? 'border-rose-300 focus:border-rose-400 focus:ring-rose-100'
+                                            : 'border-slate-200 focus:border-sky-400 focus:ring-sky-100'
+                                        }`}
                                 />
+                                {zoneNameError ? (
+                                    <p className="text-xs font-semibold text-rose-600">{zoneNameError}</p>
+                                ) : null}
                             </label>
 
                             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
