@@ -1,7 +1,6 @@
 from threading import Thread
 from typing import Optional
 from src.detector import Detector
-from src.detector import Detector
 from api.services import config as config_service
 from utils import LOGGER
 
@@ -55,6 +54,14 @@ def update_dynamic_params(cfg: dict) -> None:
     detector_cfg = cfg.get("detector", {})
     if "verbose" in detector_cfg:
         _detector.update_detector_params(verbose=detector_cfg["verbose"])
+
+    zone_state_machine_params = {
+        "confirm_enter_time": detector_cfg.get("confirm_enter_time"),
+        "confirm_exit_time": detector_cfg.get("confirm_exit_time"),
+        "pending_enter_miss_grace_time": detector_cfg.get("pending_enter_miss_grace_time"),
+    }
+    if any(value is not None for value in zone_state_machine_params.values()):
+        _detector.update_zone_state_machine_params(**zone_state_machine_params)
 
 
 def start() -> dict:

@@ -6,6 +6,9 @@ class DetectorConfig(BaseModel):
     model_path: str = "models/head/yolo8n_rknn_model"
     conf: float = Field(0.70, ge=0.0, le=1.0)
     zone_check_mode: str = "center"
+    confirm_enter_time: float = Field(5.0, ge=0.0)
+    confirm_exit_time: float = Field(5.0, ge=0.0)
+    pending_enter_miss_grace_time: float = Field(1.5, ge=0.0)
     vid_stride: int = Field(1, ge=1)
     verbose: bool = True
 

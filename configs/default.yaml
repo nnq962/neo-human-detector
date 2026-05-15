@@ -4,6 +4,9 @@ detector:
   model_path: weights/head/yolo8n_rknn_model
   conf: 0.5
   zone_check_mode: center
+  confirm_enter_time: 5.3
+  confirm_exit_time: 5.3
+  pending_enter_miss_grace_time: 1.3
   vid_stride: 1
   verbose: false
 uart:
