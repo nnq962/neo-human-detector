@@ -33,12 +33,13 @@ type DetectorRunStatus = 'loading' | 'running' | 'stopped' | 'error'
 type DetectorAction = 'Start' | 'Stop' | 'Restart'
 
 type TopbarProps = {
+  onCancelConfig: () => void
   onSaveConfig: () => void
   saveStatus: SaveStatus
   canSave: boolean
 }
 
-function Topbar({ onSaveConfig, saveStatus, canSave }: TopbarProps) {
+function Topbar({ onCancelConfig, onSaveConfig, saveStatus, canSave }: TopbarProps) {
   const [detectorStatus, setDetectorStatus] = useState<DetectorRunStatus>('loading')
   const [pendingDetectorAction, setPendingDetectorAction] = useState<DetectorAction | null>(null)
   const toast = useToast()
@@ -172,6 +173,19 @@ function Topbar({ onSaveConfig, saveStatus, canSave }: TopbarProps) {
           </div>
 
           <div className="h-8 w-px bg-slate-200" />
+
+          <button
+            type="button"
+            aria-label="Cancel"
+            onClick={onCancelConfig}
+            disabled={!canSave || saveStatus === 'saving'}
+            className={`${baseButtonClass} border-slate-200 bg-white text-slate-700 shadow-slate-900/10 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-slate-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-white disabled:hover:shadow-sm`}
+          >
+            <span className="grid size-5 place-items-center rounded-full bg-slate-100 text-[13px] leading-none shadow-sm transition-colors group-hover:bg-white">
+              ×
+            </span>
+            <span className="hidden sm:inline">Cancel</span>
+          </button>
 
           <button
             type="button"

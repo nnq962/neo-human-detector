@@ -5,6 +5,9 @@ export interface AppConfig {
     model_path: string;
     conf: number;
     zone_check_mode: string;
+    confirm_enter_time: number;
+    confirm_exit_time: number;
+    pending_enter_miss_grace_time: number;
     vid_stride: number;
     verbose: boolean;
   };

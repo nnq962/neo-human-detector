@@ -47,6 +47,11 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
         const loadZones = async () => {
             setIsLoadingZones(true)
             setZonesError('')
+            setIsEditingVertices(false)
+            setIsAddingZone(false)
+            setIsRealtimeEnabled(false)
+            setSelectedZoneIndex(null)
+            setZoneNameError('')
 
             try {
                 const config = await getConfig()
@@ -54,8 +59,6 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                 if (!ignore) {
                     setZones(cloneZones(config.zones))
                     setDetectionZones(cloneZones(config.zones))
-                    setSelectedZoneIndex(null)
-                    setZoneNameError('')
                 }
             } catch (error) {
                 if (!ignore) {

@@ -24,6 +24,9 @@ const defaultConfig: GeneralConfigState = {
         model_path: 'weights/head/yolo8n_rknn_model',
         conf: 0.5,
         zone_check_mode: 'bottom_center',
+        confirm_enter_time: 5.0,
+        confirm_exit_time: 5.0,
+        pending_enter_miss_grace_time: 1.5,
         vid_stride: 1,
         verbose: false,
     },
@@ -355,6 +358,57 @@ function GeneralConfig({ reloadKey = 0, onConfigChange }: GeneralConfigProps) {
                                         detector: {
                                             ...current.detector,
                                             vid_stride: value,
+                                        },
+                                    }))
+                                }
+                            />
+
+                            <NumberStepper
+                                label="Confirm Enter Time"
+                                value={config.detector.confirm_enter_time}
+                                min={0}
+                                max={120}
+                                step={0.1}
+                                onChange={(value) =>
+                                    setConfig((current) => ({
+                                        ...current,
+                                        detector: {
+                                            ...current.detector,
+                                            confirm_enter_time: value,
+                                        },
+                                    }))
+                                }
+                            />
+
+                            <NumberStepper
+                                label="Confirm Exit Time"
+                                value={config.detector.confirm_exit_time}
+                                min={0}
+                                max={120}
+                                step={0.1}
+                                onChange={(value) =>
+                                    setConfig((current) => ({
+                                        ...current,
+                                        detector: {
+                                            ...current.detector,
+                                            confirm_exit_time: value,
+                                        },
+                                    }))
+                                }
+                            />
+
+                            <NumberStepper
+                                label="Pending Enter Miss Grace"
+                                value={config.detector.pending_enter_miss_grace_time}
+                                min={0}
+                                max={120}
+                                step={0.1}
+                                onChange={(value) =>
+                                    setConfig((current) => ({
+                                        ...current,
+                                        detector: {
+                                            ...current.detector,
+                                            pending_enter_miss_grace_time: value,
                                         },
                                     }))
                                 }

@@ -34,6 +34,9 @@ class Detector:
         vid_stride: int = 1,
         zones: Optional[List[Zone]] = None,
         zone_check_mode: str = "center",
+        confirm_enter_time: float = 5.0,
+        confirm_exit_time: float = 5.0,
+        pending_enter_miss_grace_time: float = 1.5,
         verbose: bool = True,
     ):
         """
@@ -48,6 +51,9 @@ class Detector:
             zone_check_mode: Cách xác định điểm đại diện khi kiểm tra zone:
                                - 'center': tâm bbox (mặc định)
                                - 'bottom_center': giữa cạnh dưới bbox
+            confirm_enter_time: Thời gian xác nhận zone có người
+            confirm_exit_time : Thời gian xác nhận zone không còn người
+            pending_enter_miss_grace_time: Thời gian cho phép miss khi đang chờ enter
             verbose        : Hiển thị log chi tiết
         """
 
@@ -82,9 +88,9 @@ class Detector:
         self.latest_uart_payload = None
 
         self.zone_state_machine = ZoneStateMachine(
-            confirm_enter_time=5.0,
-            confirm_exit_time=5.0,
-            pending_enter_miss_grace_time=1.5,
+            confirm_enter_time=confirm_enter_time,
+            confirm_exit_time=confirm_exit_time,
+            pending_enter_miss_grace_time=pending_enter_miss_grace_time,
         )
 
         # Load model
@@ -219,6 +225,38 @@ class Detector:
         """
         self.zones = zones or []
         LOGGER.info("Detector zones updated")
+
+    def update_zone_state_machine_params(
+        self,
+        confirm_enter_time: Optional[float] = None,
+        confirm_exit_time: Optional[float] = None,
+        pending_enter_miss_grace_time: Optional[float] = None,
+    ):
+        """
+        Hot-update ZoneStateMachine timing parameters without resetting zone states.
+        """
+        updates = {
+            "confirm_enter_time": confirm_enter_time,
+            "confirm_exit_time": confirm_exit_time,
+            "pending_enter_miss_grace_time": pending_enter_miss_grace_time,
+        }
+
+        for param_name, param_value in updates.items():
+            if param_value is None:
+                continue
+
+            next_value = float(param_value)
+            if next_value < 0:
+                raise ValueError(f"{param_name} must be greater than or equal to 0.")
+
+            setattr(self.zone_state_machine, param_name, next_value)
+
+        LOGGER.info(
+            "ZoneStateMachine params updated: "
+            f"confirm_enter_time={self.zone_state_machine.confirm_enter_time}, "
+            f"confirm_exit_time={self.zone_state_machine.confirm_exit_time}, "
+            f"pending_enter_miss_grace_time={self.zone_state_machine.pending_enter_miss_grace_time}"
+        )
 
     def sync_uart(self):
         """Gửi dữ liệu các zone đang có người khi nhận được lệnh sync (lọc bỏ zone robot đang đứng)."""

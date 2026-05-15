@@ -16,6 +16,12 @@ function AppContent() {
   const [configReloadKey, setConfigReloadKey] = useState(0)
   const toast = useToast()
 
+  const cancelConfig = useCallback(() => {
+    setConfigReloadKey((current) => current + 1)
+    setSaveStatus('idle')
+    toast.success('Changes discarded.')
+  }, [toast])
+
   const saveConfig = useCallback(async () => {
     if (!generalConfig || !zones) {
       return
@@ -41,6 +47,7 @@ function AppContent() {
   return (
     <main className="min-h-screen bg-slate-50">
       <Topbar
+        onCancelConfig={cancelConfig}
         onSaveConfig={saveConfig}
         saveStatus={saveStatus}
         canSave={generalConfig !== null && zones !== null}

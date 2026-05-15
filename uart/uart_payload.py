@@ -8,6 +8,8 @@ from utils import LOGGER
 
 
 MAX_UART_BYTES = 250
+UART_SEND_REPEAT_COUNT = 3
+UART_REPEAT_DELAY_SECONDS = 0.3
 ROBOT_AT_ZONE_DISTANCE_THRESHOLD = 0.1
 
 
@@ -31,6 +33,12 @@ def build_uart_string(det_list: list, clr_list: list, is_sync: bool = False) -> 
         parts.append(c_str)
 
     return "-".join(parts)
+
+
+def send_uart_string_repeated(uart, message: str):
+    for _ in range(UART_SEND_REPEAT_COUNT):
+        threading.Thread(target=uart.send_string, args=(message,), daemon=True).start()
+        time.sleep(UART_REPEAT_DELAY_SECONDS)
 
 
 def send_uart_payload(uart, payload: dict, is_sync: bool = False):
@@ -61,15 +69,14 @@ def send_uart_payload(uart, payload: dict, is_sync: bool = False):
 
             full_str = build_uart_string(current_det, current_clr, is_sync)
             if full_str:
-                threading.Thread(target=uart.send_string, args=(full_str,), daemon=True).start()
-                time.sleep(0.02)
+                send_uart_string_repeated(uart, full_str)
 
             current_det = [event_data] if event_type == "d" else []
             current_clr = [event_data] if event_type == "c" else []
 
     final_str = build_uart_string(current_det, current_clr, is_sync)
     if final_str:
-        threading.Thread(target=uart.send_string, args=(final_str,), daemon=True).start()
+        send_uart_string_repeated(uart, final_str)
 
 
 def build_occupied_zones_sync_payload(zones: List[Zone], latest_received_data: Optional[dict]) -> dict:
