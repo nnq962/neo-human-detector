@@ -5,7 +5,7 @@ import os
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
 
-from utils import load_config, load_zones, LOGGER
+from utils import load_cameras, load_config, LOGGER
 from src.detector import Detector
 
 def main():
@@ -16,16 +16,20 @@ def main():
         LOGGER.error(f"Không tìm thấy file cấu hình tại {config_path}")
         return
         
-    # Tái sử dụng utils để load config và zone
+    # Tái sử dụng utils để load config và camera
     cfg = load_config(config_path)
-    zones = load_zones(cfg)
+    cameras = load_cameras(cfg)
             
     # Nạp cấu hình detector
     detector_opts = cfg.get("detector", {})
+    detector_opts.update(cfg.get("zones_state_machine", {}))
+    streams_file = cfg.get("source", {}).get("streams_file")
+    if streams_file:
+        detector_opts["source"] = streams_file
     
-    # Khởi tạo Detector với 1 zone và cấu hình detector
+    # Khởi tạo Detector với danh sách camera và cấu hình detector
     detector = Detector(
-        zones=zones,
+        cameras=cameras,
         **detector_opts
     )
     

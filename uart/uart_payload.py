@@ -13,6 +13,10 @@ UART_REPEAT_DELAY_SECONDS = 0.3
 ROBOT_AT_ZONE_DISTANCE_THRESHOLD = 0.1
 
 
+def get_uart_zone_id(item: dict) -> str:
+    return item.get("zone_key") or item.get("zone_name", "")
+
+
 def build_uart_string(det_list: list, clr_list: list, is_sync: bool = False) -> str:
     parts = []
     if is_sync:
@@ -20,14 +24,14 @@ def build_uart_string(det_list: list, clr_list: list, is_sync: bool = False) -> 
 
     if det_list:
         d_str = "d:" + ";".join([
-            f"{item['zone_name']},{item['goal_pose'].get('x', 0)},{item['goal_pose'].get('y', 0)},{item['goal_pose'].get('theta', 0)}"
+            f"{get_uart_zone_id(item)},{item['goal_pose'].get('x', 0)},{item['goal_pose'].get('y', 0)},{item['goal_pose'].get('theta', 0)}"
             for item in det_list
         ])
         parts.append(d_str)
 
     if clr_list:
         c_str = "c:" + ";".join([
-            f"{item['zone_name']},{item['goal_pose'].get('x', 0)},{item['goal_pose'].get('y', 0)},{item['goal_pose'].get('theta', 0)}"
+            f"{get_uart_zone_id(item)},{item['goal_pose'].get('x', 0)},{item['goal_pose'].get('y', 0)},{item['goal_pose'].get('theta', 0)}"
             for item in clr_list
         ])
         parts.append(c_str)
@@ -106,12 +110,15 @@ def build_occupied_zones_sync_payload(zones: List[Zone], latest_received_data: O
             if distance < ROBOT_AT_ZONE_DISTANCE_THRESHOLD:
                 is_robot_at_zone = True
                 LOGGER.info(
-                    f"Lược bỏ zone {zone.name} khỏi lệnh sync vì robot đang đứng tại đây "
+                    f"Lược bỏ zone {zone.key} khỏi lệnh sync vì robot đang đứng tại đây "
                     f"(khoảng cách: {distance:.2f}m)."
                 )
 
         if not is_robot_at_zone:
             sync_payload["detected"].append({
+                "camera_id": zone.camera_id,
+                "camera_name": zone.camera_name,
+                "zone_key": zone.key,
                 "zone_name": zone.name,
                 "goal_pose": zone.goal_pose
             })

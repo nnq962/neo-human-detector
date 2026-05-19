@@ -1,5 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass
+from typing import List, Tuple, Optional
 import numpy as np
 
 # ────────────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ class ZoneColor:
 @dataclass
 class Zone:
     """Class lưu trữ toàn bộ trạng thái và thông tin của một vùng Zone"""
+    camera_id: str
+    camera_name: str
     name: str
     pts: np.ndarray
     goal_pose: dict
@@ -49,6 +52,11 @@ class Zone:
     is_served: bool = False      # Trạng thái phục vụ (VD: robot đã mang đồ ăn ra chưa)
     occupied_duration: float = 0.0 # Tổng thời gian khách đã ngồi (tính bằng giây)
 
+    @property
+    def key(self) -> str:
+        """Định danh duy nhất cho zone trong hệ multi-camera."""
+        return f"{self.camera_id}.{self.name}"
+
     def get_current_color(self) -> tuple:
         """Gọi nhanh hàm này khi cần vẽ cv2.polylines hoặc cv2.putText"""
         return ZoneColor.get_color(self.state)
@@ -60,3 +68,13 @@ class Zone:
         self.lost_time = 0.0
         self.is_served = False
         self.occupied_duration = 0.0
+
+# ────────────────────────────────────────────────────────────────
+@dataclass
+class Camera:
+    """Camera đầu vào cùng danh sách zone thuộc riêng camera đó."""
+    id: str
+    name: str
+    source: str
+    zones: List[Zone]
+    resolution: Optional[Tuple[int, int]] = None

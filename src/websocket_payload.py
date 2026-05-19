@@ -1,17 +1,19 @@
 import time
-from typing import List
+from typing import Dict, List, Optional, Tuple
 import numpy as np
-from src.models import Zone
+from src.models import Camera, Zone
 
 
 def build_detection_websocket_payload(
-    frame: np.ndarray,
+    camera: Camera,
+    resolution: Tuple[int, int],
     bboxes: np.ndarray,
     confs: np.ndarray,
     zones: List[Zone],
+    zone_counts: Optional[Dict[str, int]] = None,
 ) -> dict:
     """Đóng gói bbox và trạng thái zone cho WebSocket preview."""
-    h, w = frame.shape[:2]
+    w, h = resolution
     objects_data = []
 
     for bbox, conf in zip(bboxes, confs):
@@ -23,8 +25,11 @@ def build_detection_websocket_payload(
 
     return {
         "timestamp": int(time.time() * 1000),
+        "camera_id": camera.id,
+        "camera_name": camera.name,
         "resolution": {"width": w, "height": h},
         "count": len(objects_data),
         "objects": objects_data,
-        "zones": {zone.name: zone.state.value for zone in zones}
+        "zones": {zone.key: zone.state.value for zone in zones},
+        "zone_counts": zone_counts or {zone.key: 0 for zone in zones},
     }

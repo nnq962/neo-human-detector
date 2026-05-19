@@ -1,6 +1,7 @@
 import yaml
 import os
 import aidcv as cv2
+from utils import load_config
 
 CONFIG_PATH = "configs/default.yaml"
 TEST_CONFIG_PATH = "configs/test.yaml"
@@ -17,9 +18,8 @@ yaml.add_representer(FlowList, flow_list_rep)
 def get_config_data() -> dict:
     if not os.path.exists(CONFIG_PATH):
         raise FileNotFoundError("Configuration file not found.")
-    
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+
+    return load_config(CONFIG_PATH)
 
 def deep_update(d, u):
     import collections.abc
@@ -68,14 +68,15 @@ def save_config_data(config_dict: dict) -> None:
     try:
         from api.services import detector as detector_service
         detector_service.update_dynamic_params(config_dict)
-        detector_service.update_zone(config_dict.get("zones"))
+        detector_service.update_zone(config_dict.get("cameras"))
     except Exception as e:
         import logging
         logging.warning(f"Could not trigger hot-reload: {e}")
 
 def get_snapshot_image() -> bytes:
     config = get_config_data()
-    rtsp_url = config.get("detector", {}).get("source")
+    cameras = config.get("cameras") or []
+    rtsp_url = cameras[0].get("source") if cameras else None
     
     if not rtsp_url:
         raise ValueError("Không tìm thấy RTSP URL trong config.")

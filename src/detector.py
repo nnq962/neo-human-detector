@@ -1,9 +1,9 @@
 import aidcv as cv2
 import numpy as np
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ultralytics import YOLO
 import time
-from src.models import Zone
+from src.models import Camera
 from src.visualization import draw_overlay, draw_zones
 from src.websocket_payload import build_detection_websocket_payload
 from src.zone_geometry import assign_bboxes_to_zones
@@ -11,6 +11,16 @@ from src.zone_state_machine import ZoneStateMachine
 from uart.uart_payload import build_occupied_zones_sync_payload, send_uart_payload
 from uart.uart_manager import uart_manager
 from utils import LOGGER, restore_level_names
+
+
+MODEL_PATHS = {
+    ("nano", 1): "weights/head/yolo8n_rknn_model_b1",
+    ("nano", 2): "weights/head/yolo8n_rknn_model_b2",
+    ("nano", 4): "weights/head/yolo8n_rknn_model_b4",
+    ("nano", 8): "weights/head/yolo8n_rknn_model_b8",
+    ("medium", 1): "weights/head/yolo8m_rknn_model_b1",
+}
+
 
 class Detector:
     """
@@ -26,13 +36,14 @@ class Detector:
 
     def __init__(
         self,
-        source=0,
-        model_path: str = "weights/head/yolov8_nano_rknn_model",
+        source: str = "configs/rtsp.streams",
+        model_size: str = "nano",
         conf: float = 0.50,
         show: bool = False,
         show_scale: float = 1.0,
         vid_stride: int = 1,
-        zones: Optional[List[Zone]] = None,
+        batch_size: int = 1,
+        cameras: Optional[List[Camera]] = None,
         zone_check_mode: str = "center",
         confirm_enter_time: float = 5.0,
         confirm_exit_time: float = 5.0,
@@ -42,12 +53,13 @@ class Detector:
         """
         Args:
             source         : int (USB cam), str (file/RTSP)
-            model_path     : Path to the YOLO RKNN model
+            model_size     : Kích thước model YOLO (nano, small, medium, large)
             conf           : Ngưỡng confidence (0.0 - 1.0)
             show           : Hiển thị cửa sổ kết quả
             show_scale     : Tỷ lệ hiển thị cửa sổ kết quả (mặc định 1.0)
             vid_stride     : Bước lặp khi xử lý video (mặc định 1)
-            zones          : Danh sách các Zone được giám sát
+            batch_size     : Số frame đưa vào một lần predict khi dùng batch mode
+            cameras        : Danh sách camera và zones thuộc từng camera
             zone_check_mode: Cách xác định điểm đại diện khi kiểm tra zone:
                                - 'center': tâm bbox (mặc định)
                                - 'bottom_center': giữa cạnh dưới bbox
@@ -58,34 +70,40 @@ class Detector:
         """
 
         self.source = source
-        self.model_path = model_path
+        self.model_size = model_size
         self.conf = conf
         self.show = show
         self.zone_check_mode = zone_check_mode
         self.show_scale = show_scale
-        self.zones = zones or []
+        self.cameras = cameras or []
+        self.all_zones = [zone for camera in self.cameras for zone in camera.zones]
         self.verbose = verbose
         self.vid_stride = vid_stride
+        self.batch_size = int(batch_size)
+
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be greater than or equal to 1.")
+
+        if len(self.cameras) != self.batch_size:
+            raise ValueError(
+                f"Number of cameras ({len(self.cameras)}) must match batch_size ({self.batch_size})."
+            )
 
         # Log info
         LOGGER.info(f"Source: {self.source}")
-        LOGGER.info(f"Model path: {self.model_path}")
+        LOGGER.info(f"Model size: {self.model_size}")
+        LOGGER.info(f"Batch size: {self.batch_size}")
         LOGGER.info(f"Conf: {self.conf}")
         LOGGER.info(f"Show: {self.show}")
         LOGGER.info(f"Show scale: {self.show_scale}")
-        LOGGER.info(f"Number of zones: {len(self.zones)}")
+        LOGGER.info(f"Number of cameras: {len(self.cameras)}")
+        LOGGER.info(f"Number of zones: {len(self.all_zones)}")
         LOGGER.info(f"Zone check mode: {self.zone_check_mode}")
         LOGGER.info(f"Video stride: {self.vid_stride}")
         LOGGER.info(f"Verbose: {self.verbose}")
 
         if not self.show:
             LOGGER.warning("Show is disabled, AI will run in background")     
-
-        # Dữ liệu WebSocket mới nhất để gửi xuống Frontend
-        self.latest_ws_payload = None
-
-        # Dữ liệu UART mới nhất đã gửi đi
-        self.latest_uart_payload = None
 
         self.zone_state_machine = ZoneStateMachine(
             confirm_enter_time=confirm_enter_time,
@@ -94,24 +112,49 @@ class Detector:
         )
 
         # Load model
-        self.model = YOLO(
-            self.model_path, 
-            task="detect"
-        )
+        self.model_path = self._resolve_model_path()
+        self.model = self._load_model()
 
         self.is_running = True
 
+        # Dữ liệu WebSocket mới nhất theo từng camera để gửi xuống Frontend
+        self.latest_ws_payload = {
+            "timestamp": 0,
+            "cameras": {},
+        }
+
+        # Dữ liệu UART mới nhất đã gửi đi
+        self.latest_uart_payload = None
+
         # Khởi tạo UART Manager để gửi dữ liệu
         self.uart = uart_manager
+    
+    def _load_model(self):
+        """Tải model YOLO dựa trên model_size và batch_size đã cấu hình."""
+        return YOLO(self.model_path, task="detect")
+
+    def _resolve_model_path(self) -> str:
+        model_key = (self.model_size, self.batch_size)
+        model_path = MODEL_PATHS.get(model_key)
+        if model_path is None:
+            supported = ", ".join(
+                f"{size}/batch{batch}" for size, batch in sorted(MODEL_PATHS)
+            )
+            raise ValueError(
+                f"Unsupported model_size/batch_size: {self.model_size}/batch{self.batch_size}. "
+                f"Supported: {supported}"
+            )
+        return model_path
 
     def _inference(self):
         """
         Thực hiện nhận diện đối tượng trên luồng dữ liệu đầu vào.
 
-        Project hiện chỉ dùng bbox + zone occupancy.
-
         Returns:
-            Iterable: Trình tạo (generator) trả về kết quả nhận diện cho từng khung hình.
+            Iterable: Generator sinh ra đối tượng Result cho từng khung hình đơn lẻ.
+            * Lưu ý: Dù cấu hình batch_size > 1 hay chạy đa luồng camera, kết quả 
+              luôn được tự động trải phẳng (flatten) và trả về luân phiên 
+              (VD: Cam1-Frame1 -> Cam2-Frame1 -> Cam1-Frame2 -> Cam2-Frame2...).
         """
 
         results = self.model.predict(
@@ -121,11 +164,13 @@ class Detector:
             stream=True,
             verbose=False,
             vid_stride=self.vid_stride,
+            batch=self.batch_size,
         )
 
         return results
 
-    def _parse_detections(self, boxes):
+    @staticmethod
+    def _parse_detections(boxes) -> Tuple[np.ndarray, np.ndarray]:
         """
         Trích xuất thông tin Bounding Box và Confidence từ đối tượng boxes của YOLO.
         
@@ -141,6 +186,7 @@ class Detector:
             bboxes = boxes.xyxy.cpu().numpy()   # (N, 4)
             confs  = boxes.conf.cpu().numpy()   # (N,)
         else:
+            # Gán sẵn dtype float32 để đồng nhất với dữ liệu tensor của YOLO
             bboxes = np.empty((0, 4), dtype=np.float32)
             confs  = np.empty((0,),   dtype=np.float32)
             
@@ -194,7 +240,7 @@ class Detector:
                 pass
 
         # 3. Reset trạng thái các zone về EMPTY
-        for zone in self.zones:
+        for zone in self.all_zones:
             zone.reset_zone()
 
         # 4. Đóng cửa sổ GUI
@@ -219,12 +265,11 @@ class Detector:
         self.verbose = verbose
         LOGGER.info("Detector params updated")
 
-    def update_zone(self, zones: Optional[List[Zone]]):
-        """
-        Update the detection zone.
-        """
-        self.zones = zones or []
-        LOGGER.info("Detector zones updated")
+    def update_cameras(self, cameras: Optional[List[Camera]]):
+        """Update cameras and their zones."""
+        self.cameras = cameras or []
+        self.all_zones = [zone for camera in self.cameras for zone in camera.zones]
+        LOGGER.info("Detector cameras updated")
 
     def update_zone_state_machine_params(
         self,
@@ -261,7 +306,7 @@ class Detector:
     def sync_uart(self):
         """Gửi dữ liệu các zone đang có người khi nhận được lệnh sync (lọc bỏ zone robot đang đứng)."""
         latest_received_data = self.uart.latest_received_data if hasattr(self, "uart") else None
-        sync_payload = build_occupied_zones_sync_payload(self.zones, latest_received_data)
+        sync_payload = build_occupied_zones_sync_payload(self.all_zones, latest_received_data)
 
         if sync_payload["detected"]:
             send_uart_payload(self.uart, sync_payload, is_sync=True)
@@ -274,18 +319,23 @@ class Detector:
         """
         Khởi chạy vòng lặp nhận diện và giám sát đối tượng theo thời gian thực.
         """
-        win_name = f"HumanDetector"
+        window_names = {
+            camera.id: f"HumanDetector - {camera.name} ({camera.id})"
+            for camera in self.cameras
+        }
         if self.show:
-            cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+            for win_name in window_names.values():
+                cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
 
         # Lưu reference generator để có thể đóng (close) khi stop
         self._results_gen = self._inference()
-        prev_time = time.time()
+        prev_times_by_camera = {}
+
         # Restore logger level names
         _restored = False
 
         try:
-            for result in self._results_gen:
+            for result_index, result in enumerate(self._results_gen):
                 if not self.is_running:
                     LOGGER.info("Dừng vòng lặp nhận diện.")
                     break
@@ -293,58 +343,81 @@ class Detector:
                 if not _restored:
                     restore_level_names()
                     _restored = True
+
+                if not self.cameras:
+                    LOGGER.warning("Không có camera nào được cấu hình.")
+                    break
+
+                camera = self.cameras[result_index % len(self.cameras)]
+                zones = camera.zones
+
+                # Lấy độ phân giải camera
+                if camera.resolution is None:
+                    h, w = result.orig_img.shape[:2]
+                    camera.resolution = (w, h)
                 
-                frame = result.orig_img.copy()
+                resolution = camera.resolution
 
                 # 1. Trích xuất thông tin Bounding Box
                 bboxes, confs = self._parse_detections(result.boxes)
 
                 # 2. Gắn bbox vào các vùng zones
-                zone_names, zone_has_detection = assign_bboxes_to_zones(
+                zone_names, zone_counts = assign_bboxes_to_zones(
                     bboxes,
-                    self.zones,
+                    zones,
                     self.zone_check_mode,
                 )
                 
                 # 3. State Machine: Cập nhật trạng thái từng vùng
-                current_time = time.time()
                 uart_payload = self.zone_state_machine.update(
-                    self.zones,
-                    zone_has_detection,
-                    current_time,
+                    zones,
+                    zone_counts,
                 )
 
-                # 4. Đẩy dữ liệu WebSocket cho web preview
-                self.latest_ws_payload = build_detection_websocket_payload(
-                    frame,
-                    bboxes,
-                    confs,
-                    self.zones,
-                )
-
-                # 5. Gửi dữ liệu qua UART
+                # 4. Gửi dữ liệu qua UART
                 if uart_payload["detected"] or uart_payload["cleared"]:
                     self.latest_uart_payload = uart_payload
-                    send_uart_payload(self.uart, uart_payload)
+                    try:
+                        send_uart_payload(self.uart, uart_payload)
+                    except Exception as e:
+                        LOGGER.error(f"Lỗi khi gửi dữ liệu qua UART: {e}")
+
+                # # 5. Đẩy dữ liệu WebSocket cho web preview
+                # camera_ws_payload = build_detection_websocket_payload(
+                #     camera,
+                #     resolution,
+                #     bboxes,
+                #     confs,
+                #     zones,
+                #     zone_counts,
+                # )
+                # self.latest_ws_payload["timestamp"] = camera_ws_payload["timestamp"]
+                # self.latest_ws_payload["cameras"][camera.id] = camera_ws_payload
 
                 # Tính FPS
                 current_time = time.time()
-                fps = 1.0 / (current_time - prev_time)
-                prev_time = current_time
+                prev_time = prev_times_by_camera.get(camera.id)
+                fps = 0.0 if prev_time is None else 1.0 / max(current_time - prev_time, 1e-6)
+                prev_times_by_camera[camera.id] = current_time
 
                 # Verbose log
                 if self.verbose:
-                    LOGGER.info(f"FPS: {fps:.1f}")
+                    LOGGER.info(f"Camera: {camera.id}, Object: {len(bboxes)}, FPS: {fps:.1f}")
 
                 if self.show:
+                    win_name = window_names.get(camera.id, f"HumanDetector - {camera.id}")
+
+                    # Copy frame gốc
+                    frame = result.orig_img.copy()
+
                     # Vẽ các vùng giám sát
-                    frame = draw_zones(frame, self.zones)
+                    frame = draw_zones(frame, zones)
 
                     # Vẽ các đối tượng được phát hiện
                     frame = draw_overlay(frame, bboxes, confs, zone_names)
 
                     # Vẽ FPS lên góc trên bên trái
-                    cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                    cv2.putText(frame, f"{camera.name} FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
                     if self.show_scale != 1.0:
                         h, w = frame.shape[:2]

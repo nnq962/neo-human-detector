@@ -30,11 +30,13 @@ def is_bbox_in_zone(
     x1, y1, x2, y2 = bbox[:4]
 
     if mode == "center":
-        point = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+        point = (int((x1 + x2) // 2), int((y1 + y2) // 2))
     else:
-        point = (int((x1 + x2) / 2), int(y2))
+        point = (int((x1 + x2) // 2), int(y2))
 
+    # measureDist=False để tăng tốc độ (chỉ cần biết trong/ngoài, không cần khoảng cách)
     result = cv2.pointPolygonTest(points, point, measureDist=False)
+
     return result >= 0
 
 
@@ -42,19 +44,27 @@ def assign_bboxes_to_zones(
     bboxes: np.ndarray,
     zones: List[Zone],
     zone_check_mode: str,
-) -> Tuple[List[Optional[str]], Dict[str, bool]]:
+) -> Tuple[List[Optional[str]], Dict[str, int]]: # Đổi type hint từ bool sang int
     """
-    Gắn từng bbox vào zone tương ứng và đánh dấu zone nào có bbox trong frame hiện tại.
+    Gắn từng bbox vào zone tương ứng và đếm số lượng bbox trong mỗi zone.
     """
+    # Tạo list để lưu tên zone cho mỗi bbox, khởi tạo với None (chưa gắn zone nào): [None, None, ...]
     zone_names: List[Optional[str]] = [None] * len(bboxes)
-    zone_has_detection = {zone.name: False for zone in zones}
+    
+    # Khởi tạo bộ đếm 0 cho tất cả các zone thay vì False: {'zone1': 0, 'zone2': 0, ...}
+    zone_counts = {zone.key: 0 for zone in zones}
 
-    if len(bboxes) > 0:
-        for i, bbox in enumerate(bboxes):
-            for zone in zones:
-                if is_bbox_in_zone(bbox, zone.pts, mode=zone_check_mode):
-                    zone_names[i] = zone.name
-                    zone_has_detection[zone.name] = True
-                    break
-
-    return zone_names, zone_has_detection
+    for i, bbox in enumerate(bboxes):
+        for zone in zones:
+            if is_bbox_in_zone(bbox, zone.pts, mode=zone_check_mode):
+                zone_names[i] = zone.name
+                
+                # Tăng bộ đếm lên 1 khi phát hiện có người
+                zone_counts[zone.key] += 1 
+                
+                # Vẫn giữ break (mỗi người chỉ đếm cho 1 zone đầu tiên lọt vào)
+                break
+    
+    # zone_names: ['zone1', 'zone2', None, 'zone1', ...]
+    # zone_counts: {'zone1': 2, 'zone2': 1, ...}
+    return zone_names, zone_counts
