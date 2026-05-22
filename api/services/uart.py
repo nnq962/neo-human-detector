@@ -26,7 +26,16 @@ def update_uart_config(update: UartConfigUpdate) -> dict:
     if update_data:
         uart_config = config.setdefault("uart", {})
         uart_config.update(update_data)
+        uart_config = _normalize_uart_config(uart_config)
+        config["uart"] = uart_config
         config_store.save_config_data(config)
 
-    return get_uart_config()
+        from uart.uart_manager import uart_manager
 
+        uart_manager.reconfigure(
+            port=uart_config["port"],
+            baudrate=uart_config["baudrate"],
+        )
+        return uart_config
+
+    return get_uart_config()

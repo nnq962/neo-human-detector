@@ -3,6 +3,7 @@ import { listCameras, updateCamera } from '../../api/cameraApi'
 import { useZoneRealtime } from '../../hooks/useZoneRealtime'
 import { useToast } from '../../hooks/useToast'
 import { subscribeCameraConfigChanged } from '../../lib/cameraEvents'
+import { notifyRestartRequired } from '../../lib/restartRequiredEvents'
 import type { Camera, Zone } from '../../types/config'
 import type { ZoneRealtimePose } from '../../types/realtime'
 import { CustomSelect } from './general/ConfigControls'
@@ -305,6 +306,7 @@ function ZonesConfig({ reloadKey = 0 }: ZonesConfigProps) {
             setZones(savedZones)
             setInitialZones(cloneZones(savedZones))
             setDetectionZones(cloneZones(savedZones))
+            notifyRestartRequired()
             toast.success('Zones saved.')
         } catch (error) {
             toast.error(error instanceof Error ? error.message : 'Unable to save zones.')

@@ -14,11 +14,12 @@ from utils import LOGGER, restore_level_names
 
 
 MODEL_PATHS = {
-    ("nano", 1): "weights/head/yolo8n_rknn_model_b1",
-    ("nano", 2): "weights/head/yolo8n_rknn_model_b2",
-    ("nano", 4): "weights/head/yolo8n_rknn_model_b4",
-    ("nano", 8): "weights/head/yolo8n_rknn_model_b8",
-    ("medium", 1): "weights/head/yolo8m_rknn_model_b1",
+    ("head", "nano", 1): "weights/head/yolo8n_rknn_model_b1",
+    ("head", "nano", 2): "weights/head/yolo8n_rknn_model_b2",
+    ("head", "nano", 4): "weights/head/yolo8n_rknn_model_b4",
+    ("head", "nano", 8): "weights/head/yolo8n_rknn_model_b8",
+    ("head", "medium", 1): "weights/head/yolo8m_rknn_model_b1",
+    ("person", "nano", 1): "weights/person/yolo26n_rknn_model",
 }
 
 
@@ -26,7 +27,7 @@ class Detector:
     """
     Phát hiện người dùng YOLO, hỗ trợ 2 mode:
         - 'person'     : Phát hiện toàn thân người (dùng model COCO, filter class=0)
-        - 'human_head' : Phát hiện đầu người (dùng model head chuyên dụng)
+        - 'head'       : Phát hiện đầu người (dùng model head chuyên dụng)
 
     Source hỗ trợ:
         - int       : USB Camera (0, 1, 2, ...)
@@ -37,6 +38,7 @@ class Detector:
     def __init__(
         self,
         source: str = "configs/rtsp.streams",
+        mode: str = "head",
         model_size: str = "nano",
         conf: float = 0.50,
         show: bool = False,
@@ -53,6 +55,7 @@ class Detector:
         """
         Args:
             source         : int (USB cam), str (file/RTSP)
+            mode           : Chế độ model ('head' hoặc 'person')
             model_size     : Kích thước model YOLO (nano, small, medium, large)
             conf           : Ngưỡng confidence (0.0 - 1.0)
             show           : Hiển thị cửa sổ kết quả
@@ -70,6 +73,7 @@ class Detector:
         """
 
         self.source = source
+        self.mode = mode
         self.model_size = model_size
         self.conf = conf
         self.show = show
@@ -84,13 +88,17 @@ class Detector:
         if self.batch_size < 1:
             raise ValueError("batch_size must be greater than or equal to 1.")
 
-        if len(self.cameras) != self.batch_size:
+        if self.mode not in ("head", "person"):
+            raise ValueError("mode must be 'head' or 'person'.")
+
+        if self.mode == "head" and len(self.cameras) != self.batch_size:
             raise ValueError(
                 f"Number of cameras ({len(self.cameras)}) must match batch_size ({self.batch_size})."
             )
 
         # Log info
         LOGGER.info(f"Source: {self.source}")
+        LOGGER.info(f"Mode: {self.mode}")
         LOGGER.info(f"Model size: {self.model_size}")
         LOGGER.info(f"Batch size: {self.batch_size}")
         LOGGER.info(f"Conf: {self.conf}")
@@ -133,14 +141,15 @@ class Detector:
         return YOLO(self.model_path, task="detect")
 
     def _resolve_model_path(self) -> str:
-        model_key = (self.model_size, self.batch_size)
+        model_key = (self.mode, self.model_size, self.batch_size)
         model_path = MODEL_PATHS.get(model_key)
         if model_path is None:
             supported = ", ".join(
-                f"{size}/batch{batch}" for size, batch in sorted(MODEL_PATHS)
+                f"{mode}/{size}/batch{batch}" for mode, size, batch in sorted(MODEL_PATHS)
             )
             raise ValueError(
-                f"Unsupported model_size/batch_size: {self.model_size}/batch{self.batch_size}. "
+                f"Unsupported mode/model_size/batch_size: "
+                f"{self.mode}/{self.model_size}/batch{self.batch_size}. "
                 f"Supported: {supported}"
             )
         return model_path
@@ -156,15 +165,20 @@ class Detector:
               (VD: Cam1-Frame1 -> Cam2-Frame1 -> Cam1-Frame2 -> Cam2-Frame2...).
         """
 
-        results = self.model.predict(
-            source=self.source,
-            conf=self.conf,
-            show=False,
-            stream=True,
-            verbose=False,
-            vid_stride=self.vid_stride,
-            batch=self.batch_size,
-        )
+        predict_kwargs = {
+            "source": self.source,
+            "conf": self.conf,
+            "show": False,
+            "stream": True,
+            "verbose": False,
+            "vid_stride": self.vid_stride,
+            "batch": self.batch_size,
+        }
+
+        if self.mode == "person":
+            predict_kwargs["classes"] = [0]
+
+        results = self.model.predict(**predict_kwargs)
 
         return results
 
@@ -257,12 +271,24 @@ class Detector:
         self.is_running = False
         LOGGER.info("Đã nhận lệnh dừng AI")
 
-    def update_detector_params(self, verbose: bool):
-        #TODO: update sau
+    def update_detector_params(
+        self,
+        verbose: Optional[bool] = None,
+        zone_check_mode: Optional[str] = None,
+    ):
         """
         Update detector parameters.
         """
-        self.verbose = verbose
+        if verbose is not None:
+            self.verbose = verbose
+
+        if zone_check_mode is not None:
+            if zone_check_mode not in ("center", "bottom_center"):
+                raise ValueError(
+                    f"zone_check_mode must be 'center' or 'bottom_center', received: '{zone_check_mode}'"
+                )
+            self.zone_check_mode = zone_check_mode
+
         LOGGER.info("Detector params updated")
 
     def update_zone_state_machine_params(
@@ -395,7 +421,7 @@ class Detector:
 
                 # Verbose log
                 if self.verbose:
-                    LOGGER.info(f"Camera: {camera.id}, Object: {len(bboxes)}, FPS: {fps:.1f}")
+                    LOGGER.info(f"Camera: {camera.name}, Object: {len(bboxes)}, FPS: {fps:.1f}")
 
                 if self.show:
                     win_name = window_names.get(camera.id, f"HumanDetector - {camera.id}")

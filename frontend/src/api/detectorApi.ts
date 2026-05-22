@@ -1,9 +1,10 @@
 import { apiRequest } from '../lib/http'
-import type { DetectorConfig, DetectorSettings } from '../types/config'
+import type { DetectorConfig, DetectorMode, DetectorSettings } from '../types/config'
 
 export interface DetectorStatus {
     is_running: boolean
     source?: string | null
+    mode?: DetectorMode | null
     model_path?: string | null
     conf?: number | null
     vid_stride?: number | null

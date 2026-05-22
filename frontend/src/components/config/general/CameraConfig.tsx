@@ -9,6 +9,7 @@ import {
 import { checkCameraWithMediaMtx } from '../../../api/mediaMtxApi'
 import { useToast } from '../../../hooks/useToast'
 import { notifyCameraConfigChanged } from '../../../lib/cameraEvents'
+import { notifyRestartRequired } from '../../../lib/restartRequiredEvents'
 import { SectionShell } from './SectionShell'
 import type { CameraConfigState } from './types'
 
@@ -215,6 +216,7 @@ function CameraConfig({
                 )
             })
             notifyCameraConfigChanged()
+            notifyRestartRequired()
             setActionStates((current) => {
                 const next = { ...current }
                 delete next[camera.localId]
@@ -253,6 +255,7 @@ function CameraConfig({
                 current.filter((initialCamera) => initialCamera.localId !== camera.localId),
             )
             notifyCameraConfigChanged()
+            notifyRestartRequired()
             toast.success('Camera deleted.')
         } catch (error) {
             toast.error(error instanceof Error ? error.message : 'Unable to delete camera.')

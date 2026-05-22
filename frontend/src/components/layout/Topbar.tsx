@@ -6,6 +6,11 @@ import {
   stopDetector,
 } from '../../api/detectorApi'
 import { useToast } from '../../hooks/useToast'
+import {
+  clearRestartRequired,
+  getRestartRequired,
+  subscribeRestartRequiredChanged,
+} from '../../lib/restartRequiredEvents'
 
 const controlButtons = [
   {
@@ -34,6 +39,7 @@ type DetectorAction = 'Start' | 'Stop' | 'Restart'
 function Topbar() {
   const [detectorStatus, setDetectorStatus] = useState<DetectorRunStatus>('loading')
   const [pendingDetectorAction, setPendingDetectorAction] = useState<DetectorAction | null>(null)
+  const [isRestartRequired, setIsRestartRequired] = useState(false)
   const toast = useToast()
 
   const baseButtonClass =
@@ -63,6 +69,14 @@ function Topbar() {
       ignore = true
       window.clearInterval(intervalId)
     }
+  }, [])
+
+  useEffect(() => {
+    setIsRestartRequired(getRestartRequired())
+
+    return subscribeRestartRequiredChanged(() => {
+      setIsRestartRequired(getRestartRequired())
+    })
   }, [])
 
   const refreshDetectorStatus = async () => {
@@ -96,6 +110,9 @@ function Topbar() {
       }
 
       await refreshDetectorStatus()
+      if (action === 'Start' || action === 'Restart') {
+        clearRestartRequired()
+      }
       toast.success(message || `${action} command completed.`)
     } catch {
       setDetectorStatus('error')
@@ -134,6 +151,18 @@ function Topbar() {
 
         <div className="flex w-full items-center justify-center gap-2 sm:flex-row sm:flex-wrap sm:gap-3 lg:w-auto lg:justify-end">
           <div className="flex items-center gap-2 sm:gap-2">
+            {isRestartRequired ? (
+              <span
+                title="Restart detector to apply saved changes"
+                className="inline-flex h-11 w-11 items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-0 text-xs font-semibold text-amber-700 shadow-sm sm:w-auto sm:min-w-36 sm:px-4"
+              >
+                <span className="grid size-5 place-items-center rounded-full bg-white/80 text-[12px] leading-none shadow-sm">
+                  !
+                </span>
+                <span className="hidden sm:inline">Restart required</span>
+              </span>
+            ) : null}
+
             <span className="group inline-flex h-11 w-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-0 text-xs font-semibold text-slate-600 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 hover:shadow-md active:translate-y-0 active:scale-[0.98] sm:w-auto sm:min-w-28 sm:px-4">
               <span className="relative grid size-5 place-items-center rounded-full bg-slate-50 shadow-sm transition-colors group-hover:bg-white">
                 <span className={`absolute size-2 rounded-full ${detectorDotClass} opacity-75 animate-ping`} />

@@ -1,17 +1,27 @@
 import { useEffect, useState } from 'react'
 import { getDetectorConfig, updateDetectorConfig } from '../../../api/detectorApi'
 import { useToast } from '../../../hooks/useToast'
+import { notifyRestartRequired } from '../../../lib/restartRequiredEvents'
 import type { DetectorConfig } from '../../../types/config'
 import { CustomSelect, NumberStepper, ToggleSwitch } from './ConfigControls'
-import { batchSizeOptions, modelSizeOptions } from './options'
+import { batchSizeOptions, detectorModeOptions, modelSizeOptions } from './options'
 import { SectionShell } from './SectionShell'
 
 const defaultDetectorConfig: DetectorConfig = {
+    mode: 'head',
     model_size: 'nano',
     batch_size: 2,
     conf: 0.5,
     vid_stride: 1,
     verbose: false,
+}
+
+function hasRestartOnlyDetectorChanges(current: DetectorConfig, initial: DetectorConfig) {
+    return current.mode !== initial.mode ||
+        current.model_size !== initial.model_size ||
+        current.batch_size !== initial.batch_size ||
+        current.conf !== initial.conf ||
+        current.vid_stride !== initial.vid_stride
 }
 
 function AIConfig() {
@@ -70,6 +80,7 @@ function AIConfig() {
 
     const saveConfig = async () => {
         setIsSaving(true)
+        const shouldNotifyRestart = hasRestartOnlyDetectorChanges(detector, initialDetector)
 
         try {
             const savedConfig = await updateDetectorConfig({
@@ -81,6 +92,9 @@ function AIConfig() {
             setDetector(savedConfig.detector)
             setInitialAutoStart(savedConfig.auto_start)
             setInitialDetector(savedConfig.detector)
+            if (shouldNotifyRestart) {
+                notifyRestartRequired()
+            }
             toast.success('AI config saved.')
         } catch (error) {
             toast.error(error instanceof Error ? error.message : 'Unable to save AI config.')
@@ -122,21 +136,33 @@ function AIConfig() {
                 </p>
             ) : null}
 
-            <div className="min-w-0">
-                <ToggleSwitch
-                    checked={detector.verbose}
-                    label="Verbose"
-                    onChange={(checked) => updateDetector({ verbose: checked })}
-                />
+            <div className="grid min-w-0 gap-4 md:col-span-2 md:grid-cols-2">
+                <div className="min-w-0 space-y-2">
+                    <span className="text-sm font-semibold text-slate-700">Verbose</span>
+                    <ToggleSwitch
+                        checked={detector.verbose}
+                        label={detector.verbose ? 'Enabled' : 'Disabled'}
+                        onChange={(checked) => updateDetector({ verbose: checked })}
+                    />
+                </div>
+
+                <div className="min-w-0 space-y-2">
+                    <span className="text-sm font-semibold text-slate-700">Auto Start</span>
+                    <ToggleSwitch
+                        checked={autoStart}
+                        label={autoStart ? 'Enabled' : 'Disabled'}
+                        onChange={setAutoStart}
+                    />
+                </div>
             </div>
 
-            <div className="min-w-0">
-                <ToggleSwitch
-                    checked={autoStart}
-                    label="Auto Start"
-                    onChange={setAutoStart}
-                />
-            </div>
+            <CustomSelect
+                label="Mode"
+                value={detector.mode}
+                options={detectorModeOptions}
+                getOptionLabel={(value) => value === 'head' ? 'Head' : 'Person'}
+                onChange={(value) => updateDetector({ mode: value })}
+            />
 
             <CustomSelect
                 label="Model Size"

@@ -32,6 +32,8 @@ def update_detector_config(settings: DetectorSettingsUpdate):
         return detector_service.update_detector_config(settings)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -48,6 +50,8 @@ def replace_detector_config(settings: DetectorSettings):
         ))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -65,6 +69,8 @@ def start():
     """Start the detector using current configuration."""
     try:
         return detector_service.start()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -83,5 +89,7 @@ def restart():
     try:
         detector_service.stop()
         return detector_service.start()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))

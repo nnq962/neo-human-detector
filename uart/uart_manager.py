@@ -23,17 +23,23 @@ class UartManager:
         self.latest_received_data = None
         self.is_listening = False
         self.listen_thread = None
+        self._lock = threading.RLock()
         
         self.connect()
 
     def connect(self):
         """Mở cổng Serial"""
         try:
-            self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            with self._lock:
+                self.serial_conn = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
             LOGGER.info(f"Đã kết nối UART tại {self.port}")
             self.start_listening()
-        except serial.SerialException as e:
+            return True
+        except (serial.SerialException, ValueError, OSError) as e:
+            with self._lock:
+                self.serial_conn = None
             LOGGER.error(f"Lỗi mở cổng {self.port}: {e}")
+            return False
 
     def start_listening(self):
         """Khởi động luồng chạy ngầm để liên tục đọc dữ liệu"""
@@ -48,8 +54,47 @@ class UartManager:
     def stop_listening(self):
         """Dừng luồng lắng nghe"""
         self.is_listening = False
-        if self.listen_thread and self.listen_thread.is_alive():
+        if (
+            self.listen_thread
+            and self.listen_thread.is_alive()
+            and threading.current_thread() is not self.listen_thread
+        ):
             self.listen_thread.join(timeout=2)
+        self.listen_thread = None
+
+    def disconnect(self):
+        """Dừng lắng nghe và đóng cổng Serial hiện tại."""
+        self.stop_listening()
+        with self._lock:
+            if self.serial_conn and self.serial_conn.is_open:
+                self.serial_conn.close()
+                LOGGER.info("Đã ngắt kết nối UART.")
+            self.serial_conn = None
+
+    def reconfigure(self, port=None, baudrate=None, timeout=None):
+        """Cập nhật cấu hình UART và khởi động lại kết nối nếu cần."""
+        next_port = port or self.port
+        next_baudrate = baudrate if baudrate is not None else self.baudrate
+        next_timeout = timeout if timeout is not None else self.timeout
+
+        if (
+            next_port == self.port
+            and next_baudrate == self.baudrate
+            and next_timeout == self.timeout
+        ):
+            if self.serial_conn is not None and self.serial_conn.is_open:
+                LOGGER.info("UART config unchanged, skip reconnect.")
+                return True
+
+            LOGGER.info("UART config unchanged but disconnected, retry connect.")
+            return self.connect()
+
+        self.disconnect()
+        self.port = next_port
+        self.baudrate = next_baudrate
+        self.timeout = next_timeout
+        LOGGER.info(f"Đang khởi động lại UART với port={self.port}, baudrate={self.baudrate}")
+        return self.connect()
             
     def _listen_loop(self):
         """Vòng lặp ngầm liên tục gọi receive_data()"""
@@ -148,10 +193,7 @@ class UartManager:
 
     def close(self):
         """Đóng kết nối an toàn"""
-        self.stop_listening()
-        if self.serial_conn and self.serial_conn.is_open:
-            self.serial_conn.close()
-            LOGGER.info("Đã ngắt kết nối UART.")
+        self.disconnect()
 
 
 # Đường dẫn tuyệt đối đến cấu hình mặc định (YAML)
