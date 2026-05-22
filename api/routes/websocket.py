@@ -12,13 +12,20 @@ router = APIRouter()
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     LOGGER.info("Client connected to /ws/bboxes")
-    last_timestamp = 0
+    last_camera_timestamps = {}
     try:
         while True:
             payload = get_latest_ws_payload()
-            if payload and payload.get("timestamp") != last_timestamp:
+            cameras = payload.get("cameras", {}) if payload else {}
+            camera_timestamps = {
+                camera_id: camera_payload.get("timestamp")
+                for camera_id, camera_payload in cameras.items()
+                if isinstance(camera_payload, dict) and camera_payload.get("timestamp") is not None
+            }
+
+            if camera_timestamps and camera_timestamps != last_camera_timestamps:
                 await websocket.send_json(payload)
-                last_timestamp = payload.get("timestamp")
+                last_camera_timestamps = camera_timestamps
             
             # Quét dữ liệu 20 lần mỗi giây (50ms)
             await asyncio.sleep(0.05)

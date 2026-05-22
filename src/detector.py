@@ -119,7 +119,6 @@ class Detector:
 
         # Dữ liệu WebSocket mới nhất theo từng camera để gửi xuống Frontend
         self.latest_ws_payload = {
-            "timestamp": 0,
             "cameras": {},
         }
 
@@ -266,13 +265,6 @@ class Detector:
         self.verbose = verbose
         LOGGER.info("Detector params updated")
 
-    def update_cameras(self, cameras: Optional[List[Camera]]):
-        #TODO: update sau
-        """Update cameras and their zones."""
-        self.cameras = cameras or []
-        self.all_zones = [zone for camera in self.cameras for zone in camera.zones]
-        LOGGER.info("Detector cameras updated")
-
     def update_zone_state_machine_params(
         self,
         confirm_enter_time: Optional[float] = None,
@@ -384,17 +376,16 @@ class Detector:
                     except Exception as e:
                         LOGGER.error(f"Lỗi khi gửi dữ liệu qua UART: {e}")
 
-                # # 5. Đẩy dữ liệu WebSocket cho web preview
-                # camera_ws_payload = build_detection_websocket_payload(
-                #     camera,
-                #     resolution,
-                #     bboxes,
-                #     confs,
-                #     zones,
-                #     zone_counts,
-                # )
-                # self.latest_ws_payload["timestamp"] = camera_ws_payload["timestamp"]
-                # self.latest_ws_payload["cameras"][camera.id] = camera_ws_payload
+                # 5. Đẩy dữ liệu WebSocket cho web preview
+                camera_ws_payload = build_detection_websocket_payload(
+                    camera,
+                    resolution,
+                    bboxes,
+                    confs,
+                    zones,
+                    zone_counts,
+                )
+                self.latest_ws_payload["cameras"][camera.id] = camera_ws_payload
 
                 # Tính FPS
                 current_time = time.time()

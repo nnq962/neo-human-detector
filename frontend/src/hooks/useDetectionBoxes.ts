@@ -1,20 +1,38 @@
 import { useEffect, useState } from 'react'
 import { DETECTION_BOXES_WS_URL } from '../config/env'
 import { createJsonWebSocket } from '../lib/websocket'
-import type { DetectionBoxesPayload } from '../types/detection'
+import type { DetectionBoxesPayload, DetectionCameraPayload } from '../types/detection'
 
 const reconnectDelaysMs = [1000, 2000, 4000, 8000, 10000]
 
-function isDetectionBoxesPayload(value: DetectionBoxesPayload) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
+}
+
+function isDetectionCameraPayload(value: unknown): value is DetectionCameraPayload {
+    if (!isRecord(value) || !isRecord(value.resolution)) {
+        return false
+    }
+
     return (
         typeof value.timestamp === 'number' &&
-        typeof value.resolution?.width === 'number' &&
-        typeof value.resolution?.height === 'number' &&
+        typeof value.camera_id === 'string' &&
+        typeof value.camera_name === 'string' &&
+        typeof value.resolution.width === 'number' &&
+        typeof value.resolution.height === 'number' &&
         Array.isArray(value.objects)
     )
 }
 
-export function useDetectionBoxes() {
+function isDetectionBoxesPayload(value: unknown): value is DetectionBoxesPayload {
+    return (
+        isRecord(value) &&
+        isRecord(value.cameras) &&
+        Object.values(value.cameras).every(isDetectionCameraPayload)
+    )
+}
+
+export function useDetectionBoxes(cameraId?: string) {
     const [payload, setPayload] = useState<DetectionBoxesPayload | null>(null)
 
     useEffect(() => {
@@ -77,5 +95,9 @@ export function useDetectionBoxes() {
         }
     }, [])
 
-    return payload
+    if (!cameraId) {
+        return null
+    }
+
+    return payload?.cameras[cameraId] ?? null
 }

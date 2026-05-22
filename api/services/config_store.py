@@ -70,12 +70,11 @@ def save_config_data(config_dict: dict) -> None:
     except Exception:
         pass
 
-    # Bắn tín hiệu hot-reload sang detector sau khi lưu file.
+    # Bắn tín hiệu hot-reload cho các tham số an toàn, không cập nhật nóng camera/zones.
     try:
         from api.services import detector as detector_service
 
         detector_service.update_dynamic_params(config_dict)
-        detector_service.update_zone(config_dict.get("cameras"))
     except Exception as e:
         import logging
 
@@ -102,4 +101,3 @@ def get_snapshot_image() -> bytes:
         raise RuntimeError("Lỗi mã hóa ảnh JPEG.")
 
     return buffer.tobytes()
-

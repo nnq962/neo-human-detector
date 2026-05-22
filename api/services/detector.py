@@ -79,19 +79,6 @@ def sync_uart_payload():
     if _detector:
         _detector.sync_uart()
 
-def update_zone(cameras_cfg: list) -> None:
-    """Cập nhật riêng cấu hình Cameras/Zones."""
-    global _detector
-    if not _detector or not cameras_cfg:
-        return
-    try:
-        from utils import load_cameras
-        new_cameras = load_cameras({"cameras": cameras_cfg})
-        _detector.update_cameras(new_cameras)
-    except Exception as e:
-        LOGGER.warning(f"Lỗi khi cập nhật nóng Cameras/Zones: {e}")
-
-
 def update_dynamic_params(cfg: dict) -> None:
     """Cập nhật các tham số có thể thay đổi nóng (hot-reload) mà không cần restart detector."""
     global _detector

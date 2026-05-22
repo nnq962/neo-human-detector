@@ -545,6 +545,7 @@ function ZonesConfig({ reloadKey = 0 }: ZonesConfigProps) {
 
                     <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-4">
                         <CameraPreview
+                            cameraId={selectedCamera?.id}
                             src={videoSrc}
                             reconnectKey={reconnectKey}
                             zones={zones}

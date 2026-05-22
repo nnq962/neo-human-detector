@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Canvas, Circle, FabricText, Point, Polygon, Polyline, controlsUtils } from 'fabric'
 import { useDetectionBoxes } from '../../hooks/useDetectionBoxes'
 import type { Zone } from '../../types/config'
-import type { DetectionBoxesPayload, DetectionZoneStatus } from '../../types/detection'
+import type { DetectionCameraPayload, DetectionZoneStatus } from '../../types/detection'
 
 type CameraPreviewProps = {
+    cameraId?: string
     src: string
     reconnectKey?: number
     zones?: Zone[]
@@ -231,7 +232,7 @@ function isDetectionZoneStatus(status: string | undefined): status is DetectionZ
 function drawDetectionZones(
     context: CanvasRenderingContext2D,
     zones: Zone[],
-    payload: DetectionBoxesPayload,
+    payload: DetectionCameraPayload,
     sourceSize: VideoSize,
     videoRect: NonNullable<ReturnType<typeof getContainedVideoRect>>,
 ) {
@@ -240,7 +241,7 @@ function drawDetectionZones(
     }
 
     zones.forEach((zone) => {
-        const status = payload.zones?.[zone.name]
+        const status = payload.zones?.[zone.name] ?? payload.zones?.[`${payload.camera_id}.${zone.name}`]
         const color = isDetectionZoneStatus(status) ? detectionZoneColors[status] : fallbackDetectionZoneColor
         const points = zone.points.map(([x, y]) => ({
             x: videoRect.offsetX + (x / sourceSize.width) * videoRect.width,
@@ -284,7 +285,7 @@ function drawDetectionZones(
 
 function drawDetectionBoxes(
     canvas: HTMLCanvasElement,
-    payload: DetectionBoxesPayload | null,
+    payload: DetectionCameraPayload | null,
     zones: Zone[],
     shouldDrawZones: boolean,
     previewSize: PreviewSize,
@@ -355,6 +356,7 @@ const zoneColors = [
 ]
 
 function CameraPreview({
+    cameraId,
     src,
     reconnectKey = 0,
     zones = [],
@@ -381,7 +383,7 @@ function CameraPreview({
     const [previewSize, setPreviewSize] = useState<PreviewSize>({ width: 0, height: 0 })
     const [videoSize, setVideoSize] = useState<VideoSize>({ width: 0, height: 0 })
     const [draftPoints, setDraftPoints] = useState<number[][]>([])
-    const detectionBoxes = useDetectionBoxes()
+    const detectionBoxes = useDetectionBoxes(cameraId)
 
     useEffect(() => {
         const canvasElement = overlayCanvasRef.current

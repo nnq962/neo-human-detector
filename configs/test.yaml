@@ -8,15 +8,15 @@ detector:
   show_scale: 0.55
 zones_state_machine:
   zone_check_mode: center
-  confirm_enter_time: 0.5
-  confirm_exit_time: 0.6
-  pending_enter_miss_grace_time: 0.7
+  confirm_enter_time: 5.0
+  confirm_exit_time: 5.0
+  pending_enter_miss_grace_time: 1.5
 uart:
   port: /dev/ttyS4
   baudrate: 115200
 cameras:
 - id: cam1
-  name: Sanh 1231231
+  name: Sảnh A
   source: rtsp://admin:phenikaaneo%40@192.168.0.150:554/Streaming/Channels/101
   source_protocol: tcp
   source_on_demand: true
@@ -43,7 +43,7 @@ cameras:
     - [559, 397]
     - [260, 407]
 - id: cam2
-  name: Sanh Baasdas
+  name: Sảnh B
   source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
   source_protocol: tcp
   source_on_demand: true
