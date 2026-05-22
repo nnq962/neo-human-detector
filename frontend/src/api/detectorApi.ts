@@ -1,17 +1,50 @@
 import { apiRequest } from '../lib/http'
+import type { DetectorConfig, DetectorSettings } from '../types/config'
 
 export interface DetectorStatus {
     is_running: boolean
-    source: string
-    model_path: string
-    conf: number
-    vid_stride: number
-    verbose: boolean
+    source?: string | null
+    model_path?: string | null
+    conf?: number | null
+    vid_stride?: number | null
+    batch_size?: number | null
+    verbose?: boolean | null
+    cameras?: Array<{
+        id: string
+        name: string
+        source: string
+        zones: number
+    }>
 }
 
 export interface DetectorCommandResponse {
     status: string
     message: string
+}
+
+export type DetectorConfigUpdatePayload = Partial<DetectorConfig>
+
+export type DetectorSettingsUpdatePayload = {
+    auto_start?: boolean
+    detector?: DetectorConfigUpdatePayload
+}
+
+export function getDetectorConfig() {
+    return apiRequest<DetectorSettings>('/api/detector/config')
+}
+
+export function updateDetectorConfig(settings: DetectorSettingsUpdatePayload) {
+    return apiRequest<DetectorSettings>('/api/detector/config', {
+        method: 'PATCH',
+        body: JSON.stringify(settings),
+    })
+}
+
+export function replaceDetectorConfig(settings: DetectorSettings) {
+    return apiRequest<DetectorSettings>('/api/detector/config', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+    })
 }
 
 export function getDetectorStatus() {

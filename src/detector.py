@@ -259,6 +259,7 @@ class Detector:
         LOGGER.info("Đã nhận lệnh dừng AI")
 
     def update_detector_params(self, verbose: bool):
+        #TODO: update sau
         """
         Update detector parameters.
         """
@@ -266,6 +267,7 @@ class Detector:
         LOGGER.info("Detector params updated")
 
     def update_cameras(self, cameras: Optional[List[Camera]]):
+        #TODO: update sau
         """Update cameras and their zones."""
         self.cameras = cameras or []
         self.all_zones = [zone for camera in self.cameras for zone in camera.zones]

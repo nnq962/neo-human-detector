@@ -28,27 +28,16 @@ const controlButtons = [
   },
 ]
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 type DetectorRunStatus = 'loading' | 'running' | 'stopped' | 'error'
 type DetectorAction = 'Start' | 'Stop' | 'Restart'
 
-type TopbarProps = {
-  onCancelConfig: () => void
-  onSaveConfig: () => void
-  saveStatus: SaveStatus
-  canSave: boolean
-}
-
-function Topbar({ onCancelConfig, onSaveConfig, saveStatus, canSave }: TopbarProps) {
+function Topbar() {
   const [detectorStatus, setDetectorStatus] = useState<DetectorRunStatus>('loading')
   const [pendingDetectorAction, setPendingDetectorAction] = useState<DetectorAction | null>(null)
   const toast = useToast()
 
   const baseButtonClass =
     'group inline-flex h-11 w-11 items-center justify-center gap-2 rounded-lg border px-0 text-sm font-semibold shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white sm:w-auto sm:min-w-28 sm:px-4'
-
-  const saveLabel =
-    saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save Config'
 
   useEffect(() => {
     let ignore = false
@@ -136,14 +125,14 @@ function Topbar({ onCancelConfig, onSaveConfig, saveStatus, canSave }: TopbarPro
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl items-center justify-center gap-3 px-4 py-4 sm:flex-col sm:items-stretch sm:gap-4 sm:px-6 lg:px-8 xl:flex-row xl:items-center xl:justify-between">
-        <div className="hidden xl:block">
+      <div className="mx-auto flex w-full max-w-[1600px] items-center justify-center gap-4 px-4 py-4 sm:px-6 lg:justify-between lg:px-8">
+        <div className="hidden min-w-0 flex-1 lg:block">
           <h1 className="text-xl font-bold tracking-normal text-slate-950 sm:text-2xl">
             Configuration Panel
           </h1>
         </div>
 
-        <div className="flex items-center gap-2 sm:flex-row sm:flex-wrap sm:gap-3 xl:justify-end">
+        <div className="flex w-full items-center justify-center gap-2 sm:flex-row sm:flex-wrap sm:gap-3 lg:w-auto lg:justify-end">
           <div className="flex items-center gap-2 sm:gap-2">
             <span className="group inline-flex h-11 w-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-0 text-xs font-semibold text-slate-600 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 hover:shadow-md active:translate-y-0 active:scale-[0.98] sm:w-auto sm:min-w-28 sm:px-4">
               <span className="relative grid size-5 place-items-center rounded-full bg-slate-50 shadow-sm transition-colors group-hover:bg-white">
@@ -171,34 +160,6 @@ function Topbar({ onCancelConfig, onSaveConfig, saveStatus, canSave }: TopbarPro
               </button>
             ))}
           </div>
-
-          <div className="h-8 w-px bg-slate-200" />
-
-          <button
-            type="button"
-            aria-label="Cancel"
-            onClick={onCancelConfig}
-            disabled={!canSave || saveStatus === 'saving'}
-            className={`${baseButtonClass} border-slate-200 bg-white text-slate-700 shadow-slate-900/10 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus-visible:ring-slate-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-white disabled:hover:shadow-sm`}
-          >
-            <span className="grid size-5 place-items-center rounded-full bg-slate-100 text-[13px] leading-none shadow-sm transition-colors group-hover:bg-white">
-              ×
-            </span>
-            <span className="hidden sm:inline">Cancel</span>
-          </button>
-
-          <button
-            type="button"
-            aria-label="Save Config"
-            onClick={onSaveConfig}
-            disabled={!canSave || saveStatus === 'saving'}
-            className={`${baseButtonClass} border-slate-900 bg-slate-950 text-white shadow-slate-900/15 hover:border-slate-800 hover:bg-slate-800 focus-visible:ring-slate-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:bg-slate-950 disabled:hover:shadow-sm`}
-          >
-            <span className="grid size-5 place-items-center rounded-full bg-white/15 text-[12px] leading-none transition-colors group-hover:bg-white/20">
-              ✓
-            </span>
-            <span className="hidden sm:inline">{saveLabel}</span>
-          </button>
         </div>
       </div>
     </header>

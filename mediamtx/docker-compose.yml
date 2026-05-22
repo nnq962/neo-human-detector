@@ -1,0 +1,32 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: mediamtx-server
+    restart: unless-stopped
+    network_mode: host
+
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+    environment:
+      MTX_LOGLEVEL: info
+
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  load-cameras:
+    image: python:3.11-slim
+    container_name: mediamtx-load-cameras
+    network_mode: host
+    depends_on:
+      - mediamtx
+    working_dir: /app
+    volumes:
+      - ./load_cameras.py:/app/load_cameras.py:ro
+      - ../configs/default.yaml:/app/config.yaml:ro
+    environment:
+      CAMERA_CONFIG_PATH: /app/config.yaml
+    command: sh -c "pip install --no-cache-dir pyyaml requests && python /app/load_cameras.py"
+    restart: "no"

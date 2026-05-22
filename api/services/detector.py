@@ -1,11 +1,54 @@
 from threading import Thread
 from typing import Optional
 from src.detector import Detector
-from api.services import config as config_service
+from api.models.detector import DetectorSettings, DetectorSettingsUpdate
+from api.services import config_store
 from utils import LOGGER
 
 _detector: Optional[Detector] = None
 _thread: Optional[Thread] = None
+
+
+def _model_dump(model, **kwargs) -> dict:
+    return model.model_dump(**kwargs)
+
+
+def _normalize_detector_config(detector_cfg: dict) -> dict:
+    return DetectorSettings(
+        auto_start=False,
+        detector={
+            "model_size": detector_cfg.get("model_size", "nano"),
+            "batch_size": detector_cfg.get("batch_size", 1),
+            "conf": detector_cfg.get("conf", 0.5),
+            "vid_stride": detector_cfg.get("vid_stride", 1),
+            "verbose": detector_cfg.get("verbose", False),
+        },
+    ).detector.model_dump()
+
+
+def get_detector_config() -> dict:
+    cfg = config_store.get_config_data()
+
+    return {
+        "auto_start": cfg.get("auto_start", False),
+        "detector": _normalize_detector_config(cfg.get("detector", {})),
+    }
+
+
+def update_detector_config(settings: DetectorSettingsUpdate) -> dict:
+    cfg = config_store.get_config_data()
+    update_data = _model_dump(settings, exclude_none=True, exclude_unset=True)
+
+    if "auto_start" in update_data:
+        cfg["auto_start"] = update_data["auto_start"]
+
+    if "detector" in update_data:
+        detector_cfg = cfg.setdefault("detector", {})
+        detector_cfg.update(update_data["detector"])
+
+    config_store.save_config_data(cfg)
+
+    return get_detector_config()
 
 
 def get_status() -> dict:
@@ -77,7 +120,7 @@ def start() -> dict:
         return {"status": "already_running", "message": "Detector is already running."}
 
     try:
-        cfg = config_service.get_config_data()
+        cfg = config_store.get_config_data()
     except FileNotFoundError as e:
         raise RuntimeError(f"Config not found: {e}")
 

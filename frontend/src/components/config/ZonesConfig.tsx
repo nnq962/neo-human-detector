@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getConfig } from '../../api/configApi'
-import { CAMERA_NEO_URL } from '../../config/env'
+import { listCameras, updateCamera } from '../../api/cameraApi'
 import { useZoneRealtime } from '../../hooks/useZoneRealtime'
-import type { Zone } from '../../types/config'
+import { useToast } from '../../hooks/useToast'
+import { subscribeCameraConfigChanged } from '../../lib/cameraEvents'
+import type { Camera, Zone } from '../../types/config'
 import type { ZoneRealtimePose } from '../../types/realtime'
+import { CustomSelect } from './general/ConfigControls'
 import CameraPreview from '../video/CameraPreview'
 
 type ZonesConfigProps = {
     reloadKey?: number
-    onZonesChange?: (zones: Zone[]) => void
 }
 
 function cloneZones(zones: Zone[]) {
@@ -29,22 +30,28 @@ function isDuplicateZoneName(zones: Zone[], selectedIndex: number, name: string)
     return zones.some((zone, index) => index !== selectedIndex && zone.name.trim() === normalizedName)
 }
 
-function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
+function ZonesConfig({ reloadKey = 0 }: ZonesConfigProps) {
+    const toast = useToast()
     const [reconnectKey, setReconnectKey] = useState(0)
+    const [cameraReloadKey, setCameraReloadKey] = useState(0)
+    const [cameras, setCameras] = useState<Camera[]>([])
+    const [selectedCameraId, setSelectedCameraId] = useState('')
     const [zones, setZones] = useState<Zone[]>([])
+    const [initialZones, setInitialZones] = useState<Zone[]>([])
     const [detectionZones, setDetectionZones] = useState<Zone[]>([])
     const [selectedZoneIndex, setSelectedZoneIndex] = useState<number | null>(null)
     const [isEditingVertices, setIsEditingVertices] = useState(false)
     const [isAddingZone, setIsAddingZone] = useState(false)
     const [isRealtimeEnabled, setIsRealtimeEnabled] = useState(false)
     const [isLoadingZones, setIsLoadingZones] = useState(true)
+    const [isSavingZones, setIsSavingZones] = useState(false)
     const [zonesError, setZonesError] = useState('')
     const [zoneNameError, setZoneNameError] = useState('')
 
     useEffect(() => {
         let ignore = false
 
-        const loadZones = async () => {
+        const loadCameras = async () => {
             setIsLoadingZones(true)
             setZonesError('')
             setIsEditingVertices(false)
@@ -54,15 +61,21 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
             setZoneNameError('')
 
             try {
-                const config = await getConfig()
+                const apiCameras = await listCameras()
+                const selectedCamera = apiCameras.find((camera) => camera.id === selectedCameraId)
+                    || apiCameras[0]
+                const nextZones = cloneZones(selectedCamera?.zones || [])
 
                 if (!ignore) {
-                    setZones(cloneZones(config.zones))
-                    setDetectionZones(cloneZones(config.zones))
+                    setCameras(apiCameras)
+                    setSelectedCameraId(selectedCamera?.id || '')
+                    setZones(nextZones)
+                    setInitialZones(cloneZones(nextZones))
+                    setDetectionZones(cloneZones(nextZones))
                 }
             } catch (error) {
                 if (!ignore) {
-                    setZonesError(error instanceof Error ? error.message : 'Unable to load zones')
+                    setZonesError(error instanceof Error ? error.message : 'Unable to load cameras')
                 }
             } finally {
                 if (!ignore) {
@@ -71,20 +84,39 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
             }
         }
 
-        loadZones()
+        loadCameras()
 
         return () => {
             ignore = true
         }
-    }, [reloadKey])
+    }, [cameraReloadKey, reloadKey, selectedCameraId])
 
     useEffect(() => {
-        if (!isLoadingZones) {
-            onZonesChange?.(zones)
-        }
-    }, [isLoadingZones, onZonesChange, zones])
+        return subscribeCameraConfigChanged(() => {
+            setCameraReloadKey((current) => current + 1)
+            setReconnectKey((current) => current + 1)
+        })
+    }, [])
 
+    const selectedCamera = cameras.find((camera) => camera.id === selectedCameraId)
     const selectedZone = selectedZoneIndex === null ? undefined : zones[selectedZoneIndex]
+    const videoSrc = selectedCamera?.webrtc_address || ''
+
+    const selectCamera = useCallback((cameraId: string) => {
+        const nextCamera = cameras.find((camera) => camera.id === cameraId)
+        const nextZones = cloneZones(nextCamera?.zones || [])
+
+        setSelectedCameraId(cameraId)
+        setZones(nextZones)
+        setInitialZones(cloneZones(nextZones))
+        setDetectionZones(cloneZones(nextZones))
+        setSelectedZoneIndex(null)
+        setIsEditingVertices(false)
+        setIsAddingZone(false)
+        setIsRealtimeEnabled(false)
+        setZoneNameError('')
+        setReconnectKey((current) => current + 1)
+    }, [cameras])
 
     const updateSelectedZonePoseFromRealtime = useCallback((pose: ZoneRealtimePose) => {
         if (selectedZoneIndex === null) {
@@ -246,8 +278,61 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
         })
     }, [selectedZoneIndex])
 
+    const saveZones = async () => {
+        if (!selectedCameraId) {
+            toast.error('Select a camera before saving zones.')
+            return
+        }
+
+        if (zoneNameError) {
+            toast.error('Fix zone name errors before saving.')
+            return
+        }
+
+        setIsSavingZones(true)
+
+        try {
+            const savedCamera = await updateCamera(selectedCameraId, {
+                zones,
+            })
+            const savedZones = cloneZones(savedCamera.zones || [])
+
+            setCameras((currentCameras) =>
+                currentCameras.map((camera) =>
+                    camera.id === savedCamera.id ? savedCamera : camera,
+                ),
+            )
+            setZones(savedZones)
+            setInitialZones(cloneZones(savedZones))
+            setDetectionZones(cloneZones(savedZones))
+            toast.success('Zones saved.')
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Unable to save zones.')
+        } finally {
+            setIsSavingZones(false)
+        }
+    }
+
+    const cancelZoneChanges = () => {
+        const nextZones = cloneZones(initialZones)
+
+        setZones(nextZones)
+        setDetectionZones(cloneZones(nextZones))
+        setSelectedZoneIndex(null)
+        setIsEditingVertices(false)
+        setIsAddingZone(false)
+        setIsRealtimeEnabled(false)
+        setZoneNameError('')
+        toast.info('Zone changes discarded.')
+    }
+
     const toolButtonClass =
         'flex h-11 w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2'
+
+    const saveButtonClass =
+        'h-11 flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-700 shadow-sm transition-colors hover:border-emerald-300 hover:bg-emerald-100 active:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60'
+    const cancelButtonClass =
+        'h-11 flex-1 rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-700 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-100 active:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60'
 
     return (
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.08)] sm:p-6">
@@ -261,13 +346,28 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                     </p>
                 </div>
 
-                <button
-                    type="button"
-                    onClick={() => setReconnectKey((current) => current + 1)}
-                    className="h-11 rounded-lg border border-slate-900 bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:border-slate-800 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
-                >
-                    Refresh Video
-                </button>
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+                    <div className="min-w-0 sm:w-56">
+                        <CustomSelect
+                            value={selectedCameraId}
+                            options={cameras.map((camera) => camera.id)}
+                            disabled={isLoadingZones || cameras.length === 0}
+                            placeholder="No cameras"
+                            getOptionLabel={(cameraId) =>
+                                cameras.find((camera) => camera.id === cameraId)?.name || cameraId
+                            }
+                            onChange={selectCamera}
+                        />
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={() => setReconnectKey((current) => current + 1)}
+                        className="h-11 rounded-lg border border-slate-900 bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:border-slate-800 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
+                    >
+                        Refresh Video
+                    </button>
+                </div>
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(240px,1fr)_minmax(0,3fr)]">
@@ -278,6 +378,25 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
                         </h3>
 
                         <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={saveZones}
+                                    disabled={isSavingZones || isLoadingZones || !selectedCameraId}
+                                    className={saveButtonClass}
+                                >
+                                    {isSavingZones ? 'Saving...' : 'Save'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={cancelZoneChanges}
+                                    disabled={isSavingZones || isLoadingZones || !selectedCameraId}
+                                    className={cancelButtonClass}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+
                             <button
                                 type="button"
                                 onClick={() => {
@@ -426,7 +545,7 @@ function ZonesConfig({ reloadKey = 0, onZonesChange }: ZonesConfigProps) {
 
                     <div className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-4">
                         <CameraPreview
-                            src={CAMERA_NEO_URL}
+                            src={videoSrc}
                             reconnectKey={reconnectKey}
                             zones={zones}
                             detectionZones={detectionZones}

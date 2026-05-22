@@ -21,11 +21,26 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         },
     })
 
-    if (!response.ok) {
-        throw new Error(`API request failed with HTTP ${response.status}`)
-    }
-
     const responseText = await response.text()
+
+    if (!response.ok) {
+        let message = `API request failed with HTTP ${response.status}`
+
+        if (responseText) {
+            try {
+                const payload = JSON.parse(responseText) as { detail?: unknown; message?: unknown }
+                const detail = payload.detail ?? payload.message
+
+                if (typeof detail === 'string') {
+                    message = detail
+                }
+            } catch {
+                message = responseText
+            }
+        }
+
+        throw new Error(message)
+    }
 
     return (responseText ? JSON.parse(responseText) : undefined) as T
 }

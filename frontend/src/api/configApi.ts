@@ -1,13 +1,26 @@
-import { apiRequest } from '../lib/http'
+import { listCameras } from './cameraApi'
+import { getDetectorConfig } from './detectorApi'
+import { getUartConfig } from './uartApi'
+import { getZonesStateMachineConfig } from './zonesStateMachineApi'
 import type { AppConfig } from '../types/config'
 
-export function getConfig() {
-    return apiRequest<AppConfig>('/api/config')
-}
+export async function getConfig(): Promise<AppConfig> {
+    const [detectorSettings, uart, zonesStateMachine, cameras] = await Promise.all([
+        getDetectorConfig(),
+        getUartConfig(),
+        getZonesStateMachineConfig(),
+        listCameras(),
+    ])
+    const firstCamera = cameras[0]
 
-export function updateConfig(config: AppConfig) {
-    return apiRequest<{ status?: string; message?: string }>('/api/config', {
-        method: 'PUT',
-        body: JSON.stringify(config),
-    })
+    return {
+        auto_start: detectorSettings.auto_start,
+        detector: {
+            ...detectorSettings.detector,
+            ...zonesStateMachine,
+        },
+        uart,
+        cameras,
+        zones: firstCamera?.zones || [],
+    }
 }

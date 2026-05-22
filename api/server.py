@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import config, detector, websocket
+from api.routes import camera, detector, mediamtx, uart, websocket, zones_state_machine
 
 app = FastAPI()
 
@@ -17,7 +17,7 @@ app.add_middleware(
 # ────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 def startup_event():
-    from api.services.config import get_config_data
+    from api.services.config_store import get_config_data
     from api.services.detector import start
     from utils import LOGGER
     
@@ -30,8 +30,11 @@ def startup_event():
         LOGGER.error(f"Failed to auto-start detector: {e}")
 
 # ────────────────────────────────────────────────────────────────
-app.include_router(config.router,   prefix="/api/config")
 app.include_router(detector.router, prefix="/api/detector")
+app.include_router(mediamtx.router, prefix="/api/mediamtx")
+app.include_router(camera.router, prefix="/api/cameras")
+app.include_router(zones_state_machine.router, prefix="/api/zones-state-machine")
+app.include_router(uart.router, prefix="/api/uart")
 app.include_router(websocket.router)
 
 # ────────────────────────────────────────────────────────────────
