@@ -31,6 +31,10 @@ function isDuplicateZoneName(zones: Zone[], selectedIndex: number, name: string)
     return zones.some((zone, index) => index !== selectedIndex && zone.name.trim() === normalizedName)
 }
 
+function isCameraEnabled(camera: Camera) {
+    return camera.enabled ?? true
+}
+
 function ZonesConfig({ reloadKey = 0 }: ZonesConfigProps) {
     const toast = useToast()
     const [reconnectKey, setReconnectKey] = useState(0)
@@ -63,12 +67,13 @@ function ZonesConfig({ reloadKey = 0 }: ZonesConfigProps) {
 
             try {
                 const apiCameras = await listCameras()
-                const selectedCamera = apiCameras.find((camera) => camera.id === selectedCameraId)
-                    || apiCameras[0]
+                const enabledCameras = apiCameras.filter(isCameraEnabled)
+                const selectedCamera = enabledCameras.find((camera) => camera.id === selectedCameraId)
+                    || enabledCameras[0]
                 const nextZones = cloneZones(selectedCamera?.zones || [])
 
                 if (!ignore) {
-                    setCameras(apiCameras)
+                    setCameras(enabledCameras)
                     setSelectedCameraId(selectedCamera?.id || '')
                     setZones(nextZones)
                     setInitialZones(cloneZones(nextZones))

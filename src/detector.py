@@ -91,7 +91,7 @@ class Detector:
         if self.mode not in ("head", "person"):
             raise ValueError("mode must be 'head' or 'person'.")
 
-        if self.mode == "head" and len(self.cameras) != self.batch_size:
+        if len(self.cameras) != self.batch_size:
             raise ValueError(
                 f"Number of cameras ({len(self.cameras)}) must match batch_size ({self.batch_size})."
             )

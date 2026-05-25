@@ -16,6 +16,9 @@ def load_cameras(cfg: dict) -> Optional[List[Camera]]:
     seen_zone_keys = set()
 
     for camera_dict in cameras_data:
+        if not isinstance(camera_dict, dict) or not camera_dict.get("enabled", True):
+            continue
+
         camera_id = camera_dict.get("id")
         camera_name = camera_dict.get("name", camera_id)
         source = camera_dict.get("source")

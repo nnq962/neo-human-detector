@@ -11,6 +11,7 @@ import { useToast } from '../../../hooks/useToast'
 import { notifyCameraConfigChanged } from '../../../lib/cameraEvents'
 import { notifyRestartRequired } from '../../../lib/restartRequiredEvents'
 import { SectionShell } from './SectionShell'
+import { ToggleSwitch } from './ConfigControls'
 import type { CameraConfigState } from './types'
 
 type CameraCheckState = {
@@ -185,11 +186,13 @@ function CameraConfig({
             return
         }
 
-        const isCameraReady = await checkCamera(camera, false)
+        if (payload.enabled) {
+            const isCameraReady = await checkCamera(camera, false)
 
-        if (!isCameraReady) {
-            toast.error('Camera check failed. Fix the stream before saving.')
-            return
+            if (!isCameraReady) {
+                toast.error('Camera check failed. Fix the stream before saving.')
+                return
+            }
         }
 
         setActionState(camera.localId, {
@@ -366,15 +369,26 @@ function CameraFields({
 
     return (
         <div className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <label className="min-w-0 space-y-2">
-                <span className={labelClass}>Name</span>
-                <input
-                    type="text"
-                    value={camera.name}
-                    onChange={(event) => onChange(camera.localId, { name: event.target.value })}
-                    className={inputClass}
-                />
-            </label>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_14rem]">
+                <label className="min-w-0 space-y-2">
+                    <span className={labelClass}>Name</span>
+                    <input
+                        type="text"
+                        value={camera.name}
+                        onChange={(event) => onChange(camera.localId, { name: event.target.value })}
+                        className={inputClass}
+                    />
+                </label>
+
+                <div className="min-w-0 space-y-2">
+                    <span className={labelClass}>Enabled</span>
+                    <ToggleSwitch
+                        checked={camera.enabled ?? true}
+                        label={camera.enabled ?? true ? 'Enabled' : 'Disabled'}
+                        onChange={(checked) => onChange(camera.localId, { enabled: checked })}
+                    />
+                </div>
+            </div>
 
             <label className="min-w-0 space-y-2">
                 <span className={labelClass}>Source</span>

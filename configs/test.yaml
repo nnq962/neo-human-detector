@@ -1,10 +1,10 @@
 detector:
-  mode: person
+  mode: head
   model_size: nano
   batch_size: 1
   conf: 0.7
   vid_stride: 1
-  verbose: true
+  verbose: false
   show: true
   show_scale: 0.55
 zones_state_machine:
@@ -43,3 +43,10 @@ cameras:
     - [954, 324]
     - [580, 324]
   id: 6x056
+- name: Sảnh B
+  source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
+  source_protocol: tcp
+  source_on_demand: true
+  enabled: false
+  zones: []
+  id: 98mgh

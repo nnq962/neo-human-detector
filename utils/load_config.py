@@ -8,15 +8,15 @@ def _build_rtsp_streams_file(cfg: dict, config_path: Path) -> None:
     sources = []
 
     for camera in cameras:
-        source = camera.get("source") if isinstance(camera, dict) else None
+        if not isinstance(camera, dict) or not camera.get("enabled", True):
+            continue
+
+        source = camera.get("source")
         if source:
             sources.append(str(source).strip())
 
-    if not sources:
-        return
-
     streams_path = config_path.parent / "rtsp.streams"
-    streams_path.write_text("\n".join(sources) + "\n", encoding="utf-8")
+    streams_path.write_text("\n".join(sources) + ("\n" if sources else ""), encoding="utf-8")
     cfg.setdefault("source", {})["streams_file"] = str(streams_path)
 
 def load_config(path: str = "configs/default.yaml") -> dict:
