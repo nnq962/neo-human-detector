@@ -475,3 +475,4 @@ class Detector:
             # Dọn dẹp tài nguyên: đóng RTSP stream, reset zone, đóng GUI
             self._cleanup_run()
             LOGGER.info("HumanDetector Đã dừng.")
+# refresh
