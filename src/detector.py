@@ -1,4 +1,4 @@
-import aidcv as cv2
+import cv2
 import numpy as np
 from typing import List, Optional, Tuple
 from ultralytics import YOLO

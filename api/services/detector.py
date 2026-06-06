@@ -133,8 +133,9 @@ def start() -> dict:
     except FileNotFoundError as e:
         raise RuntimeError(f"Config not found: {e}")
 
-    from utils import load_cameras
-    cameras = load_cameras(cfg)
+    from src.camera import load_cameras_from_config
+
+    cameras = load_cameras_from_config(cfg)
 
     detector_opts = dict(cfg.get("detector", {}))
     detector_opts.update(_normalize_detector_config(detector_opts))

@@ -1,4 +1,4 @@
-import aidcv as cv2
+import cv2
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from src.models import Zone

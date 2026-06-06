@@ -1,7 +1,7 @@
 import copy
 import os
 
-import aidcv as cv2
+import cv2
 import yaml
 from utils import load_config
 

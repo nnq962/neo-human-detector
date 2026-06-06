@@ -7,7 +7,8 @@ sys.path.append(PROJECT_ROOT)
 
 def main():
     from src.detector import Detector
-    from utils import LOGGER, load_cameras, load_config
+    from src.camera import load_cameras_from_config
+    from utils import LOGGER, load_config
 
     # Đường dẫn tuyệt đối tới file configs/test.yaml
     config_path = os.path.join(PROJECT_ROOT, "configs", "test.yaml")
@@ -16,9 +17,9 @@ def main():
         LOGGER.error(f"Không tìm thấy file cấu hình tại {config_path}")
         return
         
-    # Tái sử dụng utils để load config và camera
+    # Tái sử dụng config loader cũ và camera loader mới trong src/camera.
     cfg = load_config(config_path)
-    cameras = load_cameras(cfg)
+    cameras = load_cameras_from_config(cfg)
             
     # Nạp cấu hình detector
     detector_opts = cfg.get("detector", {})

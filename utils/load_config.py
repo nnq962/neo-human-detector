@@ -2,22 +2,16 @@ from pathlib import Path
 
 import yaml
 
+from src.camera import build_rtsp_stream_sources_from_config, write_rtsp_streams_file
+
 
 def _build_rtsp_streams_file(cfg: dict, config_path: Path) -> None:
-    cameras = cfg.get("cameras") or []
-    sources = []
-
-    for camera in cameras:
-        if not isinstance(camera, dict) or not camera.get("enabled", True):
-            continue
-
-        source = camera.get("source")
-        if source:
-            sources.append(str(source).strip())
-
     streams_path = config_path.parent / "rtsp.streams"
-    streams_path.write_text("\n".join(sources) + ("\n" if sources else ""), encoding="utf-8")
+    sources = build_rtsp_stream_sources_from_config(cfg)
+
+    write_rtsp_streams_file(sources, streams_path)
     cfg.setdefault("source", {})["streams_file"] = str(streams_path)
+
 
 def load_config(path: str = "configs/default.yaml") -> dict:
     config_path = Path(path)
