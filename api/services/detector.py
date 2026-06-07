@@ -17,7 +17,6 @@ def _normalize_detector_config(detector_cfg: dict) -> dict:
     return DetectorSettings(
         auto_start=False,
         detector={
-            "mode": detector_cfg.get("mode", "head"),
             "model_size": detector_cfg.get("model_size", "nano"),
             "batch_size": detector_cfg.get("batch_size", 1),
             "conf": detector_cfg.get("conf", 0.5),
@@ -28,16 +27,15 @@ def _normalize_detector_config(detector_cfg: dict) -> dict:
 
 
 def _validate_detector_model_config(detector_cfg: dict) -> None:
-    mode = detector_cfg.get("mode", "head")
     model_size = detector_cfg.get("model_size", "nano")
     batch_size = int(detector_cfg.get("batch_size", 1))
 
-    if (mode, model_size, batch_size) not in MODEL_PATHS:
+    if (model_size, batch_size) not in MODEL_PATHS:
         supported = ", ".join(
-            f"{mode}/{size}/batch{batch}" for mode, size, batch in sorted(MODEL_PATHS)
+            f"{size}/batch{batch}" for size, batch in sorted(MODEL_PATHS)
         )
         raise ValueError(
-            f"Unsupported mode/model_size/batch_size: {mode}/{model_size}/batch{batch_size}. "
+            f"Unsupported model_size/batch_size: {model_size}/batch{batch_size}. "
             f"Supported: {supported}"
         )
 
@@ -54,6 +52,7 @@ def get_detector_config() -> dict:
 def update_detector_config(settings: DetectorSettingsUpdate) -> dict:
     cfg = config_store.get_config_data()
     update_data = _model_dump(settings, exclude_none=True, exclude_unset=True)
+    cfg.setdefault("detector", {}).pop("mode", None)
 
     if "auto_start" in update_data:
         cfg["auto_start"] = update_data["auto_start"]
@@ -73,7 +72,6 @@ def get_status() -> dict:
     return {
         "is_running": _detector.is_running if _detector else False,
         "source": _detector.source if _detector else None,
-        "mode": _detector.mode if _detector else None,
         "model_path": _detector.model_path if _detector else None,
         "conf": _detector.conf if _detector else None,
         "vid_stride": _detector.vid_stride if _detector else None,
@@ -138,6 +136,7 @@ def start() -> dict:
     cameras = load_cameras_from_config(cfg)
 
     detector_opts = dict(cfg.get("detector", {}))
+    detector_opts.pop("mode", None)
     detector_opts.update(_normalize_detector_config(detector_opts))
     detector_opts.update(cfg.get("zones_state_machine", {}))
     streams_file = cfg.get("source", {}).get("streams_file")

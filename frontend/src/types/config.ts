@@ -1,10 +1,8 @@
-export type DetectorMode = 'head' | 'person';
 export type ModelSize = 'nano' | 'medium';
 export type BatchSize = 1 | 2 | 4;
 export type ZoneCheckMode = 'bottom_center' | 'center';
 
 export interface DetectorConfig {
-  mode: DetectorMode;
   model_size: ModelSize;
   batch_size: BatchSize;
   conf: number;

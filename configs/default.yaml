@@ -1,6 +1,5 @@
 auto_start: false
 detector:
-  mode: head
   model_size: nano
   batch_size: 1
   conf: 0.7
@@ -11,6 +10,12 @@ zones_state_machine:
   confirm_enter_time: 5.5
   confirm_exit_time: 5.0
   pending_enter_miss_grace_time: 1.5
+reid:
+  enabled: false
+  zone_only: true
+  model_path:
+  device: auto
+  embedding_batch_size: 32
 uart:
   port: /dev/ttyS4
   baudrate: 115200

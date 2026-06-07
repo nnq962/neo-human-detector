@@ -4,11 +4,10 @@ import { useToast } from '../../../hooks/useToast'
 import { notifyRestartRequired } from '../../../lib/restartRequiredEvents'
 import type { DetectorConfig } from '../../../types/config'
 import { CustomSelect, NumberStepper, ToggleSwitch } from './ConfigControls'
-import { batchSizeOptions, detectorModeOptions, modelSizeOptions } from './options'
+import { batchSizeOptions, modelSizeOptions } from './options'
 import { SectionShell } from './SectionShell'
 
 const defaultDetectorConfig: DetectorConfig = {
-    mode: 'head',
     model_size: 'nano',
     batch_size: 2,
     conf: 0.5,
@@ -17,8 +16,7 @@ const defaultDetectorConfig: DetectorConfig = {
 }
 
 function hasRestartOnlyDetectorChanges(current: DetectorConfig, initial: DetectorConfig) {
-    return current.mode !== initial.mode ||
-        current.model_size !== initial.model_size ||
+    return current.model_size !== initial.model_size ||
         current.batch_size !== initial.batch_size ||
         current.conf !== initial.conf ||
         current.vid_stride !== initial.vid_stride
@@ -155,14 +153,6 @@ function AIConfig() {
                     />
                 </div>
             </div>
-
-            <CustomSelect
-                label="Mode"
-                value={detector.mode}
-                options={detectorModeOptions}
-                getOptionLabel={(value) => value === 'head' ? 'Head' : 'Person'}
-                onChange={(value) => updateDetector({ mode: value })}
-            />
 
             <CustomSelect
                 label="Model Size"

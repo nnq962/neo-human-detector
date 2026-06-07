@@ -1,5 +1,4 @@
 detector:
-  mode: person
   model_size: nano
   batch_size: 1
   conf: 0.55
@@ -12,6 +11,12 @@ zones_state_machine:
   confirm_enter_time: 5.5
   confirm_exit_time: 5.0
   pending_enter_miss_grace_time: 1.5
+reid:
+  enabled: false
+  zone_only: true
+  model_path:
+  device: auto
+  embedding_batch_size: 32
 uart:
   port: /dev/ttyS4
   baudrate: 115200
@@ -28,10 +33,10 @@ cameras:
       y: 0.0
       theta: 0.0
     points:
-    - [603, 794]
-    - [1089, 833]
-    - [1062, 1080]
-    - [538, 1080]
+    - [1320, 296]
+    - [2474, 300]
+    - [2451, 1678]
+    - [1355, 1633]
   - name: zone_2
     goal_pose:
       x: 0.0
