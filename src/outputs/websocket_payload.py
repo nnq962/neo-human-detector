@@ -14,7 +14,7 @@ from src.detection.detections import Detection, DetectionFrame
 from src.models import Zone
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def build_detection_websocket_payload(
     *,
     camera: Any,
@@ -41,7 +41,7 @@ def build_detection_websocket_payload(
     )
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def build_legacy_detection_websocket_payload(
     *,
     camera: Any,
@@ -69,7 +69,7 @@ def build_legacy_detection_websocket_payload(
     )
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _build_payload_dict(
     *,
     camera_id: str,
@@ -95,7 +95,7 @@ def _build_payload_dict(
     }
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _build_detection_objects(
     detections: Sequence[Detection],
     resolution: Tuple[int, int],
@@ -128,7 +128,7 @@ def _build_detection_objects(
     return objects
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _detections_from_arrays(bboxes: np.ndarray, confs: np.ndarray) -> List[Detection]:
     """Chuyển dữ liệu numpy cũ sang Detection chuẩn."""
     detections: List[Detection] = []
@@ -151,7 +151,7 @@ def _detections_from_arrays(bboxes: np.ndarray, confs: np.ndarray) -> List[Detec
     return detections
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _resolve_payload_resolution(detection_frame: DetectionFrame) -> Tuple[int, int]:
     """Lấy resolution từ DetectionFrame, fallback về (0, 0) nếu chưa có."""
     if detection_frame.resolution is None:
@@ -161,13 +161,13 @@ def _resolve_payload_resolution(detection_frame: DetectionFrame) -> Tuple[int, i
     return int(width), int(height)
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _empty_zone_counts(zones: Sequence[Zone]) -> Dict[str, int]:
     """Tạo bộ đếm 0 cho tất cả zone khi state machine chưa trả zone_counts."""
     return {zone.key: 0 for zone in zones}
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _current_timestamp_ms() -> int:
     """Timestamp milliseconds để frontend biết frame nào mới hơn."""
     return int(time.time() * 1000)
