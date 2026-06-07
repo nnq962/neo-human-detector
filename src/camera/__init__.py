@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def __getattr__(name: str) -> Any:
     """Lazy import public API để tránh kéo dependency nặng khi chưa cần."""
     if name in {"Camera", "CameraStreamConfig"}:

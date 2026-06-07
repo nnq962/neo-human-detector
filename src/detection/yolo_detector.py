@@ -19,18 +19,16 @@ from src.detection.detections import DetectionFrame, parse_yolo_boxes
 from src.detection.model_registry import resolve_model_path
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class YoloDetectorConfig:
     """
     Cấu hình tối thiểu để chạy YOLO detection.
 
-    `mode="person"` sẽ filter class người theo COCO class id 0.
-    `mode="head"` dùng model custom nên không filter class.
+    Detector này luôn filter class người theo COCO class id 0.
     """
 
     source: str = "configs/rtsp.streams"
-    mode: str = "head"
     model_size: str = "nano"
     batch_size: int = 1
     conf: float = 0.5
@@ -41,7 +39,7 @@ class YoloDetectorConfig:
     verbose: bool = False
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 class YoloDetector:
     """
     Adapter mỏng bao quanh Ultralytics YOLO.
@@ -53,7 +51,6 @@ class YoloDetector:
     def __init__(self, config: YoloDetectorConfig):
         self.config = config
         self.model_path = resolve_model_path(
-            config.mode,
             config.model_size,
             config.batch_size,
         )
@@ -126,9 +123,8 @@ class YoloDetector:
             "batch": self.config.batch_size,
         }
 
-        # COCO person class = 0. Model head custom không cần filter class.
-        if self.config.mode == "person":
-            predict_kwargs["classes"] = [0]
+        # COCO person class = 0.
+        predict_kwargs["classes"] = [0]
 
         return predict_kwargs
 
@@ -200,29 +196,3 @@ class YoloDetector:
                 dataset.close()
         except Exception:
             pass
-
-
-# -----------------------------------------------------------------------------
-def build_yolo_detector_config(
-    source: str = "configs/rtsp.streams",
-    mode: str = "head",
-    model_size: str = "nano",
-    batch_size: int = 1,
-    conf: float = 0.5,
-    vid_stride: int = 1,
-    tracker: str = "bytetrack.yaml",
-    persist: bool = True,
-    verbose: bool = False,
-) -> YoloDetectorConfig:
-    """Factory nhỏ để tạo config từ dict/service mà không lộ dataclass ra quá nhiều."""
-    return YoloDetectorConfig(
-        source=source,
-        mode=mode,
-        model_size=model_size,
-        batch_size=int(batch_size),
-        conf=float(conf),
-        vid_stride=int(vid_stride),
-        tracker=tracker,
-        persist=bool(persist),
-        verbose=bool(verbose),
-    )

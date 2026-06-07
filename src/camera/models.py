@@ -1,20 +1,20 @@
 """
 Kiểu dữ liệu chuẩn cho camera.
 
-Hiện tại zone vẫn nằm ở `src.models.Zone` để không làm vỡ code cũ.
-Khi tách tiếp module `zones/`, field `zones` trong file này chỉ cần đổi import.
+Zone được lấy từ `src.zones` để camera model mới không còn phụ thuộc file
+`src.models.py` legacy.
 """
 
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Tuple
 
-from src.models import Zone
+from src.zones.models import Zone
 
 
 CameraSourceProtocol = Literal["tcp", "udp", "multicast"]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class CameraStreamConfig:
     """
@@ -28,7 +28,7 @@ class CameraStreamConfig:
     source_on_demand: bool = True
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class Camera:
     """

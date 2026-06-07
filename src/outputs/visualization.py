@@ -11,10 +11,10 @@ import cv2
 import numpy as np
 
 from src.detection.detections import Detection
-from src.models import Zone
+from src.zones.models import Zone
 
 
-COLOR_BBOX = (60, 100, 255)
+COLOR_BBOX = (255, 193, 0)
 COLOR_TRACK_TEXT = (255, 255, 255)
 BASE_FRAME_HEIGHT = 1080
 BASE_FONT_SCALE = 0.75

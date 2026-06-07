@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from src.camera.models import Camera
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def build_rtsp_stream_sources(cameras: Sequence[Camera]) -> List[str]:
     """Lấy danh sách source từ các camera đang bật và đủ điều kiện detect."""
     return [
@@ -25,7 +25,7 @@ def build_rtsp_stream_sources(cameras: Sequence[Camera]) -> List[str]:
     ]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def build_rtsp_stream_sources_from_config(config: Mapping[str, Any]) -> List[str]:
     """Lấy danh sách source trực tiếp từ config dict, chưa cần parse Camera object."""
     cameras_data = config.get("cameras") or []
@@ -46,7 +46,7 @@ def build_rtsp_stream_sources_from_config(config: Mapping[str, Any]) -> List[str
     return sources
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def write_rtsp_streams_file(
     sources: Iterable[str],
     output_path: str | Path,

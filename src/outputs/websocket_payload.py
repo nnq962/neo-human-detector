@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 
 from src.detection.detections import Detection, DetectionFrame
-from src.models import Zone
+from src.zones.models import Zone
 
 
 # ─────────────────────────────────────────────────────────────────────────────

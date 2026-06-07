@@ -13,11 +13,11 @@ from typing import Any, List, Optional, Set
 import numpy as np
 
 from src.camera.models import Camera, CameraStreamConfig
-from src.models import Zone
+from src.zones.models import Zone
 from utils import LOGGER
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def load_cameras_from_config(
     config: Mapping[str, Any],
     *,
@@ -61,7 +61,7 @@ def load_cameras_from_config(
     return cameras
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def parse_camera_config(
     camera_data: Any,
     *,
@@ -118,7 +118,7 @@ def parse_camera_config(
     )
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def parse_camera_zones(
     *,
     camera_id: str,
@@ -145,7 +145,7 @@ def parse_camera_zones(
     return zones
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def parse_zone_config(
     *,
     camera_id: str,
@@ -184,7 +184,7 @@ def parse_zone_config(
     )
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def flatten_camera_zones(cameras: List[Camera]) -> List[Zone]:
     """Gom tất cả zone từ nhiều camera thành một list phẳng."""
     zones: List[Zone] = []
@@ -194,7 +194,7 @@ def flatten_camera_zones(cameras: List[Camera]) -> List[Zone]:
     return zones
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _normalize_source_protocol(value: Any) -> str:
     """Chuẩn hóa source protocol về nhóm MediaMTX/RTSP đang hỗ trợ."""
     protocol = str(value or "tcp").strip().lower()
@@ -205,7 +205,7 @@ def _normalize_source_protocol(value: Any) -> str:
     return "tcp"
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _is_valid_polygon_points(points: Any) -> bool:
     """Kiểm tra points có thể tạo thành polygon tối thiểu 3 điểm hay không."""
     if not isinstance(points, list) or len(points) < 3:
@@ -222,7 +222,7 @@ def _is_valid_polygon_points(points: Any) -> bool:
     return True
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _is_number(value: Any) -> bool:
     """Kiểm tra value là số int/float hữu hạn."""
     try:

@@ -15,14 +15,14 @@ import numpy as np
 BBoxXYXY = Tuple[float, float, float, float]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Detection:
     """
     Một object được phát hiện trong một frame.
 
     `bbox` dùng format xyxy theo pixel gốc: (x1, y1, x2, y2).
-    `class_id` có thể None vì một số model head custom không cần class rõ ràng.
+    `class_id` có thể None nếu backend detector không trả class rõ ràng.
     `track_id` chỉ có khi detection được sinh ra từ `model.track(...)`.
     """
 
@@ -48,7 +48,7 @@ class Detection:
         return np.asarray(self.bbox, dtype=np.float32)
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class DetectionFrame:
     """
@@ -84,7 +84,7 @@ class DetectionFrame:
         return np.asarray([item.confidence for item in self.detections], dtype=np.float32)
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def parse_yolo_boxes(boxes: Any) -> List[Detection]:
     """
     Parse `result.boxes` của YOLO thành danh sách `Detection`.
@@ -120,7 +120,7 @@ def parse_yolo_boxes(boxes: Any) -> List[Detection]:
     return detections
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def detections_to_websocket_objects(
     detections: List[Detection],
     resolution: Tuple[int, int],
@@ -137,7 +137,7 @@ def detections_to_websocket_objects(
     ]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _extract_class_ids(boxes: Any, count: int) -> List[Optional[int]]:
     """Lấy class id từ YOLO boxes nếu tồn tại."""
     if not hasattr(boxes, "cls") or boxes.cls is None:
@@ -155,7 +155,7 @@ def _extract_class_ids(boxes: Any, count: int) -> List[Optional[int]]:
     return class_ids[:count]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _extract_track_ids(boxes: Any, count: int) -> List[Optional[int]]:
     """Lấy ByteTrack id từ YOLO tracking result nếu tồn tại."""
     if not hasattr(boxes, "id") or boxes.id is None:
@@ -173,7 +173,7 @@ def _extract_track_ids(boxes: Any, count: int) -> List[Optional[int]]:
     return track_ids[:count]
 
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 def _is_valid_detection(bbox: np.ndarray, confidence: float) -> bool:
     """Kiểm tra detection có tọa độ và confidence hợp lệ hay không."""
     if not np.isfinite(bbox[:4]).all() or not np.isfinite(confidence):
