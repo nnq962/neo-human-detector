@@ -1,3 +1,10 @@
+"""
+Embedder trích xuất vector ReID từ crop người.
+
+File này bọc OSNet-AIN checkpoint hiện có. Runtime chỉ import/load embedder khi
+`enable_reid=True`, tránh kéo torch/torchreid trong luồng detect-only.
+"""
+
 from __future__ import annotations
 
 from collections import OrderedDict
@@ -17,18 +24,19 @@ ImageInput = Union[str, Path, Image.Image, np.ndarray]
 ColorFormat = Literal["rgb", "bgr"]
 
 
-class OSNetAINEmbedder:
-    """Embedding extractor for the OSNet-AIN MS+D+C checkpoint.
+# ─────────────────────────────────────────────────────────────────────────────
+class OSNetPersonEmbedder:
+    """
+    Trích xuất embedding người bằng OSNet-AIN.
 
-    Inputs should be cropped person images. Returned embeddings are always
-    L2-normalized so they can be compared directly with cosine similarity.
+    Input nên là crop người BGR/RGB. Output luôn được L2-normalize để so cosine.
     """
 
     model_name = "osnet_ain_x1_0"
     embedding_dim = 512
     input_size = (256, 128)
     default_weights = (
-        Path(__file__).resolve().parents[1] / "weights" / "osnet_ain_ms_d_c.pth.tar"
+        Path(__file__).resolve().parents[2] / "weights" / "reid" / "osnet_ain_ms_d_c.pth.tar"
     )
 
     def __init__(
@@ -54,8 +62,7 @@ class OSNetAINEmbedder:
         *,
         color_format: ColorFormat = "rgb",
     ) -> Tensor:
-        """Extract one normalized embedding with shape [512]."""
-
+        """Extract một normalized embedding shape [512]."""
         return self.extract_embeddings([image], color_format=color_format)[0]
 
     @torch.inference_mode()
@@ -66,8 +73,7 @@ class OSNetAINEmbedder:
         color_format: ColorFormat = "rgb",
         batch_size: int | None = None,
     ) -> Tensor:
-        """Extract normalized embeddings with shape [N, 512]."""
-
+        """Extract normalized embeddings shape [N, 512]."""
         if not images:
             raise ValueError("images must not be empty")
 
@@ -88,26 +94,10 @@ class OSNetAINEmbedder:
 
         return torch.cat(outputs, dim=0)
 
-    @staticmethod
-    def cosine_similarity(query: Tensor, gallery: Tensor) -> Tensor:
-        """Compute cosine similarity for normalized or raw embedding tensors."""
-
-        query_2d = query.unsqueeze(0) if query.ndim == 1 else query
-        gallery_2d = gallery.unsqueeze(0) if gallery.ndim == 1 else gallery
-        if query_2d.ndim != 2 or gallery_2d.ndim != 2:
-            raise ValueError("query and gallery must be [D] or [N, D] tensors")
-        if query_2d.shape[1] != gallery_2d.shape[1]:
-            raise ValueError(
-                f"Embedding dimensions differ: {query_2d.shape[1]} vs {gallery_2d.shape[1]}"
-            )
-
-        query_norm = F.normalize(query_2d.float(), p=2, dim=1)
-        gallery_norm = F.normalize(gallery_2d.float(), p=2, dim=1)
-        return query_norm @ gallery_norm.T
-
     def _load_model(self, *, verbose: bool) -> nn.Module:
+        """Load OSNet model và nạp checkpoint tương thích."""
         if not self.model_path.is_file():
-            raise FileNotFoundError(f"Missing weights: {self.model_path}")
+            raise FileNotFoundError(f"Missing ReID weights: {self.model_path}")
 
         model = build_model(
             name=self.model_name,
@@ -119,9 +109,9 @@ class OSNetAINEmbedder:
 
         model_state = model.state_dict()
         pretrained_state = self._load_state_dict(self.model_path)
-
         matched: dict[str, Tensor] = {}
         discarded: list[str] = []
+
         for key, value in pretrained_state.items():
             if key in model_state and model_state[key].shape == value.shape:
                 matched[key] = value
@@ -136,28 +126,31 @@ class OSNetAINEmbedder:
         model.eval().to(self.device)
 
         if verbose:
-            print(f"Loaded {len(matched)} layers from {self.model_path}")
+            print(f"Loaded {len(matched)} ReID layers from {self.model_path}")
             if discarded:
-                print(f"Discarded {len(discarded)} incompatible layers.")
+                print(f"Discarded {len(discarded)} incompatible ReID layers.")
 
         return model
 
     @staticmethod
     def _load_state_dict(weight_path: Path) -> OrderedDict[str, Tensor]:
+        """Đọc checkpoint torchreid và bỏ prefix module nếu có."""
         checkpoint = torch.load(weight_path, map_location="cpu", weights_only=False)
         if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
             checkpoint = checkpoint["state_dict"]
         if not isinstance(checkpoint, dict):
             raise TypeError(f"Unsupported checkpoint type: {type(checkpoint)!r}")
 
-        state_dict = OrderedDict()
+        state_dict: OrderedDict[str, Tensor] = OrderedDict()
         for key, value in checkpoint.items():
             if isinstance(value, Tensor):
                 state_dict[key.removeprefix("module.")] = value
+
         return state_dict
 
     @classmethod
     def _build_preprocess(cls) -> transforms.Compose:
+        """Preprocess theo input chuẩn của OSNet."""
         return transforms.Compose(
             [
                 transforms.Resize(cls.input_size),
@@ -170,25 +163,27 @@ class OSNetAINEmbedder:
         )
 
     def _preprocess_image(self, image: ImageInput, color_format: ColorFormat) -> Tensor:
+        """Chuyển input image sang tensor model-ready."""
         return self.transform(self._to_pil_image(image, color_format))
 
     @staticmethod
     def _to_pil_image(image: ImageInput, color_format: ColorFormat) -> Image.Image:
+        """Chuẩn hóa input thành PIL RGB."""
         if isinstance(image, (str, Path)):
             return Image.open(image).convert("RGB")
         if isinstance(image, Image.Image):
             return image.convert("RGB")
         if isinstance(image, np.ndarray):
             if image.ndim != 3 or image.shape[2] != 3:
-                raise ValueError(
-                    f"Expected numpy image shape [H, W, 3], got {image.shape}"
-                )
+                raise ValueError(f"Expected numpy image shape [H, W, 3], got {image.shape}")
             array = image[:, :, ::-1] if color_format == "bgr" else image
             return Image.fromarray(array.astype(np.uint8)).convert("RGB")
+
         raise TypeError(f"Unsupported image input type: {type(image)!r}")
 
     @staticmethod
     def _pick_device(device: str | torch.device) -> torch.device:
+        """Chọn device chạy ReID."""
         if isinstance(device, torch.device):
             return device
         if device != "auto":
@@ -197,7 +192,5 @@ class OSNetAINEmbedder:
             return torch.device("cuda")
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return torch.device("mps")
+
         return torch.device("cpu")
-
-
-__all__ = ["ColorFormat", "ImageInput", "OSNetAINEmbedder"]

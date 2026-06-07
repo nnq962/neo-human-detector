@@ -1,9 +1,8 @@
 """
 State machine xử lý vòng đời zone.
 
-Logic giữ giống `src/zone_state_machine.py` legacy: zone chỉ chuyển OCCUPIED
-sau khi detection ổn định đủ thời gian, và chỉ cleared sau khi mất detection đủ
-thời gian xác nhận.
+Zone chỉ chuyển OCCUPIED sau khi detection ổn định đủ thời gian, và chỉ cleared
+sau khi mất detection đủ thời gian xác nhận.
 """
 
 from dataclasses import dataclass

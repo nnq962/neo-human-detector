@@ -8,8 +8,6 @@ Nó không đọc camera stream, không chạy detector, và không tự gửi W
 import time
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-import numpy as np
-
 from src.detection.detections import Detection, DetectionFrame
 from src.zones.models import Zone
 
@@ -35,34 +33,6 @@ def build_detection_websocket_payload(
         camera_name=str(camera.name),
         resolution=resolution,
         objects=_build_detection_objects(detection_frame.detections, resolution),
-        zones=zones,
-        zone_counts=zone_counts,
-        timestamp_ms=_current_timestamp_ms(),
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def build_legacy_detection_websocket_payload(
-    *,
-    camera: Any,
-    resolution: Tuple[int, int],
-    bboxes: np.ndarray,
-    confs: np.ndarray,
-    zones: Sequence[Zone],
-    zone_counts: Optional[Mapping[str, int]] = None,
-) -> Dict[str, Any]:
-    """
-    Adapter tạm cho pipeline cũ đang dùng numpy `bboxes/confs`.
-
-    Khi runtime đã chuyển hẳn sang `DetectionFrame`, hàm này có thể bỏ.
-    """
-    detections = _detections_from_arrays(bboxes, confs)
-
-    return _build_payload_dict(
-        camera_id=str(camera.id),
-        camera_name=str(camera.name),
-        resolution=resolution,
-        objects=_build_detection_objects(detections, resolution),
         zones=zones,
         zone_counts=zone_counts,
         timestamp_ms=_current_timestamp_ms(),
@@ -123,32 +93,18 @@ def _build_detection_objects(
         if detection.label:
             item["label"] = detection.label
 
+        if detection.global_id is not None:
+            item["global_id"] = detection.global_id
+
+        if detection.similarity is not None:
+            item["similarity"] = detection.similarity
+
+        if detection.status:
+            item["status"] = detection.status
+
         objects.append(item)
 
     return objects
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def _detections_from_arrays(bboxes: np.ndarray, confs: np.ndarray) -> List[Detection]:
-    """Chuyển dữ liệu numpy cũ sang Detection chuẩn."""
-    detections: List[Detection] = []
-
-    for bbox, conf in zip(bboxes, confs):
-        if not np.isfinite(bbox[:4]).all() or not np.isfinite(conf):
-            continue
-
-        x1, y1, x2, y2 = bbox[:4]
-        if x2 <= x1 or y2 <= y1:
-            continue
-
-        detections.append(
-            Detection(
-                bbox=(float(x1), float(y1), float(x2), float(y2)),
-                confidence=float(conf),
-            )
-        )
-
-    return detections
 
 
 # ─────────────────────────────────────────────────────────────────────────────

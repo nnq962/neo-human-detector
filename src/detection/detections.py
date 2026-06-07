@@ -7,7 +7,7 @@ Các module phía sau như zone, tracking, ReID chỉ nên đọc `Detection` ho
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -26,11 +26,14 @@ class Detection:
     `track_id` chỉ có khi detection được sinh ra từ `model.track(...)`.
     """
 
-    bbox: BBoxXYXY
+    bbox      : BBoxXYXY
     confidence: float
-    class_id: Optional[int] = None
-    track_id: Optional[int] = None
-    label: Optional[str] = None
+    class_id  : Optional[int] = None
+    track_id  : Optional[int] = None
+    label     : Optional[str] = None
+    global_id : Optional[int] = None
+    similarity: Optional[float] = None
+    status    : Optional[str] = None
 
     def to_xywh_normalized(self, width: int, height: int) -> List[float]:
         """Chuyển bbox xyxy pixel sang xywh normalize để gửi WebSocket."""
@@ -58,30 +61,21 @@ class DetectionFrame:
     Khi pipeline mới ổn định, runtime có thể bỏ phụ thuộc vào field này.
     """
 
-    detections: List[Detection] = field(default_factory=list)
-    resolution: Optional[Tuple[int, int]] = None
-    frame_index: Optional[int] = None
-    camera_id: Optional[str] = None
-    raw_result: Optional[Any] = None
+    detections : List[Detection]           = field(default_factory=list)
+    resolution : Optional[Tuple[int, int]] = None
+    frame_index: Optional[int]             = None
+    camera_id  : Optional[str]             = None
+    raw_result : Optional[Any]             = None
 
     @property
     def count(self) -> int:
         """Số detection hợp lệ trong frame."""
         return len(self.detections)
 
-    def bboxes_array(self) -> np.ndarray:
-        """Trả toàn bộ bbox dạng ndarray shape (N, 4), tương thích code zone cũ."""
-        if not self.detections:
-            return np.empty((0, 4), dtype=np.float32)
-
-        return np.asarray([item.bbox for item in self.detections], dtype=np.float32)
-
-    def confidences_array(self) -> np.ndarray:
-        """Trả toàn bộ confidence dạng ndarray shape (N,), tương thích code cũ."""
-        if not self.detections:
-            return np.empty((0,), dtype=np.float32)
-
-        return np.asarray([item.confidence for item in self.detections], dtype=np.float32)
+    @property
+    def tracked_count(self) -> int:
+        """Số detection đã được tracker gán track_id."""
+        return sum(1 for detection in self.detections if detection.track_id is not None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,23 +112,6 @@ def parse_yolo_boxes(boxes: Any) -> List[Detection]:
         )
 
     return detections
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def detections_to_websocket_objects(
-    detections: List[Detection],
-    resolution: Tuple[int, int],
-) -> List[Dict[str, Any]]:
-    """Đóng gói detection thành object nhỏ cho WebSocket preview."""
-    width, height = resolution
-
-    return [
-        {
-            "bbox": detection.to_xywh_normalized(width, height),
-            "conf": detection.confidence,
-        }
-        for detection in detections
-    ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

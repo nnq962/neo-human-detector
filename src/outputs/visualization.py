@@ -333,8 +333,8 @@ def _build_detection_label(detection: Detection, zone_name: Optional[str]) -> st
     """Tạo text label nhiều dòng cho bbox."""
     parts = [
         f"tid: {detection.track_id if detection.track_id is not None else '-'}",
-        f"gid: {_format_optional_id(_get_detection_attr(detection, 'global_id', 'gid'), width=2)}",
         f"cnf: {_format_percent(detection.confidence)}",
+        f"gid: {_format_optional_id(_get_detection_attr(detection, 'global_id', 'gid'), width=2)}",
         f"sim: {_format_percent(_get_detection_attr(detection, 'similarity', 'sim'))}",
         f"sta: {_format_optional_text(_get_detection_attr(detection, 'status', 'state'))}",
         f"zon: {_format_optional_text(zone_name)}",

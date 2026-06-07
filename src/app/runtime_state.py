@@ -25,6 +25,12 @@ def _empty_zone_event_payload() -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _empty_robot_requests() -> list:
+    """Tạo list request robot rỗng."""
+    return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class RuntimeState:
     """
@@ -36,6 +42,7 @@ class RuntimeState:
 
     latest_ws_payload  : Dict[str, Any] = field(default_factory=_empty_websocket_payload)
     latest_uart_payload: Dict[str, Any] = field(default_factory=_empty_zone_event_payload)
+    latest_robot_requests: list         = field(default_factory=_empty_robot_requests)
     is_running         : bool           = False
 
     def __post_init__(self) -> None:
@@ -58,6 +65,11 @@ class RuntimeState:
         with self._lock:
             self.latest_uart_payload = payload
 
+    def update_robot_requests(self, requests: list) -> None:
+        """Lưu request robot mới nhất do occupancy manager phát sinh."""
+        with self._lock:
+            self.latest_robot_requests = list(requests)
+
     def get_websocket_snapshot(self) -> Dict[str, Any]:
         """Trả bản copy payload WebSocket mới nhất để consumer đọc an toàn."""
         with self._lock:
@@ -68,11 +80,17 @@ class RuntimeState:
         with self._lock:
             return deepcopy(self.latest_uart_payload)
 
+    def get_robot_requests_snapshot(self) -> list:
+        """Trả bản copy danh sách request robot mới nhất."""
+        with self._lock:
+            return deepcopy(self.latest_robot_requests)
+
     def reset(self) -> None:
         """Reset toàn bộ runtime state về trạng thái ban đầu."""
         with self._lock:
             self.latest_ws_payload = _empty_websocket_payload()
             self.latest_uart_payload = _empty_zone_event_payload()
+            self.latest_robot_requests = _empty_robot_requests()
             self.is_running = False
 
     def latest_camera_payload(self, camera_id: str) -> Optional[Dict[str, Any]]:

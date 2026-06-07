@@ -73,26 +73,3 @@ def assign_detections_to_zones(
 
     return zone_names, zone_counts
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-def assign_bboxes_to_zones(
-    bboxes: np.ndarray,
-    zones: Sequence[Zone],
-    zone_check_mode: ZoneCheckMode,
-) -> Tuple[List[Optional[str]], Dict[str, int]]:
-    """
-    Adapter tương thích cho code còn dùng ndarray bbox cũ.
-
-    Runtime mới nên ưu tiên `assign_detections_to_zones`.
-    """
-    zone_names: List[Optional[str]] = [None] * len(bboxes)
-    zone_counts = {zone.key: 0 for zone in zones}
-
-    for index, bbox in enumerate(bboxes):
-        for zone in zones:
-            if is_bbox_in_zone(bbox, zone.pts, mode=zone_check_mode):
-                zone_names[index] = zone.name
-                zone_counts[zone.key] += 1
-                break
-
-    return zone_names, zone_counts

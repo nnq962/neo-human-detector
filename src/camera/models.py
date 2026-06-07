@@ -1,8 +1,7 @@
 """
 Kiểu dữ liệu chuẩn cho camera.
 
-Zone được lấy từ `src.zones` để camera model mới không còn phụ thuộc file
-`src.models.py` legacy.
+Zone được lấy từ `src.zones` để camera model mới không còn phụ thuộc model chung.
 """
 
 from dataclasses import dataclass, field
@@ -47,7 +46,7 @@ class Camera:
 
     @property
     def source(self) -> str:
-        """Trả RTSP/source URL để tương thích với code cũ."""
+        """Trả RTSP/source URL của camera."""
         return self.stream.source
 
     @property
