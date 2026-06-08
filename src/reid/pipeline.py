@@ -67,6 +67,7 @@ class ReIdPipeline:
         camera_id: str,
         detection_frame: DetectionFrame,
         zone_names: list[str | None],
+        allowed_zone_names: set[str] | None = None,
     ) -> list[ReIdCandidate]:
         """Chọn candidate theo config hiện tại."""
         return select_reid_candidates(
@@ -74,6 +75,7 @@ class ReIdPipeline:
             detections=detection_frame.detections,
             zone_names=zone_names,
             zone_only=self.config.zone_only,
+            allowed_zone_names=allowed_zone_names,
         )
 
     def update(

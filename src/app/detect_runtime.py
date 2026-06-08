@@ -12,7 +12,7 @@ from unidecode import unidecode
 
 import cv2
 
-from src.camera import load_cameras_from_config
+from src.camera import Camera, load_cameras_from_config
 from src.app.runtime_state import RuntimeState
 from src.detection import DetectionFrame, YoloDetector, YoloDetectorConfig
 from src.outputs import (
@@ -26,6 +26,7 @@ from src.outputs import (
 from src.reid import ReIdConfig, ReIdPipeline
 from src.zones import (
     ZoneOccupancyManager,
+    ZoneState,
     ZoneStateMachine,
     assign_detections_to_zones,
     build_zone_occupancy_snapshot,
@@ -74,7 +75,7 @@ class DetectOnlyRuntime:
 
     def __init__(self, config: DetectRuntimeConfig):
         self.config = config
-        self.cameras = []
+        self.cameras: list[Camera] = []
         self.detector: Optional[YoloDetector] = None
         self.zone_state_machine: Optional[ZoneStateMachine] = None
         self.zone_occupancy_manager = ZoneOccupancyManager()
@@ -87,11 +88,6 @@ class DetectOnlyRuntime:
     def latest_ws_payload(self) -> Dict[str, Any]:
         """Snapshot WebSocket payload mới nhất, tiện cho test/runtime khác đọc."""
         return self.state.get_websocket_snapshot()
-
-    @property
-    def latest_uart_payload(self) -> Dict[str, Any]:
-        """Snapshot event zone mới nhất, giữ tên tương thích với detector cũ."""
-        return self.state.get_uart_snapshot()
 
     @property
     def latest_robot_requests(self) -> list:
@@ -150,16 +146,21 @@ class DetectOnlyRuntime:
                     self.config.zone_check_mode,
                 )
 
-                # 6. ReID chỉ xử lý detection có track_id và thỏa policy candidate.
-                #    Mặc định policy là chỉ lấy bbox nằm trong zone để giảm tải.
+                # 6. Cập nhật state machine trước ReID để biết zone nào đã thật sự
+                #    OCCUPIED, tránh extract embedding cho người mới chỉ đi ngang.
+                self._update_zone_states(zones, zone_counts)
+
+                # 7. ReID chỉ xử lý detection có track_id, nằm trong zone và zone
+                #    đó đã OCCUPIED nếu policy `require_occupied_zone` đang bật.
                 detection_frame = self._apply_reid(
                     camera_id=camera.id,
                     detection_frame=detection_frame,
+                    zones=zones,
                     zone_names=zone_names,
                     frame_idx=result_index,
                 )
 
-                # 7. Xây snapshot zone occupancy theo global_id để quyết định request robot.
+                # 8. Xây snapshot zone occupancy theo global_id để quyết định request robot.
                 robot_requests = self._update_zone_occupancy(
                     camera=camera,
                     detection_frame=detection_frame,
@@ -168,18 +169,15 @@ class DetectOnlyRuntime:
                     frame_idx=result_index,
                 )
 
-                # 8. Cập nhật state machine. Nếu có detected/cleared event, payload
-                #    này giữ format tương thích với UART pipeline cũ.
-                zone_event_payload = self._update_zone_state(zones, zone_counts)
+                LOGGER.debug("robot_requests=%s", robot_requests)
 
                 # 9. Lưu snapshot mới nhất cho consumer bên ngoài đọc, ví dụ
-                #    WebSocket preview hoặc UART sender trong bước refactor sau.
+                #    WebSocket preview hoặc robot sender trong bước refactor sau.
                 self._update_runtime_payloads(
                     camera,
                     detection_frame,
                     zones,
                     zone_counts,
-                    zone_event_payload,
                 )
 
                 if self.config.verbose:
@@ -275,9 +273,11 @@ class DetectOnlyRuntime:
         LOGGER.info("Enable ReID                    : %s", self.config.reid_config.enabled)
         if self.config.reid_config.enabled:
             LOGGER.info("ReID zone only                 : %s", self.config.reid_config.zone_only)
+            LOGGER.info("ReID require occupied zone     : %s", self.config.reid_config.require_occupied_zone)
             LOGGER.info("ReID model path                : %s", self.config.reid_config.model_path or "default")
             LOGGER.info("ReID device                    : %s", self.config.reid_config.device)
             LOGGER.info("ReID embedding batch size      : %s", self.config.reid_config.embedding_batch_size)
+            LOGGER.info("ReID max reverify misses       : %s", self.config.reid_config.max_reverify_misses)
         LOGGER.info("Zone check mode                : %s", self.config.zone_check_mode)
         LOGGER.info("Confirm enter time             : %s", self.config.confirm_enter_time)
         LOGGER.info("Confirm exit time              : %s", self.config.confirm_exit_time)
@@ -301,13 +301,13 @@ class DetectOnlyRuntime:
 
         return ReIdPipeline.from_config(self.config.reid_config)
 
-    def _camera_for_result(self, result_index: int) -> Any:
+    def _camera_for_result(self, result_index: int) -> Camera:
         """Map result đã flatten của Ultralytics về camera tương ứng."""
         return self.cameras[result_index % len(self.cameras)]
 
     def _show_detection_frame(
         self,
-        camera: Any,
+        camera: Camera,
         detection_frame: DetectionFrame,
         zone_names,
         fps: float,
@@ -350,6 +350,7 @@ class DetectOnlyRuntime:
         *,
         camera_id: str,
         detection_frame: DetectionFrame,
+        zones,
         zone_names,
         frame_idx: int,
     ) -> DetectionFrame:
@@ -362,6 +363,7 @@ class DetectOnlyRuntime:
             camera_id=str(camera_id),
             detection_frame=detection_frame,
             zone_names=zone_names,
+            allowed_zone_names=self._allowed_reid_zone_names(zones),
         )
 
         raw_frame = extract_raw_frame(detection_frame)
@@ -377,21 +379,35 @@ class DetectOnlyRuntime:
 
         return self.reid_pipeline.enrich_detection_frame(detection_frame, assignments)
 
-    def _update_zone_state(self, zones, zone_counts: Dict[str, int]) -> Dict[str, Any]:
-        """Cập nhật state machine và log event zone nếu có."""
+    def _allowed_reid_zone_names(self, zones) -> set[str] | None:
+        """
+        Lấy tập zone được phép ReID theo policy hiện tại.
+
+        Khi `require_occupied_zone=True`, candidate phải vừa nằm trong zone vừa
+        thuộc zone đã OCCUPIED. Nếu tắt policy này thì selector giữ hành vi cũ.
+        """
+        if not self.config.reid_config.require_occupied_zone:
+            return None
+
+        return {
+            zone.name
+            for zone in zones
+            if zone.state == ZoneState.OCCUPIED
+        }
+
+    def _update_zone_states(self, zones, zone_counts: Dict[str, int]) -> None:
+        """Cập nhật state machine để mỗi zone có state mới nhất."""
         if self.zone_state_machine is None:
-            return {"detected": [], "cleared": []}
+            return
 
-        payload = self.zone_state_machine.update(zones, zone_counts)
-        if payload["detected"] or payload["cleared"]:
-            LOGGER.info("Zone event payload: %s", payload)
-
-        return payload
+        # Runtime mới chỉ cần side effect cập nhật `zone.state`; request robot
+        # được tạo ở tầng occupancy phía sau.
+        self.zone_state_machine.update(zones, zone_counts)
 
     def _update_zone_occupancy(
         self,
         *,
-        camera: Any,
+        camera: Camera,
         detection_frame: DetectionFrame,
         zones,
         zone_names,
@@ -412,13 +428,12 @@ class DetectOnlyRuntime:
 
     def _update_runtime_payloads(
         self,
-        camera: Any,
+        camera: Camera,
         detection_frame: DetectionFrame,
         zones,
         zone_counts: Dict[str, int],
-        zone_event_payload: Dict[str, Any],
     ) -> None:
-        """Cập nhật snapshot WebSocket và UART-like zone event trong RuntimeState."""
+        """Cập nhật snapshot WebSocket trong RuntimeState."""
         camera_payload = build_detection_websocket_payload(
             camera=camera,
             detection_frame=detection_frame,
@@ -426,9 +441,6 @@ class DetectOnlyRuntime:
             zone_counts=zone_counts,
         )
         self.state.update_camera_payload(camera.id, camera_payload)
-
-        if zone_event_payload["detected"] or zone_event_payload["cleared"]:
-            self.state.update_zone_event_payload(zone_event_payload)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +517,7 @@ def _build_reid_config(
     return ReIdConfig(
         enabled                   = bool(reid_cfg.get("enabled", False)) if enabled_override is None else enabled_override,
         zone_only                 = bool(reid_cfg.get("zone_only", True)),
+        require_occupied_zone     = bool(reid_cfg.get("require_occupied_zone", True)),
         model_path                = reid_cfg.get("model_path"),
         device                    = str(reid_cfg.get("device", "auto")),
         embedding_batch_size      = int(reid_cfg.get("embedding_batch_size", 32)),
@@ -513,6 +526,7 @@ def _build_reid_config(
         update_interval           = int(reid_cfg.get("update_interval", 120)),
         max_buffer_size           = int(reid_cfg.get("max_buffer_size", 250)),
         gallery_cleanup_interval  = int(reid_cfg.get("gallery_cleanup_interval", 1800)),
+        max_reverify_misses       = int(reid_cfg.get("max_reverify_misses", 2)),
         min_detection_conf        = float(reid_cfg.get("min_detection_conf", 0.50)),
         min_bbox_width            = float(reid_cfg.get("min_bbox_width", 30.0)),
         min_bbox_height           = float(reid_cfg.get("min_bbox_height", 70.0)),

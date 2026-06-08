@@ -14,9 +14,11 @@ zones_state_machine:
 reid:
   enabled: false
   zone_only: true
+  require_occupied_zone: true
   model_path:
   device: auto
   embedding_batch_size: 32
+  max_reverify_misses: 2
 uart:
   port: /dev/ttyS4
   baudrate: 115200

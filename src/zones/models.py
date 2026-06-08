@@ -64,8 +64,6 @@ class Zone:
     state: ZoneState = ZoneState.EMPTY
     enter_time: float = 0.0
     lost_time: float = 0.0
-    is_served: bool = False
-    occupied_duration: float = 0.0
 
     @property
     def key(self) -> str:

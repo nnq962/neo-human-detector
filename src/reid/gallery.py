@@ -90,6 +90,14 @@ class IdentityGallery:
         if len(profile.samples) > self.config.max_samples:
             profile.samples.pop(0)
 
+    def similarity_to_profile(self, global_id: int, embedding: np.ndarray) -> float | None:
+        """Tính cosine giữa embedding mới và profile của một global_id cụ thể."""
+        profile = self._profiles.get(global_id)
+        if profile is None:
+            return None
+
+        return cosine_similarity(embedding, profile.embedding)
+
     def cleanup_old_profiles(self, _frame_idx: int | None = None) -> list[int]:
         """Xóa global_id quá lâu không xuất hiện để gallery không phình mãi."""
         now = time.monotonic()

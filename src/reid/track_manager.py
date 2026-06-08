@@ -110,7 +110,10 @@ class ReIdTrackManager:
         track.last_seen = frame_idx
         track.bbox = candidate.bbox
         track.confidence = float(candidate.confidence)
-        track.add_bbox(candidate.bbox, self.config.stable_bbox_window)
+        track.add_bbox(
+            bbox=candidate.bbox,
+            max_history=self.config.stable_bbox_window
+        )
 
         crop = self._crop(frame, candidate.bbox)
         if crop.size == 0:
@@ -132,7 +135,7 @@ class ReIdTrackManager:
         if track.status in (ReIdTrackStatus.NEW, ReIdTrackStatus.UNCERTAIN):
             self._try_confirm(track, frame_idx)
         elif track.status == ReIdTrackStatus.CONFIRMED:
-            self._maybe_refresh_gallery(track, embedding, frame_idx)
+            self._reverify_confirmed_track(track, embedding, frame_idx)
 
         return self._assignment_from_track(candidate, track)
 
@@ -301,6 +304,8 @@ class ReIdTrackManager:
         track.global_id = result.global_id
         track.status = ReIdTrackStatus.CONFIRMED
         track.confirmed_at = frame_idx
+        track.reverify_miss_count = 0
+        track.last_verified_similarity = track.similarity
         self._total_confirmed += 1
 
         LOGGER.info(
@@ -310,6 +315,89 @@ class ReIdTrackManager:
             result.global_id,
             result.status,
             _format_similarity(track.similarity),
+        )
+
+    def _reverify_confirmed_track(
+        self,
+        track: ReIdTrackState,
+        embedding: np.ndarray,
+        frame_idx: int,
+    ) -> None:
+        """
+        Xác minh lại confirmed track trước khi giữ global_id hoặc update EMA.
+
+        ByteTrack có thể bị hoán đổi id khi hai người đi sát nhau. Vì vậy crop
+        mới của một confirmed track phải còn giống profile global_id hiện tại.
+        """
+        if track.global_id is None:
+            self._detach_track_identity(track, None, "confirmed track missing global_id")
+            return
+
+        similarity = self.gallery.similarity_to_profile(track.global_id, embedding)
+        track.last_verified_similarity = similarity
+        track.similarity = similarity
+
+        if similarity is None:
+            self._detach_track_identity(track, None, "global_id profile missing")
+            return
+
+        if similarity >= self.config.sim_threshold_match:
+            track.status = ReIdTrackStatus.CONFIRMED
+            track.reverify_miss_count = 0
+            self._maybe_refresh_gallery(track, embedding, frame_idx)
+            return
+
+        self._handle_reverify_mismatch(track, similarity)
+
+    def _handle_reverify_mismatch(
+        self,
+        track: ReIdTrackState,
+        similarity: float,
+    ) -> None:
+        """Xử lý crop mới không còn đủ giống global_id đã confirm."""
+        track.embedding_buffer.clear()
+        track.good_frame_count = 0
+        track.reverify_miss_count += 1
+
+        if (
+            similarity < self.config.sim_threshold_unsure
+            or track.reverify_miss_count >= max(1, self.config.max_reverify_misses)
+        ):
+            self._detach_track_identity(track, similarity, "reverify mismatch")
+            return
+
+        track.status = ReIdTrackStatus.UNCERTAIN
+        LOGGER.info(
+            "ReID track=%s/%s marked uncertain for global_id=%s, similarity=%s",
+            track.key.camera_id,
+            track.key.track_id,
+            track.global_id,
+            _format_similarity(similarity),
+        )
+
+    def _detach_track_identity(
+        self,
+        track: ReIdTrackState,
+        similarity: float | None,
+        reason: str,
+    ) -> None:
+        """Tách global_id khỏi track khi nghi ByteTrack đã bị ID switch."""
+        old_global_id = track.global_id
+        track.global_id = None
+        track.status = ReIdTrackStatus.NEW
+        track.similarity = None
+        track.confirmed_at = 0
+        track.reverify_miss_count = 0
+        track.embedding_buffer.clear()
+        track.good_frame_count = 0
+
+        LOGGER.warning(
+            "ReID detached track=%s/%s from global_id=%s, similarity=%s, reason=%s",
+            track.key.camera_id,
+            track.key.track_id,
+            old_global_id,
+            _format_similarity(similarity),
+            reason,
         )
 
     def _maybe_refresh_gallery(

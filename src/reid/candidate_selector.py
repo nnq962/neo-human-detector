@@ -20,12 +20,14 @@ def select_reid_candidates(
     detections: Sequence[Detection],
     zone_names: Sequence[Optional[str]],
     zone_only: bool = True,
+    allowed_zone_names: Optional[set[str]] = None,
 ) -> list[ReIdCandidate]:
     """
     Tạo candidate ReID từ detections.
 
     Nếu `zone_only=True`, chỉ detection có track_id và nằm trong zone mới được
-    chọn để crop/extract embedding.
+    chọn để crop/extract embedding. Nếu `allowed_zone_names` được truyền vào,
+    detection cũng phải thuộc một zone trong tập này.
     """
     candidates: list[ReIdCandidate] = []
 
@@ -35,6 +37,9 @@ def select_reid_candidates(
 
         zone_name = zone_names[index] if index < len(zone_names) else None
         if zone_only and zone_name is None:
+            continue
+
+        if allowed_zone_names is not None and zone_name not in allowed_zone_names:
             continue
 
         candidates.append(

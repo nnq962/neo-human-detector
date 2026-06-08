@@ -14,7 +14,7 @@ from src.zones.occupancy import (
     ZoneOccupant,
     build_zone_occupancy_snapshot,
 )
-from src.zones.state_machine import ZoneStateMachine, ZoneTransitionPayload
+from src.zones.state_machine import ZoneStateMachine
 
 __all__ = [
     "IdentityServiceState",
@@ -28,7 +28,6 @@ __all__ = [
     "ZoneOccupant",
     "ZoneState",
     "ZoneStateMachine",
-    "ZoneTransitionPayload",
     "assign_detections_to_zones",
     "build_zone_occupancy_snapshot",
     "is_bbox_in_zone",

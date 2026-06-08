@@ -27,39 +27,41 @@ IdentityMatchStatus = Literal["match", "uncertain", "new"]
 class ReIdConfig:
     """Các ngưỡng dùng chung cho track tạm, crop quality và identity gallery."""
 
-    enabled             : bool          = False
-    zone_only           : bool          = True
-    model_path          : Optional[str] = None
-    device              : str           = "auto"
-    embedding_batch_size: int           = 32
+    enabled               : bool          = False   # Bật/tắt toàn bộ ReID stage.
+    zone_only             : bool          = True    # Chỉ ReID bbox nằm trong zone nếu True.
+    require_occupied_zone : bool          = True    # Chỉ ReID bbox thuộc zone đã OCCUPIED.
+    model_path            : Optional[str] = None    # Đường dẫn weights ReID, None dùng default.
+    device                : str           = "auto"  # Device chạy model: auto/cpu/cuda/mps.
+    embedding_batch_size  : int           = 32      # Batch size khi extract embedding từ crop.
 
     # Track manager: quản lý vòng đời track_id tạm từ ByteTrack.
-    buffer_min              : int = 200
-    grace_period            : int = 20
-    update_interval         : int = 120
-    max_buffer_size         : int = 250
-    gallery_cleanup_interval: int = 1800
+    buffer_min              : int = 200   # Cần tối thiểu N embedding tốt trước khi confirm global_id.
+    grace_period            : int = 20    # Giữ track mất dấu tạm thời thêm N frame trước khi xóa.
+    update_interval         : int = 120   # Chu kỳ refresh embedding đại diện sau khi đã confirm.
+    max_buffer_size         : int = 250   # Số embedding tối đa giữ trong buffer của mỗi track.
+    gallery_cleanup_interval: int = 1800  # Chu kỳ frame để dọn global_id quá lâu không gặp.
+    max_reverify_misses     : int = 2     # Số lần re-verify nhập nhằng liên tiếp trước khi tách global_id.
 
     # Bbox quality: quyết định frame nào đủ sạch để extract ReID embedding.
-    min_detection_conf       : float = 0.50
-    min_bbox_width           : float = 30.0
-    min_bbox_height          : float = 70.0
-    min_bbox_aspect_ratio    : float = 0.18
-    max_bbox_aspect_ratio    : float = 1.50
-    edge_margin_ratio        : float = 0.02
-    overlap_iou_threshold    : float = 0.25
-    overlap_ioa_threshold    : float = 0.45
-    stable_bbox_window       : int   = 100
-    stable_center_shift_ratio: float = 0.20
-    stable_size_change_ratio : float = 0.25
-    laplacian_var_threshold  : float = 50.0
+    min_detection_conf       : float = 0.50  # Bỏ bbox YOLO có confidence thấp.
+    min_bbox_width           : float = 30.0  # Bỏ crop người quá hẹp, thường thiếu chi tiết.
+    min_bbox_height          : float = 70.0  # Bỏ crop người quá thấp/xa camera.
+    min_bbox_aspect_ratio    : float = 0.18  # Width/height nhỏ hơn mức này thường là bbox quá gầy/sai.
+    max_bbox_aspect_ratio    : float = 1.50  # Width/height lớn hơn mức này thường là bbox quá ngang/sai.
+    edge_margin_ratio        : float = 0.02  # Bỏ bbox sát mép frame vì người dễ bị cụt.
+    overlap_iou_threshold    : float = 0.25  # Bỏ crop nếu IoU với người khác quá cao.
+    overlap_ioa_threshold    : float = 0.45  # Bỏ crop nếu phần lớn bbox nhỏ bị người khác che.
+    stable_bbox_window       : int   = 100   # Số frame gần nhất dùng để kiểm tra bbox ổn định.
+    stable_center_shift_ratio: float = 0.20  # Tâm bbox dao động tối đa so với đường chéo bbox.
+    stable_size_change_ratio : float = 0.25  # Diện tích bbox dao động tối đa quanh mean area.
+    laplacian_var_threshold  : float = 50.0  # Bỏ crop bị mờ, đo bằng Laplacian variance.
 
     # Gallery: quản lý global_id bền vững xuyên suốt runtime.
-    sim_threshold_match : float = 0.85
-    sim_threshold_unsure: float = 0.65
-    ema_alpha           : float = 0.75
-    max_samples         : int   = 5
-    gallery_ttl_minutes : float = 2.0
+    sim_threshold_match : float = 0.85  # Cosine >= ngưỡng này thì coi là cùng người.
+    sim_threshold_unsure: float = 0.65  # Vùng nhập nhằng: đủ giống để chờ thêm, chưa tạo ID mới.
+    ema_alpha           : float = 0.75  # EMA càng cao càng giữ embedding cũ ổn định hơn.
+    max_samples         : int   = 5     # Số embedding sample gần nhất giữ kèm mỗi global_id.
+    gallery_ttl_minutes : float = 2.0   # Xóa global_id nếu quá N phút không gặp lại.
 
     @property
     def gallery_ttl_seconds(self) -> float:
@@ -139,6 +141,8 @@ class ReIdTrackState:
     confidence      : float = 0.0
     bbox            : Optional[BBoxXYXY] = None
     confirmed_at    : int = 0
+    reverify_miss_count      : int = 0
+    last_verified_similarity : Optional[float] = None
 
     def add_embedding(
         self,

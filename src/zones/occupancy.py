@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.detection.detections import BBoxXYXY, DetectionFrame
-from src.zones.models import Zone
+from src.zones.models import Zone, ZoneState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -109,8 +109,9 @@ class RobotServiceRequest:
 class ZoneOccupancyPolicy:
     """Policy quyết định khi nào tạo RobotServiceRequest."""
 
-    require_confirmed_identity     : bool = True
-    auto_mark_requested_on_dispatch: bool = True
+    require_confirmed_identity     : bool = True  # Chỉ tạo request khi ReID đã confirmed.
+    require_occupied_zone          : bool = True  # Chỉ tạo request khi zone đang OCCUPIED.
+    auto_mark_requested_on_dispatch: bool = True  # Tự chuyển sang REQUESTED sau khi tạo request để tránh gửi lặp.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +148,15 @@ class ZoneOccupancyManager:
                 if occupant.global_id is None:
                     continue
 
+                # Cập nhật hồ sơ dài hạn của global_id này.
                 state = self._update_identity_state(occupant, snapshot.frame_idx)
+                # Snapshot có thể chứa người ở zone chưa OCCUPIED; robot service
+                # chỉ được phát khi zone đã đủ điều kiện nghiệp vụ.
+                if not self._is_zone_allowed_for_service(zone):
+                    continue
+
+                # Kiểm tra policy còn lại: identity đã confirmed và global_id này
+                # chưa từng được request/served trong runtime hiện tại.
                 if not self._should_request_service(occupant, state):
                     continue
 
@@ -203,7 +212,11 @@ class ZoneOccupancyManager:
         occupant: ZoneOccupant,
         frame_idx: int,
     ) -> IdentityServiceState:
-        """Cập nhật zone hiện tại của global_id."""
+        """
+        Cập nhật zone hiện tại của global_id.
+        Tạo state dài hạn cho global_id nếu chưa có.
+        Nếu global_id đã tồn tại, cập nhật zone và frame cuối cùng thấy để phục vụ quyết định sau này.
+        """
         assert occupant.global_id is not None
         state = self.identity_states.get(occupant.global_id)
         if state is None:
@@ -215,6 +228,13 @@ class ZoneOccupancyManager:
 
         state.move_to_zone(occupant.zone_key, frame_idx)
         return state
+
+    def _is_zone_allowed_for_service(self, zone: Zone) -> bool:
+        """Kiểm tra zone có đủ điều kiện phát request robot hay chưa."""
+        if not self.policy.require_occupied_zone:
+            return True
+
+        return zone.state == ZoneState.OCCUPIED
 
     def _should_request_service(
         self,
