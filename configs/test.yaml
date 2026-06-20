@@ -1,63 +1,100 @@
-detector:
-  model_size: medium
-  batch_size: 2
-  conf: 0.65
+# ─── Detection model ──────────────────────────────────────────────────────────
+detection:
+  model_size: nano        # nano / small / medium / large / xlarge
+  batch_size: 1
+  conf: 0.55
   vid_stride: 1
   verbose: false
-  show: true
-  show_scale: 0.55
-zones_state_machine:
-  zone_check_mode: center
-  confirm_enter_time: 2.0
-  confirm_exit_time: 2.0
-  pending_enter_miss_grace_time: 1.5
-reid:
+
+# ─── Debug preview (chỉ dùng khi dev local) ──────────────────────────────────
+preview:
   enabled: true
+  scale: 0.55
+
+# ─── Zone state machine ───────────────────────────────────────────────────────
+zone_state_machine:
+  check_mode: center           # center / bottom_center
+  confirm_enter_time: 5.5      # giây, thời gian xác nhận vào zone
+  confirm_exit_time: 5.0       # giây, thời gian xác nhận rời zone
+  pending_enter_miss_grace: 1.5
+
+# ─── Re-identification ────────────────────────────────────────────────────────
+reid:
+  enabled: false
   zone_only: true
   require_occupied_zone: true
-  model_path:
-  device: auto
-  embedding_batch_size: 32
-  max_reverify_misses: 2
-  buffer_min: 50
-  max_buffer_size: 150
-  sim_threshold_match: 0.80
-  sim_threshold_unsure: 0.60
+  model_path: weights/reid/osnet_ain_ms_d_c.pth.tar
+  device: auto                 # auto / cpu / cuda / mps
+
+  embedding:
+    batch_size: 32
+
+  track:
+    buffer_min: 200
+    grace_period: 20
+    update_interval: 120
+    max_buffer_size: 250
+    gallery_cleanup_interval: 1800
+    max_reverify_misses: 2
+
+  quality:                     # Lọc crop trước khi extract embedding
+    min_confidence: 0.50
+    min_width: 30.0
+    min_height: 70.0
+    min_aspect_ratio: 0.18
+    max_aspect_ratio: 1.50
+    edge_margin_ratio: 0.02
+    overlap_iou_threshold: 0.25
+    overlap_ioa_threshold: 0.45
+    stable_bbox_window: 100
+    stable_center_shift_ratio: 0.20
+    stable_size_change_ratio: 0.25
+    laplacian_var_threshold: 50.0
+
+  gallery:
+    sim_threshold_match: 0.85
+    sim_threshold_unsure: 0.65
+    ema_alpha: 0.75
+    max_samples: 5
+    ttl_minutes: 2.0
+
+# ─── UART ─────────────────────────────────────────────────────────────────────
 uart:
   port: /dev/ttyS4
   baudrate: 115200
+
+# ─── Cameras & zones ──────────────────────────────────────────────────────────
 cameras:
-- name: Sảnh A
-  source: rtsp://admin:061223@bC@192.168.0.10:554/Streaming/Channels/101
-  source_protocol: tcp
-  source_on_demand: true
-  enabled: true
-  zones:
-  - name: zone_1
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [0, 0]
-    - [1920, 0]
-    - [1920, 1080]
-    - [0, 1080]
-  id: 6x056
-- name: Sảnh B
-  source: rtsp://admin:061223@bC@192.168.0.15:554/Streaming/Channels/101
-  source_protocol: tcp
-  source_on_demand: true
-  enabled: true
-  zones:
-  - name: zone_1
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [0, 0]
-    - [1920, 0]
-    - [1920, 1080]
-    - [0, 1080]
-  id: 98mgh
+  - id: 6x056
+    name: Sảnh A
+    enabled: true
+    stream:
+      source: rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101
+      protocol: tcp
+      on_demand: true
+    zones:
+      - id: z1
+        name: zone_1
+        goal_pose: { x: 0.0, y: 0.0, theta: 0.0 }
+        points:
+          - [1320, 296]
+          - [2474, 300]
+          - [2451, 1678]
+          - [1355, 1633]
+      - id: z2
+        name: zone_2
+        goal_pose: { x: 0.0, y: 0.0, theta: 0.0 }
+        points:
+          - [622, 114]
+          - [915, 119]
+          - [954, 324]
+          - [580, 324]
+
+  - id: 98mgh
+    name: Sảnh B
+    enabled: false
+    stream:
+      source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
+      protocol: tcp
+      on_demand: true
+    zones: []
