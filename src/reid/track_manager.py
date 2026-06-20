@@ -7,7 +7,6 @@ ByteTrack track tạm, rồi query IdentityGallery để đổi sang global_id b
 
 from __future__ import annotations
 
-import logging
 from typing import Callable
 
 import cv2
@@ -16,6 +15,7 @@ import numpy as np
 from src.reid.gallery import IdentityGallery
 from src.reid.types import (
     BBoxXYXY,
+    IdentityResolveStatus,
     ReIdAssignment,
     ReIdCandidate,
     ReIdConfig,
@@ -24,10 +24,11 @@ from src.reid.types import (
     ReIdTrackStatus,
 )
 from src.reid.utils import normalize_embedding
+from utils import LOGGER
 
 
-LOGGER = logging.getLogger(__name__)
 EmbeddingFunction = Callable[[np.ndarray], np.ndarray]
+QualityCheckResult = tuple[bool, str | None]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,17 +118,46 @@ class ReIdTrackManager:
 
         crop = self._crop(frame, candidate.bbox)
         if crop.size == 0:
+            # LOGGER.debug(
+            #     "ReID skipped track=%s/%s detection_index=%s frame=%s reason=%s "
+            #     "bbox=%s confidence=%.3f status=%s global_id=%s",
+            #     candidate.camera_id,
+            #     candidate.track_id,
+            #     candidate.detection_index,
+            #     frame_idx,
+            #     "empty_crop",
+            #     candidate.bbox,
+            #     candidate.confidence,
+            #     track.status.value,
+            #     track.global_id,
+            # )
             return self._assignment_from_track(candidate, track)
 
-        if not self._is_bbox_quality(
-            track,
-            candidate.bbox,
-            candidate.confidence,
-            frame.shape,
-            current_bboxes,
-            crop,
-        ):
-            return self._assignment_from_track(candidate, track)
+        # Tạm thời bỏ check chất lượng bbox/crop để ưu tiên confirm nhanh, tránh mất ID khi đi sát nhau.
+        # is_quality, reject_reason = self._is_bbox_quality(
+        #     track,
+        #     candidate.bbox,
+        #     candidate.confidence,
+        #     frame.shape,
+        #     current_bboxes,
+        #     crop,
+        # )
+
+        # if not is_quality:
+            # LOGGER.debug(
+            #     "ReID skipped track=%s/%s detection_index=%s frame=%s reason=%s "
+            #     "bbox=%s confidence=%.3f status=%s global_id=%s",
+            #     candidate.camera_id,
+            #     candidate.track_id,
+            #     candidate.detection_index,
+            #     frame_idx,
+            #     reject_reason,
+            #     candidate.bbox,
+            #     candidate.confidence,
+            #     track.status.value,
+            #     track.global_id,
+            # )
+            # return self._assignment_from_track(candidate, track)
 
         embedding = normalize_embedding(self.embedding_function(crop))
         track.add_embedding(embedding, frame_idx, self.config.max_buffer_size)
@@ -161,16 +191,27 @@ class ReIdTrackManager:
         frame_shape: tuple,
         current_bboxes: dict[ReIdTrackKey, BBoxXYXY],
         crop: np.ndarray,
-    ) -> bool:
+    ) -> QualityCheckResult:
         """Kiểm tra bbox/crop có đủ tốt để extract embedding hay không."""
-        if not self._is_bbox_geometry_quality(bbox, confidence, frame_shape):
-            return False
-        if self._is_near_frame_edge(bbox, frame_shape):
-            return False
-        if self._has_blocking_overlap(track.key, bbox, current_bboxes):
-            return False
-        if not self._is_bbox_stable(track):
-            return False
+        geometry_ok, reason = self._is_bbox_geometry_quality(
+            bbox,
+            confidence,
+            frame_shape,
+        )
+        if not geometry_ok:
+            return False, reason
+
+        has_overlap, reason = self._has_blocking_overlap(
+            track.key,
+            bbox,
+            current_bboxes,
+        )
+        if has_overlap:
+            return False, reason
+
+        stable, reason = self._is_bbox_stable(track)
+        if not stable:
+            return False, reason
 
         return self._is_crop_sharp(crop)
 
@@ -179,19 +220,23 @@ class ReIdTrackManager:
         bbox: BBoxXYXY,
         confidence: float,
         frame_shape: tuple,
-    ) -> bool:
-        """Lọc nhanh bbox quá nhỏ, confidence thấp hoặc tỉ lệ quá dị."""
+    ) -> QualityCheckResult:
+        """Lọc nhanh bbox confidence thấp, tỉ lệ quá dị hoặc nằm ngoài frame."""
         x1, y1, x2, y2 = bbox
         width = x2 - x1
         height = y2 - y1
         frame_height, frame_width = frame_shape[:2]
 
         if confidence < self.config.min_detection_conf:
-            return False
-        if width < self.config.min_bbox_width or height < self.config.min_bbox_height:
-            return False
+            return (
+                False,
+                f"low_confidence confidence={confidence:.3f} "
+                f"min={self.config.min_detection_conf:.3f}",
+            )
+        if width <= 0:
+            return False, f"invalid_bbox_width width={width:.1f}"
         if height <= 0:
-            return False
+            return False, f"invalid_bbox_height height={height:.1f}"
 
         aspect_ratio = width / height
         if not (
@@ -199,34 +244,29 @@ class ReIdTrackManager:
             <= aspect_ratio
             <= self.config.max_bbox_aspect_ratio
         ):
-            return False
+            return (
+                False,
+                f"bad_aspect_ratio ratio={aspect_ratio:.3f} "
+                f"min={self.config.min_bbox_aspect_ratio:.3f} "
+                f"max={self.config.max_bbox_aspect_ratio:.3f}",
+            )
 
         if x2 <= 0 or y2 <= 0 or x1 >= frame_width or y1 >= frame_height:
-            return False
+            return (
+                False,
+                f"bbox_outside_frame frame_width={frame_width} "
+                f"frame_height={frame_height}",
+            )
 
-        return True
-
-    def _is_near_frame_edge(self, bbox: BBoxXYXY, frame_shape: tuple) -> bool:
-        """Bỏ người quá sát mép vì crop thường bị cụt thân."""
-        x1, y1, x2, y2 = bbox
-        frame_height, frame_width = frame_shape[:2]
-        margin_x = frame_width * self.config.edge_margin_ratio
-        margin_y = frame_height * self.config.edge_margin_ratio
-
-        return (
-            x1 < margin_x
-            or y1 < margin_y
-            or x2 > frame_width - margin_x
-            or y2 > frame_height - margin_y
-        )
+        return True, None
 
     def _has_blocking_overlap(
         self,
         track_key: ReIdTrackKey,
         bbox: BBoxXYXY,
         current_bboxes: dict[ReIdTrackKey, BBoxXYXY],
-    ) -> bool:
-        """Bỏ bbox đang đè lên bbox người khác trong cùng frame/camera."""
+    ) -> QualityCheckResult:
+        """Kiểm tra bbox có đang đè lên bbox người khác trong cùng frame/camera."""
         for other_key, other_bbox in current_bboxes.items():
             if other_key == track_key:
                 continue
@@ -238,15 +278,24 @@ class ReIdTrackManager:
                 iou >= self.config.overlap_iou_threshold
                 or ioa >= self.config.overlap_ioa_threshold
             ):
-                return True
+                return (
+                    True,
+                    f"blocking_overlap other_track={other_key.track_id} "
+                    f"iou={iou:.3f} max_iou={self.config.overlap_iou_threshold:.3f} "
+                    f"ioa={ioa:.3f} max_ioa={self.config.overlap_ioa_threshold:.3f}",
+                )
 
-        return False
+        return False, None
 
-    def _is_bbox_stable(self, track: ReIdTrackState) -> bool:
+    def _is_bbox_stable(self, track: ReIdTrackState) -> QualityCheckResult:
         """Chỉ nhận embedding khi bbox ổn định trong vài frame gần nhất."""
         history = track.bbox_history
         if len(history) < self.config.stable_bbox_window:
-            return False
+            return (
+                False,
+                f"bbox_history_too_short count={len(history)} "
+                f"required={self.config.stable_bbox_window}",
+            )
 
         boxes = np.asarray(history, dtype=np.float32)
         widths = boxes[:, 2] - boxes[:, 0]
@@ -257,26 +306,44 @@ class ReIdTrackManager:
 
         avg_diag = float(np.mean(np.hypot(widths, heights)))
         if avg_diag <= 1e-6:
-            return False
+            return False, f"invalid_bbox_diag avg_diag={avg_diag:.6f}"
 
         center_distances = np.linalg.norm(centers - centers.mean(axis=0), axis=1)
         max_center_shift = float(center_distances.max()) / avg_diag
         if max_center_shift > self.config.stable_center_shift_ratio:
-            return False
+            return (
+                False,
+                f"unstable_center_shift shift={max_center_shift:.3f} "
+                f"max={self.config.stable_center_shift_ratio:.3f}",
+            )
 
         areas = widths * heights
         mean_area = float(np.mean(areas))
         if mean_area <= 1e-6:
-            return False
+            return False, f"invalid_bbox_area mean_area={mean_area:.6f}"
 
         size_change = float(np.std(areas) / mean_area)
-        return size_change <= self.config.stable_size_change_ratio
+        if size_change > self.config.stable_size_change_ratio:
+            return (
+                False,
+                f"unstable_size_change change={size_change:.3f} "
+                f"max={self.config.stable_size_change_ratio:.3f}",
+            )
 
-    def _is_crop_sharp(self, crop: np.ndarray) -> bool:
+        return True, None
+
+    def _is_crop_sharp(self, crop: np.ndarray) -> QualityCheckResult:
         """Dùng Laplacian variance để bỏ crop bị mờ/rung."""
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-        return sharpness >= self.config.laplacian_var_threshold
+        if sharpness < self.config.laplacian_var_threshold:
+            return (
+                False,
+                f"blurry_crop sharpness={sharpness:.3f} "
+                f"min={self.config.laplacian_var_threshold:.3f}",
+            )
+
+        return True, None
 
     def _try_confirm(self, track: ReIdTrackState, frame_idx: int) -> None:
         """Nếu track có đủ embedding tốt, gán hoặc tạo global_id trong gallery."""
@@ -292,9 +359,13 @@ class ReIdTrackManager:
         )
         # Nếu gallery tạo global_id mới thì chưa có profile cũ để so thật sự.
         # Không giữ best_similarity=0.0 lên label, tránh hiểu nhầm thành match kém.
-        track.similarity = None if result.status == "new" else result.similarity
+        track.similarity = (
+            None
+            if result.status == IdentityResolveStatus.CREATED_NEW
+            else result.similarity
+        )
 
-        if result.status == "uncertain":
+        if result.status == IdentityResolveStatus.AMBIGUOUS:
             track.status = ReIdTrackStatus.UNCERTAIN
             return
 

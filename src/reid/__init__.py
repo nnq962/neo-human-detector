@@ -11,6 +11,7 @@ from src.reid.track_manager import ReIdTrackManager
 from src.reid.types import (
     IdentityMatchResult,
     IdentityProfile,
+    IdentityResolveStatus,
     ReIdAssignment,
     ReIdCandidate,
     ReIdConfig,
@@ -23,6 +24,7 @@ __all__ = [
     "IdentityGallery",
     "IdentityMatchResult",
     "IdentityProfile",
+    "IdentityResolveStatus",
     "ReIdAssignment",
     "ReIdCandidate",
     "ReIdConfig",

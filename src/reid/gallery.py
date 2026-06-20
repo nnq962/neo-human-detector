@@ -8,16 +8,18 @@ vì vậy một người xuất hiện ở nhiều camera vẫn có cơ hội đ
 
 from __future__ import annotations
 
-import logging
 import time
 
 import numpy as np
 
-from src.reid.types import IdentityMatchResult, IdentityProfile, ReIdConfig
+from src.reid.types import (
+    IdentityMatchResult,
+    IdentityProfile,
+    IdentityResolveStatus,
+    ReIdConfig,
+)
 from src.reid.utils import cosine_similarity, normalize_embedding
-
-
-LOGGER = logging.getLogger(__name__)
+from utils import LOGGER
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,9 +46,9 @@ class IdentityGallery:
         """
         Query gallery theo ba vùng quyết định.
 
-        - match: similarity đủ cao, dùng global_id cũ.
-        - uncertain: gần nhưng chưa chắc, track manager sẽ chờ thêm embedding.
-        - new: không có profile đủ giống, tạo global_id mới.
+        - MATCHED_EXISTING: similarity đủ cao, dùng global_id cũ.
+        - AMBIGUOUS: gần nhưng chưa chắc, track manager sẽ chờ thêm embedding.
+        - CREATED_NEW: không có profile đủ giống, tạo global_id mới.
         """
         embedding = normalize_embedding(embedding)
         best_id, best_similarity = self._find_best_match(embedding)
@@ -56,17 +58,29 @@ class IdentityGallery:
             profile.hit_count += 1
             profile.last_seen = frame_idx
             profile.last_seen_at = time.monotonic()
-            return IdentityMatchResult("match", best_id, best_similarity)
+            return IdentityMatchResult(
+                IdentityResolveStatus.MATCHED_EXISTING,
+                best_id,
+                best_similarity,
+            )
 
         if (
             best_id != -1
             and best_similarity >= self.config.sim_threshold_unsure
             and not create_on_uncertain
         ):
-            return IdentityMatchResult("uncertain", best_id, best_similarity)
+            return IdentityMatchResult(
+                IdentityResolveStatus.AMBIGUOUS,
+                best_id,
+                best_similarity,
+            )
 
         global_id = self._create_profile(embedding, frame_idx)
-        return IdentityMatchResult("new", global_id, best_similarity)
+        return IdentityMatchResult(
+            IdentityResolveStatus.CREATED_NEW,
+            global_id,
+            best_similarity,
+        )
 
     def update_profile(
         self,

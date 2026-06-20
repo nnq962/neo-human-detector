@@ -14,6 +14,9 @@ ModelKey = Tuple[str, int]
 
 MODEL_PATHS: Dict[ModelKey, str] = {
     ("nano", 1): "weights/person/yolo26n.pt",
+    ("nano", 2): "weights/person/yolo26n.pt",
+    ("medium", 1): "weights/person/yolo26m.pt",
+    ("medium", 2): "weights/person/yolo26m.pt",
 }
 
 

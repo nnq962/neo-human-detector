@@ -1,7 +1,7 @@
 import cv2
 
 # Đường dẫn luồng RTSP của bạn
-rtsp_url = "rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101"
+rtsp_url = "rtsp://admin:061223@bC@192.168.0.10:554/Streaming/Channels/101"
 
 # Danh sách để lưu trữ các điểm đã click (mỗi điểm là một tuple (x, y))
 clicked_points = []

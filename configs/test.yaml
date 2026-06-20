@@ -1,30 +1,34 @@
 detector:
-  model_size: nano
-  batch_size: 1
-  conf: 0.55
+  model_size: medium
+  batch_size: 2
+  conf: 0.65
   vid_stride: 1
   verbose: false
   show: true
   show_scale: 0.55
 zones_state_machine:
   zone_check_mode: center
-  confirm_enter_time: 5.5
-  confirm_exit_time: 5.0
+  confirm_enter_time: 2.0
+  confirm_exit_time: 2.0
   pending_enter_miss_grace_time: 1.5
 reid:
-  enabled: false
+  enabled: true
   zone_only: true
   require_occupied_zone: true
   model_path:
   device: auto
   embedding_batch_size: 32
   max_reverify_misses: 2
+  buffer_min: 50
+  max_buffer_size: 150
+  sim_threshold_match: 0.80
+  sim_threshold_unsure: 0.60
 uart:
   port: /dev/ttyS4
   baudrate: 115200
 cameras:
 - name: Sảnh A
-  source: rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101
+  source: rtsp://admin:061223@bC@192.168.0.10:554/Streaming/Channels/101
   source_protocol: tcp
   source_on_demand: true
   enabled: true
@@ -35,25 +39,25 @@ cameras:
       y: 0.0
       theta: 0.0
     points:
-    - [1320, 296]
-    - [2474, 300]
-    - [2451, 1678]
-    - [1355, 1633]
-  - name: zone_2
+    - [0, 0]
+    - [1920, 0]
+    - [1920, 1080]
+    - [0, 1080]
+  id: 6x056
+- name: Sảnh B
+  source: rtsp://admin:061223@bC@192.168.0.15:554/Streaming/Channels/101
+  source_protocol: tcp
+  source_on_demand: true
+  enabled: true
+  zones:
+  - name: zone_1
     goal_pose:
       x: 0.0
       y: 0.0
       theta: 0.0
     points:
-    - [622, 114]
-    - [915, 119]
-    - [954, 324]
-    - [580, 324]
-  id: 6x056
-- name: Sảnh B
-  source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
-  source_protocol: tcp
-  source_on_demand: true
-  enabled: false
-  zones: []
+    - [0, 0]
+    - [1920, 0]
+    - [1920, 1080]
+    - [0, 1080]
   id: 98mgh

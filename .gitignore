@@ -1,13 +1,66 @@
+# Python cache / build artifacts
 __pycache__/
-.venv/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
 *.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
 
-/models
-/examples
-device.txt
-/test
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Environment / local secrets
+.env
+.env.*
+!.env.example
 config.json
-/weights
-/aid-examples
+device.txt
+configs/rtsp.streams
+
+# IDE / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs / runtime outputs
+*.log
+logs/
+tmp/
+temp/
+outputs/
+runs/
+
+# Frontend dependencies / build outputs
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Large local data / model artifacts
+/weights/
+/models/
+/examples/
+/aid-examples/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Local scratch paths kept for backward compatibility
+/test/

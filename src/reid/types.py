@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -19,7 +19,15 @@ from src.reid.utils import normalize_embedding
 
 
 BBoxXYXY = tuple[float, float, float, float]
-IdentityMatchStatus = Literal["match", "uncertain", "new"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+class IdentityResolveStatus(Enum):
+    """Kết quả một lần resolve embedding trong IdentityGallery."""
+
+    MATCHED_EXISTING = "matched_existing"
+    AMBIGUOUS        = "ambiguous"
+    CREATED_NEW      = "created_new"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,11 +52,8 @@ class ReIdConfig:
 
     # Bbox quality: quyết định frame nào đủ sạch để extract ReID embedding.
     min_detection_conf       : float = 0.50  # Bỏ bbox YOLO có confidence thấp.
-    min_bbox_width           : float = 30.0  # Bỏ crop người quá hẹp, thường thiếu chi tiết.
-    min_bbox_height          : float = 70.0  # Bỏ crop người quá thấp/xa camera.
     min_bbox_aspect_ratio    : float = 0.18  # Width/height nhỏ hơn mức này thường là bbox quá gầy/sai.
     max_bbox_aspect_ratio    : float = 1.50  # Width/height lớn hơn mức này thường là bbox quá ngang/sai.
-    edge_margin_ratio        : float = 0.02  # Bỏ bbox sát mép frame vì người dễ bị cụt.
     overlap_iou_threshold    : float = 0.25  # Bỏ crop nếu IoU với người khác quá cao.
     overlap_ioa_threshold    : float = 0.45  # Bỏ crop nếu phần lớn bbox nhỏ bị người khác che.
     stable_bbox_window       : int   = 100   # Số frame gần nhất dùng để kiểm tra bbox ổn định.
@@ -73,10 +78,10 @@ class ReIdConfig:
 class ReIdTrackStatus(Enum):
     """Trạng thái vòng đời của một ByteTrack track trong ReID."""
 
-    NEW       = "new"
-    PENDING   = "pending"
-    CONFIRMED = "confirmed"
-    UNCERTAIN = "uncertain"
+    NEW       = "new"        # track chưa có identity đáng tin.
+    PENDING   = "pending"    # đang trong lúc thử resolve.
+    CONFIRMED = "confirmed"  # track đã có global_id. 
+    UNCERTAIN = "uncertain"  # track đang nhập nhằng, cần chờ thêm embedding tốt.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -194,6 +199,6 @@ class IdentityProfile:
 class IdentityMatchResult:
     """Kết quả query gallery trước khi track manager quyết định confirm hay chờ."""
 
-    status    : IdentityMatchStatus
+    status    : IdentityResolveStatus
     global_id : Optional[int]
     similarity: float

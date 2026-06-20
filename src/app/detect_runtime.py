@@ -169,7 +169,7 @@ class DetectOnlyRuntime:
                     frame_idx=result_index,
                 )
 
-                LOGGER.debug("robot_requests=%s", robot_requests)
+                # LOGGER.debug("robot_requests=%s", robot_requests)
 
                 # 9. Lưu snapshot mới nhất cho consumer bên ngoài đọc, ví dụ
                 #    WebSocket preview hoặc robot sender trong bước refactor sau.
@@ -365,9 +365,11 @@ class DetectOnlyRuntime:
             zone_names=zone_names,
             allowed_zone_names=self._allowed_reid_zone_names(zones),
         )
-
+        
+        # Lấy frame gốc.
         raw_frame = extract_raw_frame(detection_frame)
-
+        
+        # Update ReID và lấy assignments để enrich DetectionFrame. 
         assignments = self.reid_pipeline.update(
             frame=raw_frame,
             candidates=candidates,
@@ -528,11 +530,8 @@ def _build_reid_config(
         gallery_cleanup_interval  = int(reid_cfg.get("gallery_cleanup_interval", 1800)),
         max_reverify_misses       = int(reid_cfg.get("max_reverify_misses", 2)),
         min_detection_conf        = float(reid_cfg.get("min_detection_conf", 0.50)),
-        min_bbox_width            = float(reid_cfg.get("min_bbox_width", 30.0)),
-        min_bbox_height           = float(reid_cfg.get("min_bbox_height", 70.0)),
         min_bbox_aspect_ratio     = float(reid_cfg.get("min_bbox_aspect_ratio", 0.18)),
         max_bbox_aspect_ratio     = float(reid_cfg.get("max_bbox_aspect_ratio", 1.50)),
-        edge_margin_ratio         = float(reid_cfg.get("edge_margin_ratio", 0.02)),
         overlap_iou_threshold     = float(reid_cfg.get("overlap_iou_threshold", 0.25)),
         overlap_ioa_threshold     = float(reid_cfg.get("overlap_ioa_threshold", 0.45)),
         stable_bbox_window        = int(reid_cfg.get("stable_bbox_window", 100)),
