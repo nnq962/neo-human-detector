@@ -20,7 +20,7 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     """Lazy import public API để tránh kéo OpenCV/Ultralytics khi chỉ cần state."""
     if name in {"DetectOnlyRuntime", "DetectRuntimeConfig", "run_detect_from_config"}:
-        from src.app.detect_runtime import (
+        from src.app.detect_runtime_legacy import (
             DetectOnlyRuntime,
             DetectRuntimeConfig,
             run_detect_from_config,

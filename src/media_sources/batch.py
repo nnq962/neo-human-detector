@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -129,27 +130,37 @@ class StreamBatchReader(_BaseBatch):
     Mỗi reader một daemon thread đọc liên tục vào slot; `__next__` chỉ trả batch khi TẤT CẢ
     slot có frame mới hơn lần trả trước (đồng bộ theo index, luôn lấy frame mới nhất — drop
     frame cũ để giữ realtime). Reader hết nguồn → StopIteration; lỗi trong thread → StreamError.
+
+    Khi một slot không có frame mới trong `frame_timeout` giây (lag/mất kết nối), `__next__`
+    trả frame đen cùng kích thước frame cuối cùng để không chặn các camera khác. Timeout chỉ
+    áp dụng sau khi slot đã nhận được ít nhất một frame.
     """
 
-    def __init__(self, readers: list[BaseReader]):
+    def __init__(self, readers: list[BaseReader], frame_timeout: float = 2.0):
         super().__init__(readers)
         n = len(readers)
+        self._frame_timeout = frame_timeout
         self._lock = threading.Condition()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._slots: list[tuple[np.ndarray, SourceMeta] | None] = [None] * n
         self._versions: list[int] = [0] * n
         self._last_seen: list[int] = [0] * n
+        self._last_publish_time: list[float] = [0.0] * n
+        self._is_timed_out: list[bool] = [False] * n
         self._ended: list[bool] = [False] * n
         self._errors: list[BaseException | None] = [None] * n
 
     def open(self) -> "StreamBatchReader":
         super().open()  # mở tất cả reader con trước khi start thread
         n = len(self._readers)
+        now = time.time()
         self._stop.clear()
         self._slots = [None] * n
         self._versions = [0] * n
         self._last_seen = [0] * n
+        self._last_publish_time = [now] * n
+        self._is_timed_out = [False] * n
         self._ended = [False] * n
         self._errors = [None] * n
         self._threads = []
@@ -182,6 +193,10 @@ class StreamBatchReader(_BaseBatch):
         with self._lock:
             self._slots[i] = (frame, meta)
             self._versions[i] += 1
+            self._last_publish_time[i] = time.time()
+            if self._is_timed_out[i]:
+                LOGGER.info("Stream %d phục hồi sau timeout.", i)
+                self._is_timed_out[i] = False
             self._lock.notify_all()
 
     def _mark_ended(self, i: int) -> None:
@@ -214,14 +229,38 @@ class StreamBatchReader(_BaseBatch):
                     if self._ended[i] and self._versions[i] <= self._last_seen[i]:
                         raise StopIteration
 
-                # Tất cả slots đều có frame mới hơn lần trả trước
-                if all(self._versions[i] > self._last_seen[i] for i in range(n)):
-                    frames = [self._slots[i][0] for i in range(n)]
-                    metas = [self._slots[i][1] for i in range(n)]
-                    self._last_seen = list(self._versions)
+                now = time.time()
+
+                # Slot "sẵn sàng" khi: có frame mới, HOẶC đã có ít nhất 1 frame trước đó
+                # và không nhận được frame mới trong frame_timeout giây.
+                def _slot_ready(i: int) -> bool:
+                    if self._versions[i] > self._last_seen[i]:
+                        return True
+                    return (
+                        self._slots[i] is not None
+                        and now - self._last_publish_time[i] > self._frame_timeout
+                    )
+
+                if all(_slot_ready(i) for i in range(n)):
+                    frames: list[np.ndarray] = []
+                    metas: list[SourceMeta] = []
+                    for i in range(n):
+                        if self._versions[i] > self._last_seen[i]:
+                            frames.append(self._slots[i][0])
+                            metas.append(self._slots[i][1])
+                            self._last_seen[i] = self._versions[i]
+                        else:
+                            # Timeout: trả frame đen, không cập nhật _last_seen để lấy
+                            # frame thật ngay khi camera phục hồi.
+                            if not self._is_timed_out[i]:
+                                LOGGER.warning("Stream %d timeout (%.1fs không có frame) — trả frame đen.", i, self._frame_timeout)
+                                self._is_timed_out[i] = True
+                            h, w = self._slots[i][0].shape[:2]
+                            frames.append(np.zeros((h, w, 3), dtype=np.uint8))
+                            metas.append(self._slots[i][1])
                     return frames, metas
 
-                self._lock.wait(timeout=0.1)
+                self._lock.wait(timeout=0.05)
 
     # ─── đóng ──────────────────────────────────────────────────────────────────
 

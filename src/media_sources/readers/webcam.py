@@ -41,7 +41,7 @@ class WebcamReader(BaseReader):
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps_str = f"{self._fps:.1f} fps" if self._fps > 0 else "fps=unknown"
-        LOGGER.info("  → WEBCAM | %dx%d | %s | is_stream=True", w, h, fps_str)
+        LOGGER.info("   → WEBCAM | %dx%d | %s | is_stream=True", w, h, fps_str)
         self._opened = True
         self._frame_index = 0
         return self

@@ -58,7 +58,7 @@ class YoutubeReader(VideoReader):
         self._yt_fps = info.get("fps")
         w = info.get("width") or 0
         h = info.get("height") or 0
-        LOGGER.info("  → YOUTUBE | %dx%d | %.0f fps | is_stream=%s | %s",
+        LOGGER.info("   → YOUTUBE | %dx%d | %.0f fps | is_stream=%s | %s",
                     w, h, self._yt_fps or 0, self._is_live, info.get("title") or "(no title)")
 
     def _build_meta(self, frame: np.ndarray) -> SourceMeta:

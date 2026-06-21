@@ -75,7 +75,7 @@ class RtspReader(BaseReader):
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         res = f"{w}x{h}" if w > 0 and h > 0 else "unknown"
         fps_str = f"{self._fps:.1f} fps" if self._fps > 0 else "fps=unknown"
-        LOGGER.info("  → RTSP | %s | %s | backend=%s | is_stream=True", res, fps_str, backend)
+        LOGGER.info("   → RTSP | %s | %s | backend=%s | is_stream=True", res, fps_str, backend)
         self._opened = True
         self._frame_index = 0
         return self

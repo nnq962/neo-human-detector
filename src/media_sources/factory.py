@@ -47,8 +47,9 @@ def create_media_source(sources, **kwargs) -> BaseReader | _BaseBatch:
         reader_cls = _READER_MAP[source_type]
         reader_kwargs = _reader_kwargs(reader_cls, kwargs)
         readers = [reader_cls(item, **reader_kwargs) for item in items]
-        batch_cls = StreamBatchReader if reader_cls.is_stream else SyncBatchReader
-        return batch_cls(readers)
+        if reader_cls.is_stream:
+            return StreamBatchReader(readers, frame_timeout=kwargs.get("frame_timeout", 2.0))
+        return SyncBatchReader(readers)
 
     source_type = _classify_one(sources)
     reader_cls = _READER_MAP[source_type]

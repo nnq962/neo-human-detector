@@ -11,11 +11,11 @@ from typing import Any
 
 __all__ = [
     "Detection",
-    "DetectionFrame",
+    "InferenceFrame",
     "MODEL_PATHS",
     "YoloDetector",
     "YoloDetectorConfig",
-    "parse_yolo_boxes",
+    "parse_yolo_result",
     "resolve_model_path",
     "supported_model_configs",
     "validate_model_config",
@@ -25,13 +25,14 @@ __all__ = [
 # ─────────────────────────────────────────────────────────────────────────────
 def __getattr__(name: str) -> Any:
     """Lazy import public API để không kéo Ultralytics khi chỉ cần Detection."""
-    if name in {"Detection", "DetectionFrame", "parse_yolo_boxes"}:
-        from src.detection.detections import Detection, DetectionFrame, parse_yolo_boxes
+    if name in {"Detection", "InferenceFrame", "parse_yolo_result"}:
+        from src.detection.datatypes import Detection, InferenceFrame
+        from src.detection.utils import parse_yolo_result
 
         return {
             "Detection": Detection,
-            "DetectionFrame": DetectionFrame,
-            "parse_yolo_boxes": parse_yolo_boxes,
+            "InferenceFrame": InferenceFrame,
+            "parse_yolo_result": parse_yolo_result,
         }[name]
 
     if name in {

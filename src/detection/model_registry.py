@@ -9,38 +9,34 @@ from typing import Dict, Literal, Tuple
 
 
 ModelSize = Literal["nano", "medium"]
-ModelKey = Tuple[str, int]
+ModelTask = Literal["detect", "pose"]
+ModelKey  = Tuple[str, str, int]   # (model_size, task, batch_size)
 
 
 MODEL_PATHS: Dict[ModelKey, str] = {
-    ("nano", 1): "weights/person/yolo26n.pt",
-    ("nano", 2): "weights/person/yolo26n.pt",
-    ("medium", 1): "weights/person/yolo26m.pt",
-    ("medium", 2): "weights/person/yolo26m.pt",
+    ("nano", "detect", 1): "weights/person/yolo26n.pt",
+    ("nano", "detect", 2): "weights/person/yolo26n.pt",
+    ("nano", "pose",   1): "weights/person/yolo26m-pose.pt",
+    ("nano", "pose",   2): "weights/person/yolo26m-pose.pt",
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def resolve_model_path(model_size: str, batch_size: int) -> str:
-    """
-    Trả về đường dẫn model tương ứng với cấu hình detector.
-
-    Hàm này là nguồn sự thật duy nhất cho mapping model. Nếu sau này thêm RKNN
-    batch mới hoặc model khác, chỉ cần cập nhật `MODEL_PATHS`.
-    """
-    model_key = (model_size, int(batch_size))
+def resolve_model_path(model_size: str, task: str, batch_size: int) -> str:
+    """Nguồn sự thật duy nhất cho mapping (model_size, task, batch_size) → path."""
+    model_key = (model_size, task, int(batch_size))
     model_path = MODEL_PATHS.get(model_key)
 
     if model_path is None:
-        raise ValueError(_build_unsupported_model_message(model_size, batch_size))
+        raise ValueError(_build_unsupported_model_message(model_size, task, batch_size))
 
     return model_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def validate_model_config(model_size: str, batch_size: int) -> None:
+def validate_model_config(model_size: str, task: str, batch_size: int) -> None:
     """Validate cấu hình model và raise ValueError nếu chưa được hỗ trợ."""
-    resolve_model_path(model_size, batch_size)
+    resolve_model_path(model_size, task, batch_size)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,14 +46,12 @@ def supported_model_configs() -> Tuple[ModelKey, ...]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _build_unsupported_model_message(model_size: str, batch_size: int) -> str:
-    """Tạo message lỗi đồng nhất khi cấu hình model không tồn tại."""
+def _build_unsupported_model_message(model_size: str, task: str, batch_size: int) -> str:
     supported = ", ".join(
-        f"{supported_size}/batch{supported_batch}"
-        for supported_size, supported_batch in supported_model_configs()
+        f"{s}/{t}/batch{b}"
+        for s, t, b in supported_model_configs()
     )
-
     return (
-        "Unsupported model_size/batch_size: "
-        f"{model_size}/batch{int(batch_size)}. Supported: {supported}"
+        f"Unsupported model_size/task/batch_size: "
+        f"{model_size}/{task}/batch{int(batch_size)}. Supported: {supported}"
     )

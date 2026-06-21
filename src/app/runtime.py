@@ -14,15 +14,17 @@ from typing import Dict, List, Optional
 import cv2
 from unidecode import unidecode
 
-from src.detection.detections import Detection, DetectionFrame
+from src.camera_initializer import Camera, load_cameras_from_config
+from src.detection.datatypes import InferenceFrame
 from src.detection.yolo_detector import YoloDetector, YoloDetectorConfig
-from src.media_sources import Camera, MediaSources, load_cameras_from_config
+from src.media_sources import MediaSources
 from src.visualization import (
-    draw_person_bboxes,
+    draw_detections,
     draw_status_bar,
     draw_zones,
     resize_for_display,
 )
+from src.zones_management import ZoneStateMachine, assign_detections_to_zones
 from utils import LOGGER, load_config, LINE_CHAR
 
 
@@ -31,15 +33,19 @@ from utils import LOGGER, load_config, LINE_CHAR
 class RuntimeConfig:
     """Cấu hình runtime đơn giản detect + visualization."""
 
-    config_path : str           = "configs/test.yaml"
-    model_size  : str           = "nano"
-    batch_size  : int           = 1
-    conf        : float         = 0.5
-    tracker     : str           = "bytetrack.yaml"
-    persist     : bool          = True
-    show        : bool          = False
-    show_scale  : float         = 1.0
-    verbose     : bool          = True
+    config_path              : str   = "configs/test.yaml"
+    task                     : str   = "pose"    # "detect" hoặc "pose"
+    model_size               : str   = "nano"
+    batch_size               : int   = 1
+    conf                     : float = 0.5
+    tracker                  : str   = "bytetrack.yaml"
+    persist                  : bool  = True
+    show                     : bool  = False
+    show_scale               : float = 1.0
+    verbose                  : bool  = True
+    confirm_enter_time       : float = 8.0
+    confirm_exit_time        : float = 8.0
+    pending_enter_miss_grace : float = 1.5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +59,7 @@ class Runtime:
         self.cameras: List[Camera] = []
         self.detector: Optional[YoloDetector] = None
         self.media_sources: Optional[MediaSources] = None
+        self.zone_machines: Dict[str, ZoneStateMachine] = {}
         self.is_running = False
         self._fps_tracker: Dict[str, float] = {}
 
@@ -78,6 +85,14 @@ class Runtime:
                     for frame, meta, detection_frame, camera in zip(frames, metas, detection_frames, self.cameras):
                         detection_frame.camera_id = camera.id
                         fps = self._update_fps(camera.id, meta.timestamp)
+
+                        if camera.zones:
+                            _, zone_counts = assign_detections_to_zones(
+                                detection_frame.detections,
+                                camera.zones,
+                                task=self.config.task,
+                            )
+                            self.zone_machines[camera.id].update(camera.zones, zone_counts)
 
                         if self.config.verbose:
                             LOGGER.info(
@@ -141,22 +156,39 @@ class Runtime:
         # Khởi tạo YoloDetector
         self.detector = YoloDetector(
             YoloDetectorConfig(
-                model_size=self.config.model_size,
-                batch_size=self.config.batch_size,
-                conf=self.config.conf,
-                tracker=self.config.tracker,
-                persist=self.config.persist,
+                task       =self.config.task,
+                model_size =self.config.model_size,
+                batch_size =self.config.batch_size,
+                conf       =self.config.conf,
+                tracker    =self.config.tracker,
+                persist    =self.config.persist,
             )
         )
+
+        # Khởi tạo ZoneStateMachine cho từng camera
+        self.zone_machines = {
+            cam.id: ZoneStateMachine(
+                confirm_enter_time           = self.config.confirm_enter_time,
+                confirm_exit_time            = self.config.confirm_exit_time,
+                pending_enter_miss_grace_time= self.config.pending_enter_miss_grace,
+            )
+            for cam in self.cameras
+        }
 
         LOGGER.info(" RUNTIME CONFIGURATION ".center(77, LINE_CHAR))
         LOGGER.info("CONFIG PATH: %s", self.config.config_path)
 
         LOGGER.info("DETECTOR")
+        LOGGER.info("   → Task          : %s", self.config.task)
         LOGGER.info("   → Model size    : %s", self.config.model_size)
         LOGGER.info("   → Batch size    : %d", self.config.batch_size)
         LOGGER.info("   → Confidence    : %.2f", self.config.conf)
         LOGGER.info("   → Tracker       : %s", self.config.tracker)
+
+        LOGGER.info("ZONE STATE MACHINE")
+        LOGGER.info("   → Confirm enter : %.1fs", self.config.confirm_enter_time)
+        LOGGER.info("   → Confirm exit  : %.1fs", self.config.confirm_exit_time)
+        LOGGER.info("   → Miss grace    : %.1fs", self.config.pending_enter_miss_grace)
 
         LOGGER.info("CAMERAS")
         for cam in self.cameras:
@@ -175,7 +207,7 @@ class Runtime:
         self,
         frame          : np.ndarray,
         camera         : Camera,
-        detection_frame: DetectionFrame,
+        detection_frame: InferenceFrame,
         fps            : float,
     ) -> None:
         """Vẽ kết quả detection lên bản sao frame rồi hiển thị cửa sổ OpenCV."""
@@ -184,13 +216,7 @@ class Runtime:
         if camera.zones:
             draw_zones(canvas, camera.zones)
 
-        bboxes, track_ids, confs = _unpack_detections(detection_frame.detections)
-        draw_person_bboxes(
-            canvas,
-            bboxes,
-            track_ids=track_ids,
-            confidences=confs,
-        )
+        draw_detections(canvas, detection_frame.detections, draw_head_kps=False)
 
         draw_status_bar(
             canvas,
@@ -214,16 +240,6 @@ class Runtime:
         return 1.0 / max(timestamp - prev, 1e-6)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-def _unpack_detections(
-    detections: List[Detection],
-) -> tuple[list, list, list]:
-    """Tách list Detection thành 3 list riêng để truyền vào draw_person_bboxes."""
-    bboxes    = [d.bbox       for d in detections]
-    track_ids = [d.track_id   for d in detections]
-    confs     = [d.confidence for d in detections]
-    return bboxes, track_ids, confs
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 def build_runtime_config(
@@ -232,18 +248,23 @@ def build_runtime_config(
     show        : Optional[bool] = None,
 ) -> RuntimeConfig:
     """Đọc YAML và tạo RuntimeConfig."""
-    cfg          = load_config(config_path)
-    detection    = cfg.get("detection", {})
-    preview      = cfg.get("preview", {})
+    cfg      = load_config(config_path)
+    det      = cfg.get("detection", {})
+    preview  = cfg.get("preview", {})
+    zsm      = cfg.get("zone_state_machine", {})
 
     return RuntimeConfig(
-        config_path  = config_path,
-        model_size   = detection.get("model_size", "nano"),
-        batch_size   = int(detection.get("batch_size", 1)),
-        conf         = float(detection.get("conf", 0.5)),
-        show         = bool(preview.get("enabled", True)) if show is None else show,
-        show_scale   = float(preview.get("scale", 1.0)),
-        verbose      = bool(detection.get("verbose", True)),
+        config_path              = config_path,
+        task                     = det.get("task", "pose"),
+        model_size               = det.get("model_size", "nano"),
+        batch_size               = int(det.get("batch_size", 1)),
+        conf                     = float(det.get("conf", 0.5)),
+        show                     = bool(preview.get("enabled", True)) if show is None else show,
+        show_scale               = float(preview.get("scale", 1.0)),
+        verbose                  = bool(det.get("verbose", True)),
+        confirm_enter_time       = float(zsm.get("confirm_enter_time", 8.0)),
+        confirm_exit_time        = float(zsm.get("confirm_exit_time", 8.0)),
+        pending_enter_miss_grace = float(zsm.get("pending_enter_miss_grace", 1.5)),
     )
 
 
