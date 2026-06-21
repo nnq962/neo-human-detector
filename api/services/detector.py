@@ -131,7 +131,7 @@ def start() -> dict:
     except FileNotFoundError as e:
         raise RuntimeError(f"Config not found: {e}")
 
-    from src.camera import load_cameras_from_config
+    from src.media_sources import load_cameras_from_config
 
     cameras = load_cameras_from_config(cfg)
 

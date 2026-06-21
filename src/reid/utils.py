@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import numpy as np
 
+BBoxXYXY = tuple[float, float, float, float]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 def normalize_embedding(embedding: np.ndarray) -> np.ndarray:
@@ -31,3 +33,15 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         return 0.0
 
     return float(np.dot(a, b))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def crop(frame: np.ndarray, bbox: BBoxXYXY) -> np.ndarray:
+    x1, y1, x2, y2 = map(int, bbox)
+    height, width = frame.shape[:2]
+    return frame[max(0, y1):min(height, y2), max(0, x1):min(width, x2)]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def fmt_sim(similarity: float | None) -> str:
+    return "-" if similarity is None else f"{similarity:.3f}"

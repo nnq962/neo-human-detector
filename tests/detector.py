@@ -7,7 +7,7 @@ sys.path.append(PROJECT_ROOT)
 
 def main():
     from src.detector import Detector
-    from src.camera import load_cameras_from_config
+    from src.media_sources import load_cameras_from_config
     from utils import LOGGER, load_config
 
     # Đường dẫn tuyệt đối tới file configs/test.yaml

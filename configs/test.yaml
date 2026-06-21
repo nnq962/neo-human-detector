@@ -1,9 +1,9 @@
 # ─── Detection model ──────────────────────────────────────────────────────────
 detection:
-  model_size: nano        # nano / small / medium / large / xlarge
-  batch_size: 1
+  task: pose             # detect / pose
+  model_size: nano       # nano / small / medium / large / xlarge
+  batch_size: 2
   conf: 0.55
-  vid_stride: 1
   verbose: false
 
 # ─── Debug preview (chỉ dùng khi dev local) ──────────────────────────────────
@@ -20,7 +20,7 @@ zone_state_machine:
 
 # ─── Re-identification ────────────────────────────────────────────────────────
 reid:
-  enabled: false
+  enabled: true
   zone_only: true
   require_occupied_zone: true
   model_path: weights/reid/osnet_ain_ms_d_c.pth.tar
@@ -30,20 +30,14 @@ reid:
     batch_size: 32
 
   track:
-    buffer_min: 200
+    buffer_min: 20
     grace_period: 20
     update_interval: 120
-    max_buffer_size: 250
+    max_buffer_size: 100
     gallery_cleanup_interval: 1800
     max_reverify_misses: 2
 
   quality:                     # Lọc crop trước khi extract embedding
-    min_confidence: 0.50
-    min_width: 30.0
-    min_height: 70.0
-    min_aspect_ratio: 0.18
-    max_aspect_ratio: 1.50
-    edge_margin_ratio: 0.02
     overlap_iou_threshold: 0.25
     overlap_ioa_threshold: 0.45
     stable_bbox_window: 100
@@ -52,7 +46,7 @@ reid:
     laplacian_var_threshold: 50.0
 
   gallery:
-    sim_threshold_match: 0.85
+    sim_threshold_match: 0.80
     sim_threshold_unsure: 0.65
     ema_alpha: 0.75
     max_samples: 5
@@ -91,10 +85,10 @@ cameras:
           - [580, 324]
 
   - id: 98mgh
-    name: Sảnh B
-    enabled: false
+    name: Phòng họp
+    enabled: true
     stream:
-      source: rtsp://admin:0612232026test@192.168.0.190:554/Streaming/Channels/101
+      source: rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101
       protocol: tcp
       on_demand: true
     zones: []

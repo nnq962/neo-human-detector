@@ -6,15 +6,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
-from src.detection.detections import DetectionFrame
-from src.reid.candidate_selector import select_reid_candidates
+from src.detection.datatypes import Detection, InferenceFrame
 from src.reid.gallery import IdentityGallery
 from src.reid.track_manager import ReIdTrackManager
-from src.reid.types import ReIdAssignment, ReIdCandidate, ReIdConfig
+from src.reid.datatypes import ReIdAssignment, ReIdCandidate, ReIdConfig
 
 
 EmbeddingFunction = Callable[[np.ndarray], np.ndarray]
@@ -23,7 +22,10 @@ EmbeddingFunction = Callable[[np.ndarray], np.ndarray]
 # ─────────────────────────────────────────────────────────────────────────────
 class ReIdPipeline:
     """
-    Stage ReID dùng trong DetectRuntime.
+    Stage ReID dùng trong Runtime.
+
+    API chính: `process()` — một lời gọi duy nhất nhận frame + detection_frame,
+    trả InferenceFrame đã được enrich global_id.
 
     Pipeline giữ một IdentityGallery chung cho toàn runtime, nhờ vậy global_id có
     thể thống nhất giữa nhiều camera nếu embedding match.
@@ -56,21 +58,29 @@ class ReIdPipeline:
         )
 
         def embedding_function(crop: np.ndarray) -> np.ndarray:
-            embedding = embedder.extract_embedding(crop, color_format="bgr")
-            return embedding.detach().cpu().numpy()
+            return embedder.extract_embedding(crop, color_format="bgr").detach().cpu().numpy()
 
         return cls(config=config, embedding_function=embedding_function)
 
-    def select_candidates(
+    # ── primary API ───────────────────────────────────────────────────────────
+    def process(
         self,
         *,
         camera_id: str,
-        detection_frame: DetectionFrame,
+        frame: np.ndarray | None,
+        detection_frame: InferenceFrame,
         zone_names: list[str | None],
+        frame_idx: int,
         allowed_zone_names: set[str] | None = None,
-    ) -> list[ReIdCandidate]:
-        """Chọn candidate theo config hiện tại."""
-        return select_reid_candidates(
+    ) -> InferenceFrame:
+        """
+        Chạy toàn bộ ReID stage cho một frame.
+
+        Chọn candidate → extract embedding → match gallery → enrich detection_frame.
+        Trả InferenceFrame mới với global_id / similarity / status đã được gắn.
+        """
+        # Chọn candidate đủ điều kiện để đưa vào ReID.
+        candidates = _select_reid_candidates(
             camera_id=camera_id,
             detections=detection_frame.detections,
             zone_names=zone_names,
@@ -78,6 +88,10 @@ class ReIdPipeline:
             allowed_zone_names=allowed_zone_names,
         )
 
+        assignments = self.update(frame=frame, candidates=candidates, frame_idx=frame_idx)
+        return self.enrich_detection_frame(detection_frame, assignments)
+
+    # ── lower-level API ───────────────────────────────────────────────────────
     def update(
         self,
         *,
@@ -95,40 +109,76 @@ class ReIdPipeline:
             return []
 
         assignments_by_key = self.manager.update(frame, candidates, frame_idx)
-        assignments: list[ReIdAssignment] = []
-
-        for candidate in candidates:
-            assignment = assignments_by_key.get(candidate.key)
-            if assignment is not None:
-                assignments.append(assignment)
-
-        return assignments
+        return [
+            assignments_by_key[candidate.key]
+            for candidate in candidates
+            if candidate.key in assignments_by_key
+        ]
 
     def enrich_detection_frame(
         self,
-        detection_frame: DetectionFrame,
+        detection_frame: InferenceFrame,
         assignments: Iterable[ReIdAssignment],
-    ) -> DetectionFrame:
-        """Trả DetectionFrame mới với Detection đã được gắn thông tin ReID."""
-        assignment_by_index = {
-            assignment.detection_index: assignment
-            for assignment in assignments
-        }
-        enriched_detections = []
+    ) -> InferenceFrame:
+        """Trả InferenceFrame mới với Detection đã được gắn thông tin ReID."""
+        assignment_by_index = {a.detection_index: a for a in assignments}
+        enriched = []
 
         for index, detection in enumerate(detection_frame.detections):
             assignment = assignment_by_index.get(index)
             if assignment is None:
-                enriched_detections.append(detection)
-                continue
-
-            enriched_detections.append(
-                replace(
-                    detection,
-                    global_id=assignment.global_id,
-                    similarity=assignment.similarity,
-                    status=assignment.status.value,
+                enriched.append(detection)
+            else:
+                enriched.append(
+                    replace(
+                        detection,
+                        global_id=assignment.global_id,
+                        similarity=assignment.similarity,
+                        status=assignment.status.value,
+                    )
                 )
-            )
 
-        return replace(detection_frame, detections=enriched_detections)
+        return replace(detection_frame, detections=enriched)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _select_reid_candidates(
+    *,
+    camera_id: str,
+    detections: Sequence[Detection],
+    zone_names: Sequence[str | None],
+    zone_only: bool = True,
+    allowed_zone_names: set[str] | None = None,
+) -> list[ReIdCandidate]:
+    """
+    Tạo candidate ReID từ detections.
+
+    Nếu `zone_only=True`, chỉ detection có track_id và nằm trong zone mới được
+    chọn để crop/extract embedding. Nếu `allowed_zone_names` được truyền vào,
+    detection cũng phải thuộc một zone trong tập này.
+    """
+    candidates: list[ReIdCandidate] = []
+
+    for index, detection in enumerate(detections):
+        if detection.track_id is None:
+            continue
+
+        zone_name = zone_names[index] if index < len(zone_names) else None
+        if zone_only and zone_name is None:
+            continue
+
+        if allowed_zone_names is not None and zone_name not in allowed_zone_names:
+            continue
+
+        candidates.append(
+            ReIdCandidate(
+                camera_id=str(camera_id),
+                track_id=int(detection.track_id),
+                detection_index=index,
+                bbox=detection.bbox,
+                confidence=float(detection.confidence),
+                zone_name=zone_name,
+            )
+        )
+
+    return candidates

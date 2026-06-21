@@ -31,6 +31,7 @@ def draw_person_bbox(
     track_id  : Optional[int]   = None,
     confidence: Optional[float] = None,
     global_id : Optional[int]   = None,
+    similarity: Optional[float] = None,
     status    : Optional[str]   = None,
     zone_name : Optional[str]   = None,
 ) -> None:
@@ -59,6 +60,7 @@ def draw_person_bbox(
         track_id=track_id,
         confidence=confidence,
         global_id=global_id,
+        similarity=similarity,
         status=status,
         zone_name=zone_name,
     )
@@ -72,6 +74,7 @@ def draw_person_bboxes(
     track_ids  : Optional[Sequence[Optional[int]]]   = None,
     confidences: Optional[Sequence[Optional[float]]] = None,
     global_ids : Optional[Sequence[Optional[int]]]   = None,
+    similarities: Optional[Sequence[Optional[float]]] = None,
     statuses   : Optional[Sequence[Optional[str]]]   = None,
     zone_names : Optional[Sequence[Optional[str]]]   = None,
 ) -> None:
@@ -88,6 +91,7 @@ def draw_person_bboxes(
             track_id=_get(track_ids, i),
             confidence=_get(confidences, i),
             global_id=_get(global_ids, i),
+            similarity=_get(similarities, i),
             status=_get(statuses, i),
             zone_name=_get(zone_names, i),
         )
@@ -107,6 +111,7 @@ def draw_detection(
         track_id  =detection.track_id,
         confidence=detection.confidence,
         global_id =detection.global_id,
+        similarity=detection.similarity,
         status    =detection.status,
     )
     if detection.has_pose:
@@ -153,6 +158,7 @@ def _draw_info_block(
     track_id : Optional[int],
     confidence: Optional[float],
     global_id: Optional[int],
+    similarity: Optional[float],
     status   : Optional[str],
     zone_name: Optional[str],
 ) -> None:
@@ -161,6 +167,7 @@ def _draw_info_block(
         track_id=track_id,
         confidence=confidence,
         global_id=global_id,
+        similarity=similarity,
         status=status,
         zone_name=zone_name,
     )
@@ -203,6 +210,7 @@ def _build_info_rows(
     track_id  : Optional[int],
     confidence: Optional[float],
     global_id : Optional[int],
+    similarity: Optional[float],
     status    : Optional[str],
     zone_name : Optional[str],
 ) -> list[tuple[str, Optional[str]]]:
@@ -210,13 +218,13 @@ def _build_info_rows(
 
     if track_id is not None:
         rows.append(("tid", str(track_id)))
-    if global_id is not None:
-        rows.append(("gid", f"{global_id:02d}"))
     if confidence is not None:
         rows.append(("cnf", f"{confidence * 100:.0f}%"))
+    if global_id is not None:
+        rows.append(("gid", f"{global_id:02d}"))
+    if similarity is not None:
+        rows.append(("sim", f"{similarity:.2f}"))
     if status is not None:
         rows.append(("sts", status))
-    if zone_name is not None:
-        rows.append(("zon", zone_name))
 
     return rows

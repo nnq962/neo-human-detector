@@ -1,40 +1,35 @@
 """
-Module app chứa các runtime/orchestrator cấp cao.
-
-Runtime ở đây chỉ nối các module nhỏ lại với nhau. Logic YOLO, camera, zone,
-output... vẫn nằm ở package chuyên trách tương ứng.
+Package app — Runtime và config.
 """
 
-from typing import Any
-
+from src.app.datatypes import (
+    DetectionConfig,
+    PreviewConfig,
+    RuntimeConfig,
+    ZoneStateMachineConfig,
+)
+from src.app.runtime import Runtime, run
+from src.app.utils import (
+    build_detection_config,
+    build_preview_config,
+    build_reid_config,
+    build_runtime_config,
+    build_zone_state_machine_config,
+)
 
 __all__ = [
-    "DetectOnlyRuntime",
-    "DetectRuntimeConfig",
-    "RuntimeState",
-    "run_detect_from_config",
+    # config dataclasses
+    "DetectionConfig",
+    "PreviewConfig",
+    "RuntimeConfig",
+    "ZoneStateMachineConfig",
+    # runtime
+    "Runtime",
+    "run",
+    # builders
+    "build_detection_config",
+    "build_preview_config",
+    "build_reid_config",
+    "build_runtime_config",
+    "build_zone_state_machine_config",
 ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def __getattr__(name: str) -> Any:
-    """Lazy import public API để tránh kéo OpenCV/Ultralytics khi chỉ cần state."""
-    if name in {"DetectOnlyRuntime", "DetectRuntimeConfig", "run_detect_from_config"}:
-        from src.app.detect_runtime_legacy import (
-            DetectOnlyRuntime,
-            DetectRuntimeConfig,
-            run_detect_from_config,
-        )
-
-        return {
-            "DetectOnlyRuntime": DetectOnlyRuntime,
-            "DetectRuntimeConfig": DetectRuntimeConfig,
-            "run_detect_from_config": run_detect_from_config,
-        }[name]
-
-    if name == "RuntimeState":
-        from src.app.runtime_state import RuntimeState
-
-        return RuntimeState
-
-    raise AttributeError(f"module 'src.app' has no attribute '{name}'")

@@ -12,13 +12,10 @@ import time
 
 import numpy as np
 
-from src.reid.types import (
-    IdentityMatchResult,
-    IdentityProfile,
-    IdentityResolveStatus,
-    ReIdConfig,
-)
+from src.reid.datatypes import IdentityMatchResult, IdentityProfile, ReIdConfig, ReIdTrackStatus
 from src.reid.utils import cosine_similarity, normalize_embedding
+
+
 from utils import LOGGER
 
 
@@ -40,47 +37,28 @@ class IdentityGallery:
         self,
         embedding: np.ndarray,
         frame_idx: int,
-        *,
-        create_on_uncertain: bool = False,
     ) -> IdentityMatchResult:
         """
-        Query gallery theo ba vùng quyết định.
+        Resolve embedding trung bình của một track thành global_id.
 
-        - MATCHED_EXISTING: similarity đủ cao, dùng global_id cũ.
-        - AMBIGUOUS: gần nhưng chưa chắc, track manager sẽ chờ thêm embedding.
-        - CREATED_NEW: không có profile đủ giống, tạo global_id mới.
+        Nếu cosine similarity với profile tốt nhất đạt ngưỡng match, dùng lại
+        global_id cũ và refresh metadata xuất hiện. Nếu không đạt ngưỡng, tạo
+        profile/global_id mới và trả status NEW.
         """
         embedding = normalize_embedding(embedding)
         best_id, best_similarity = self._find_best_match(embedding)
 
+        # Nếu embedding mới đủ giống profile cũ, refresh profile và trả MATCHED.
         if best_similarity >= self.config.sim_threshold_match:
             profile = self._profiles[best_id]
             profile.hit_count += 1
             profile.last_seen = frame_idx
             profile.last_seen_at = time.monotonic()
-            return IdentityMatchResult(
-                IdentityResolveStatus.MATCHED_EXISTING,
-                best_id,
-                best_similarity,
-            )
+            return IdentityMatchResult(ReIdTrackStatus.MATCHED, best_id, best_similarity)
 
-        if (
-            best_id != -1
-            and best_similarity >= self.config.sim_threshold_unsure
-            and not create_on_uncertain
-        ):
-            return IdentityMatchResult(
-                IdentityResolveStatus.AMBIGUOUS,
-                best_id,
-                best_similarity,
-            )
-
+        # Nếu embedding mới không match với profile cũ, tạo profile mới và trả NEW.
         global_id = self._create_profile(embedding, frame_idx)
-        return IdentityMatchResult(
-            IdentityResolveStatus.CREATED_NEW,
-            global_id,
-            best_similarity,
-        )
+        return IdentityMatchResult(ReIdTrackStatus.NEW, global_id, best_similarity)
 
     def update_profile(
         self,

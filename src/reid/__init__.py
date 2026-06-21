@@ -1,37 +1,18 @@
 """
-Package ReID cho pipeline mới.
+Package ReID.
 
-Public API cố ý không import embedder ở top-level để tránh kéo torch khi ReID tắt.
+Public API: ReIdPipeline, ReIdConfig, IdentityGallery.
+torch không được import ở top-level để tránh kéo khi ReID tắt.
 """
 
-from src.reid.candidate_selector import select_reid_candidates
+from src.reid.datatypes import ReIdAssignment, ReIdCandidate, ReIdConfig
 from src.reid.gallery import IdentityGallery
 from src.reid.pipeline import ReIdPipeline
-from src.reid.track_manager import ReIdTrackManager
-from src.reid.types import (
-    IdentityMatchResult,
-    IdentityProfile,
-    IdentityResolveStatus,
-    ReIdAssignment,
-    ReIdCandidate,
-    ReIdConfig,
-    ReIdTrackKey,
-    ReIdTrackState,
-    ReIdTrackStatus,
-)
 
 __all__ = [
     "IdentityGallery",
-    "IdentityMatchResult",
-    "IdentityProfile",
-    "IdentityResolveStatus",
     "ReIdAssignment",
     "ReIdCandidate",
     "ReIdConfig",
     "ReIdPipeline",
-    "ReIdTrackKey",
-    "ReIdTrackManager",
-    "ReIdTrackState",
-    "ReIdTrackStatus",
-    "select_reid_candidates",
 ]

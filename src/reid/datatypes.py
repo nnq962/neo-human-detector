@@ -22,15 +22,6 @@ BBoxXYXY = tuple[float, float, float, float]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-class IdentityResolveStatus(Enum):
-    """Kết quả một lần resolve embedding trong IdentityGallery."""
-
-    MATCHED_EXISTING = "matched_existing"
-    AMBIGUOUS        = "ambiguous"
-    CREATED_NEW      = "created_new"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ReIdConfig:
     """Các ngưỡng dùng chung cho track tạm, crop quality và identity gallery."""
@@ -48,22 +39,17 @@ class ReIdConfig:
     update_interval         : int = 120   # Chu kỳ refresh embedding đại diện sau khi đã confirm.
     max_buffer_size         : int = 250   # Số embedding tối đa giữ trong buffer của mỗi track.
     gallery_cleanup_interval: int = 1800  # Chu kỳ frame để dọn global_id quá lâu không gặp.
-    max_reverify_misses     : int = 2     # Số lần re-verify nhập nhằng liên tiếp trước khi tách global_id.
 
     # Bbox quality: quyết định frame nào đủ sạch để extract ReID embedding.
-    min_detection_conf       : float = 0.50  # Bỏ bbox YOLO có confidence thấp.
-    min_bbox_aspect_ratio    : float = 0.18  # Width/height nhỏ hơn mức này thường là bbox quá gầy/sai.
-    max_bbox_aspect_ratio    : float = 1.50  # Width/height lớn hơn mức này thường là bbox quá ngang/sai.
-    overlap_iou_threshold    : float = 0.25  # Bỏ crop nếu IoU với người khác quá cao.
-    overlap_ioa_threshold    : float = 0.45  # Bỏ crop nếu phần lớn bbox nhỏ bị người khác che.
-    stable_bbox_window       : int   = 100   # Số frame gần nhất dùng để kiểm tra bbox ổn định.
-    stable_center_shift_ratio: float = 0.20  # Tâm bbox dao động tối đa so với đường chéo bbox.
-    stable_size_change_ratio : float = 0.25  # Diện tích bbox dao động tối đa quanh mean area.
-    laplacian_var_threshold  : float = 50.0  # Bỏ crop bị mờ, đo bằng Laplacian variance.
+    overlap_iou_threshold     : float = 0.25  # Bỏ crop nếu IoU với người khác quá cao.
+    overlap_ioa_threshold     : float = 0.45  # Bỏ crop nếu phần lớn bbox nhỏ bị người khác che.
+    stable_bbox_window        : int   = 100   # Số frame gần nhất dùng để kiểm tra bbox ổn định.
+    stable_center_shift_ratio : float  = 0.20 # Tâm bbox dao động tối đa so với đường chéo bbox.
+    stable_size_change_ratio  : float = 0.25  # Diện tích bbox dao động tối đa quanh mean area.
+    laplacian_var_threshold   : float = 50.0  # Bỏ crop bị mờ, đo bằng Laplacian variance.
 
     # Gallery: quản lý global_id bền vững xuyên suốt runtime.
     sim_threshold_match : float = 0.85  # Cosine >= ngưỡng này thì coi là cùng người.
-    sim_threshold_unsure: float = 0.65  # Vùng nhập nhằng: đủ giống để chờ thêm, chưa tạo ID mới.
     ema_alpha           : float = 0.75  # EMA càng cao càng giữ embedding cũ ổn định hơn.
     max_samples         : int   = 5     # Số embedding sample gần nhất giữ kèm mỗi global_id.
     gallery_ttl_minutes : float = 2.0   # Xóa global_id nếu quá N phút không gặp lại.
@@ -76,12 +62,10 @@ class ReIdConfig:
 
 # ─────────────────────────────────────────────────────────────────────────────
 class ReIdTrackStatus(Enum):
-    """Trạng thái vòng đời của một ByteTrack track trong ReID."""
+    """Trạng thái ReID của một track trong gallery."""
 
-    NEW       = "new"        # track chưa có identity đáng tin.
-    PENDING   = "pending"    # đang trong lúc thử resolve.
-    CONFIRMED = "confirmed"  # track đã có global_id. 
-    UNCERTAIN = "uncertain"  # track đang nhập nhằng, cần chờ thêm embedding tốt.
+    NEW     = "new"      # Chưa match profile cũ; đang tích embedding hoặc vừa tạo global_id mới.
+    MATCHED = "matched"  # Đã dùng lại global_id từ profile có sẵn trong gallery.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,7 +103,7 @@ class ReIdCandidate:
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ReIdAssignment:
-    """Kết quả ReID dùng để enrich lại DetectionFrame."""
+    """Kết quả ReID dùng để enrich lại InferenceFrame."""
 
     camera_id      : str
     track_id       : int
@@ -145,9 +129,7 @@ class ReIdTrackState:
     last_seen       : int = 0
     confidence      : float = 0.0
     bbox            : Optional[BBoxXYXY] = None
-    confirmed_at    : int = 0
-    reverify_miss_count      : int = 0
-    last_verified_similarity : Optional[float] = None
+    matched_at      : int = 0
 
     def add_embedding(
         self,
@@ -172,13 +154,11 @@ class ReIdTrackState:
         """Lấy embedding đại diện của track rồi chuẩn hóa lại về norm 1."""
         return normalize_embedding(np.mean(self.embedding_buffer, axis=0))
 
-    def is_confirmed(self) -> bool:
-        """Track đã được gán global_id ổn định hay chưa."""
-        return self.status == ReIdTrackStatus.CONFIRMED
+    def is_matched(self) -> bool:
+        return self.status == ReIdTrackStatus.MATCHED
 
-    def frames_since_confirmed(self, frame_idx: int) -> int:
-        """Số frame kể từ lúc track được confirm."""
-        return frame_idx - self.confirmed_at
+    def frames_since_matched(self, frame_idx: int) -> int:
+        return frame_idx - self.matched_at
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,8 +177,8 @@ class IdentityProfile:
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class IdentityMatchResult:
-    """Kết quả query gallery trước khi track manager quyết định confirm hay chờ."""
+    """Kết quả query gallery: matched với người cũ hoặc tạo identity mới."""
 
-    status    : IdentityResolveStatus
+    status    : ReIdTrackStatus
     global_id : Optional[int]
     similarity: float
