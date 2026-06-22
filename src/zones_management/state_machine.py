@@ -19,7 +19,7 @@ class ZoneStateMachine:
     Cập nhật trạng thái zone dựa trên số detection hiện nằm trong từng zone.
 
     Các tham số thời gian tính bằng giây và có thể lấy trực tiếp từ block
-    `zones_state_machine` trong YAML config.
+    `zone_state_machine` trong YAML config.
     """
 
     confirm_enter_time: float = 8.0

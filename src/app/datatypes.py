@@ -38,7 +38,7 @@ class ZoneStateMachineConfig:
 
     confirm_enter_time      : float = 8.0
     confirm_exit_time       : float = 8.0
-    pending_enter_miss_grace: float = 1.5
+    pending_enter_miss_grace_time: float = 1.5
 
 
 # ─────────────────────────────────────────────────────────────────────────────

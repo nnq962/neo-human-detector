@@ -164,7 +164,7 @@ class Runtime:
             cam.id: ZoneStateMachine(
                 confirm_enter_time            = zsm.confirm_enter_time,
                 confirm_exit_time             = zsm.confirm_exit_time,
-                pending_enter_miss_grace_time = zsm.pending_enter_miss_grace,
+                pending_enter_miss_grace_time      = zsm.pending_enter_miss_grace_time,
             )
             for cam in self.cameras
         }
@@ -187,7 +187,7 @@ class Runtime:
         LOGGER.info("ZONE STATE MACHINE")
         LOGGER.info("   → Confirm enter : %.1fs", zsm.confirm_enter_time)
         LOGGER.info("   → Confirm exit  : %.1fs", zsm.confirm_exit_time)
-        LOGGER.info("   → Miss grace    : %.1fs", zsm.pending_enter_miss_grace)
+        LOGGER.info("   → Miss grace    : %.1fs", zsm.pending_enter_miss_grace_time)
 
         LOGGER.info("CAMERAS")
         for cam in self.cameras:

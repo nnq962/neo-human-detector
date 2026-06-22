@@ -40,7 +40,7 @@ def build_zone_state_machine_config(raw: dict) -> ZoneStateMachineConfig:
     return ZoneStateMachineConfig(
         confirm_enter_time       = float(raw.get("confirm_enter_time", 8.0)),
         confirm_exit_time        = float(raw.get("confirm_exit_time", 8.0)),
-        pending_enter_miss_grace = float(raw.get("pending_enter_miss_grace", 1.5)),
+        pending_enter_miss_grace_time = float(raw.get("pending_enter_miss_grace_time", 1.5)),
     )
 
 

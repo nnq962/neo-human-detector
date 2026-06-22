@@ -119,8 +119,14 @@ def draw_detection(
     )
     if detection.has_pose:
         from src.visualization.pose import draw_pose
-        draw_pose(frame, detection.keypoints, detection.keypoints_conf,
-                  draw_head_kps=draw_head_kps)
+        hip_drawn = draw_pose(
+            frame,
+            detection.keypoints,
+            detection.keypoints_conf,
+            draw_head_kps=draw_head_kps,
+        )
+        if not hip_drawn:
+            _draw_bbox_center(frame, detection.bbox)
     else:
         _draw_bbox_center(frame, detection.bbox)
 

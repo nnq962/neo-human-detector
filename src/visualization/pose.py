@@ -87,9 +87,10 @@ def draw_pose(
     conf_threshold  : float = 0.3,
     color_by_side   : bool  = True,
     draw_head_kps   : bool  = True,
-) -> None:
+) -> bool:
     """
     Vẽ skeleton + keypoint circles cho một người.
+    Trả True nếu đã vẽ được điểm hip/hip-center dùng cho pose.
 
     Args:
         frame:          Frame BGR để vẽ lên (in-place).
@@ -126,8 +127,8 @@ def draw_pose(
             continue
         _draw_kp_dot(frame, int(x), int(y), kp_radius, kp_border)
 
-    # Điểm hip center: trung điểm left_hip (11) và right_hip (12)
-    _draw_hip_center(frame, kps, confs, conf_threshold, kp_radius, kp_border)
+    # Điểm kiểm tra pose: hip center, fallback về hip còn rõ nếu thiếu một bên.
+    return _draw_hip_center(frame, kps, confs, conf_threshold, kp_radius, kp_border)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,10 +227,20 @@ def _draw_hip_center(
     conf_threshold: float,
     kp_radius     : int,
     kp_border     : int,
-) -> None:
-    """Vẽ trung điểm của left_hip (11) và right_hip (12)."""
-    if confs[11] < conf_threshold or confs[12] < conf_threshold:
-        return
-    cx = int((kps[11, 0] + kps[12, 0]) / 2)
-    cy = int((kps[11, 1] + kps[12, 1]) / 2)
+) -> bool:
+    """Vẽ hip center, fallback về hip trái/phải nếu chỉ một bên đủ rõ."""
+    l_ok = confs[11] >= conf_threshold
+    r_ok = confs[12] >= conf_threshold
+
+    if l_ok and r_ok:
+        cx = int((kps[11, 0] + kps[12, 0]) / 2)
+        cy = int((kps[11, 1] + kps[12, 1]) / 2)
+    elif l_ok:
+        cx, cy = int(kps[11, 0]), int(kps[11, 1])
+    elif r_ok:
+        cx, cy = int(kps[12, 0]), int(kps[12, 1])
+    else:
+        return False
+
     _draw_kp_dot(frame, cx, cy, kp_radius, kp_border, color=_CENTER_DOT_COLOR)
+    return True
