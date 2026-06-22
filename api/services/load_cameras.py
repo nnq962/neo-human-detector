@@ -36,8 +36,9 @@ def sync_camera_paths(config: Dict[str, Any]) -> Dict[str, int]:
 
     for camera in config.get("cameras") or []:
         camera_id = camera.get("id", "<missing-id>")
+        stream = camera.get("stream") if isinstance(camera.get("stream"), dict) else {}
 
-        if not camera.get("id") or not camera.get("source"):
+        if not camera.get("id") or not stream.get("source"):
             result["skipped"] += 1
             LOGGER.warning(f"Skip MediaMTX camera path with invalid config: {camera_id}")
             continue

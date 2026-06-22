@@ -1,18 +1,18 @@
 import type { AppConfig } from '../../../types/config'
 
-export type ZoneCheckMode = 'bottom_center' | 'center'
+export type DetectionTask = 'detect' | 'pose'
 export type ModelSize = 'nano' | 'medium'
-export type BatchSize = 1 | 2 | 4
+export type BatchSize = 1 | 2
+export type TrackerConfig = 'bytetrack.yaml' | 'botsort.yaml'
 export type SelectValue = string | number
 
 export type GeneralConfigState = Omit<AppConfig, 'cameras' | 'zones'> & {
-    detector: Omit<AppConfig['detector'], 'batch_size' | 'model_size' | 'zone_check_mode'> & {
+    detection: Omit<AppConfig['detection'], 'batch_size' | 'model_size'> & {
         batch_size: BatchSize
         model_size: ModelSize
-        zone_check_mode: ZoneCheckMode
     }
 }
 
-export type DetectorConfig = GeneralConfigState['detector']
+export type DetectionConfig = GeneralConfigState['detection']
 export type UartConfigState = GeneralConfigState['uart']
 export type CameraConfigState = AppConfig['cameras'][number]

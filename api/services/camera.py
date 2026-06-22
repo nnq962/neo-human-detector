@@ -8,6 +8,8 @@ from api.services import mediamtx as mediamtx_service
 
 CAMERA_ID_LENGTH = 5
 CAMERA_ID_ALPHABET = string.ascii_lowercase + string.digits
+ZONE_ID_LENGTH = 5
+ZONE_ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
 def _model_dump(model, **kwargs) -> dict:
@@ -54,6 +56,45 @@ def _generate_camera_id(cameras: List[dict]) -> str:
             return camera_id
 
 
+def _generate_zone_id(existing_ids: set[str]) -> str:
+    while True:
+        zone_id = "".join(
+            secrets.choice(ZONE_ID_ALPHABET) for _ in range(ZONE_ID_LENGTH)
+        )
+
+        if zone_id not in existing_ids:
+            existing_ids.add(zone_id)
+            return zone_id
+
+
+def _collect_zone_ids(cameras: List[dict], ignore_camera_index: int = -1) -> set[str]:
+    zone_ids: set[str] = set()
+
+    for index, camera in enumerate(cameras):
+        if index == ignore_camera_index:
+            continue
+
+        for zone in camera.get("zones") or []:
+            zone_id = str(zone.get("id") or "").strip()
+            if zone_id:
+                zone_ids.add(zone_id)
+
+    return zone_ids
+
+
+def _ensure_zone_ids(camera: dict, cameras: List[dict], ignore_camera_index: int = -1) -> None:
+    existing_ids = _collect_zone_ids(cameras, ignore_camera_index=ignore_camera_index)
+
+    for zone in camera.get("zones") or []:
+        zone_id = str(zone.get("id") or "").strip()
+        if zone_id and zone_id not in existing_ids:
+            zone["id"] = zone_id
+            existing_ids.add(zone_id)
+            continue
+
+        zone["id"] = _generate_zone_id(existing_ids)
+
+
 def _strip_runtime_fields(camera: dict) -> dict:
     return {
         key: value
@@ -94,71 +135,85 @@ def get_camera(camera_id: str) -> dict:
 
 
 def create_camera(camera: CameraCreate) -> dict:
-    config = _get_config()
-    cameras = _get_cameras(config)
     camera_data = _model_dump(camera)
 
-    camera_data["id"] = _generate_camera_id(cameras)
-    _ensure_unique_camera_id(cameras, camera_data["id"])
+    def mutate(config: dict) -> dict:
+        cameras = _get_cameras(config)
+        next_camera = dict(camera_data)
 
-    mediamtx_service.upsert_camera_path(camera_data)
-    cameras.append(camera_data)
-    config_store.save_config_data(config)
+        next_camera["id"] = _generate_camera_id(cameras)
+        _ensure_unique_camera_id(cameras, next_camera["id"])
+        _ensure_zone_ids(next_camera, cameras)
 
-    return _with_runtime_fields(camera_data)
+        mediamtx_service.upsert_camera_path(next_camera)
+        cameras.append(next_camera)
+        return next_camera
+
+    created_camera = config_store.update_config_data(mutate)
+    return _with_runtime_fields(created_camera)
 
 
 def replace_camera(camera_id: str, camera: CameraCreate) -> dict:
-    config = _get_config()
-    cameras = _get_cameras(config)
-    index = _find_camera_index(cameras, camera_id)
-    current_camera = _strip_runtime_fields(cameras[index])
     camera_data = _model_dump(camera)
 
-    camera_data["id"] = camera_id
-    _ensure_unique_camera_id(cameras, camera_data["id"], ignore_index=index)
+    def mutate(config: dict) -> dict:
+        cameras = _get_cameras(config)
+        index = _find_camera_index(cameras, camera_id)
+        current_camera = _strip_runtime_fields(cameras[index])
+        next_camera = dict(camera_data)
 
-    if _stream_config_changed(current_camera, camera_data):
-        mediamtx_service.upsert_camera_path(camera_data)
+        next_camera["id"] = camera_id
+        _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
+        _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
-    cameras[index] = camera_data
-    config_store.save_config_data(config)
+        if _stream_config_changed(current_camera, next_camera):
+            mediamtx_service.upsert_camera_path(next_camera)
 
-    return _with_runtime_fields(camera_data)
+        cameras[index] = next_camera
+        return next_camera
+
+    replaced_camera = config_store.update_config_data(mutate)
+    return _with_runtime_fields(replaced_camera)
 
 
 def update_camera(camera_id: str, patch: CameraUpdate) -> dict:
-    config = _get_config()
-    cameras = _get_cameras(config)
-    index = _find_camera_index(cameras, camera_id)
     patch_data = _model_dump(patch, exclude_none=True, exclude_unset=True)
 
     if not patch_data:
-        return _with_runtime_fields(cameras[index])
+        return get_camera(camera_id)
 
-    current_camera = _strip_runtime_fields(cameras[index])
-    next_camera = {
-        **current_camera,
-        **patch_data,
-    }
-    _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
+    def mutate(config: dict) -> dict:
+        cameras = _get_cameras(config)
+        index = _find_camera_index(cameras, camera_id)
 
-    if _stream_config_changed(current_camera, next_camera):
-        mediamtx_service.upsert_camera_path(next_camera)
+        current_camera = _strip_runtime_fields(cameras[index])
+        next_camera = {**current_camera, **patch_data}
+        if "stream" in patch_data:
+            next_camera["stream"] = {
+                **(current_camera.get("stream") or {}),
+                **patch_data["stream"],
+            }
+        _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
+        _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
-    cameras[index] = next_camera
-    config_store.save_config_data(config)
+        if _stream_config_changed(current_camera, next_camera):
+            mediamtx_service.upsert_camera_path(next_camera)
 
-    return _with_runtime_fields(next_camera)
+        cameras[index] = next_camera
+        return next_camera
+
+    updated_camera = config_store.update_config_data(mutate)
+    return _with_runtime_fields(updated_camera)
 
 
 def delete_camera(camera_id: str) -> dict:
-    config = _get_config()
-    cameras = _get_cameras(config)
-    index = _find_camera_index(cameras, camera_id)
-    camera = cameras.pop(index)
+    def mutate(config: dict) -> dict:
+        cameras = _get_cameras(config)
+        index = _find_camera_index(cameras, camera_id)
+        camera = cameras.pop(index)
 
-    mediamtx_service.delete_camera_path(camera_id, ignore_missing=True)
-    config_store.save_config_data(config)
+        mediamtx_service.delete_camera_path(camera_id, ignore_missing=True)
+        return camera
 
-    return _with_runtime_fields(camera)
+    deleted_camera = config_store.update_config_data(mutate)
+    return _with_runtime_fields(deleted_camera)

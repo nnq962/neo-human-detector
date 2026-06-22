@@ -1,7 +1,7 @@
 import AIConfig from './general/AIConfig'
 import CameraConfig from './general/CameraConfig'
 import UartConfig from './general/UartConfig'
-import ZonesStateMachineConfig from './general/ZonesStateMachineConfig'
+import ZoneStateMachineConfig from './general/ZoneStateMachineConfig'
 
 const inputClass =
     'h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 shadow-sm outline-none transition-colors placeholder:text-slate-400 hover:border-slate-300 focus:border-sky-400 focus:ring-2 focus:ring-sky-100'
@@ -30,7 +30,7 @@ function GeneralConfig() {
                     inputClass={inputClass}
                     labelClass={labelClass}
                 />
-                <ZonesStateMachineConfig />
+                <ZoneStateMachineConfig />
             </div>
         </section>
     )

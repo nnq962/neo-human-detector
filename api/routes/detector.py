@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from api.models.detector import (
-    DetectorConfigUpdate,
+    DetectionConfigUpdate,
     DetectorSettings,
     DetectorSettingsUpdate,
     DetectorStatus,
@@ -46,7 +46,7 @@ def replace_detector_config(settings: DetectorSettings):
     try:
         return detector_service.update_detector_config(DetectorSettingsUpdate(
             auto_start=settings.auto_start,
-            detector=DetectorConfigUpdate(**settings.detector.model_dump()),
+            detection=DetectionConfigUpdate(**settings.detection.model_dump()),
         ))
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

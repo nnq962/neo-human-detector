@@ -27,8 +27,9 @@ class DetectionConfig:
 class PreviewConfig:
     """Section [preview] trong YAML."""
 
-    enabled: bool  = True
-    scale  : float = 1.0
+    enabled       : bool  = True
+    window_width  : int   = 1280
+    window_height : int   = 720
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
+from utils import LOGGER
 
 
 MEDIAMTX_API_URL = os.getenv("MEDIAMTX_API_URL", "http://127.0.0.1:9997/v3").rstrip("/")
@@ -63,19 +64,18 @@ def wait_for_path_ready(path_name: str) -> bool:
 
 
 def build_path_payload(camera: dict) -> dict:
+    stream = camera["stream"]
     return {
-        "source": camera["source"],
-        "sourceProtocol": camera.get("source_protocol", camera.get("sourceProtocol", "tcp")),
-        "sourceOnDemand": camera.get(
-            "source_on_demand",
-            camera.get("sourceOnDemand", True),
-        ),
+        "source": stream["source"],
+        "sourceProtocol": stream.get("protocol", "tcp"),
+        "sourceOnDemand": stream.get("on_demand", True),
     }
 
 
 def delete_camera_path(camera_id: str, ignore_missing: bool = True) -> None:
     try:
         request_mediamtx(f"/config/paths/delete/{camera_id}", method="DELETE")
+        LOGGER.info("Deleted MediaMTX camera path: %s", camera_id)
     except HTTPException as e:
         if not ignore_missing or e.status_code != 502 or "HTTP 404" not in str(e.detail):
             raise
@@ -85,15 +85,18 @@ def upsert_camera_path(camera: dict) -> None:
     camera_id = camera["id"]
 
     if not camera.get("enabled", True):
+        LOGGER.info("Camera disabled; removing MediaMTX path: %s", camera_id)
         delete_camera_path(camera_id, ignore_missing=True)
         return
 
     delete_camera_path(camera_id, ignore_missing=True)
+    payload = build_path_payload(camera)
     request_mediamtx(
         f"/config/paths/add/{camera_id}",
         method="POST",
-        payload=build_path_payload(camera),
+        payload=payload,
     )
+    LOGGER.info("Upserted MediaMTX camera path: %s | %s", camera_id, payload["source"])
 
 
 def get_webrtc_base_url(hostname: Optional[str] = None, scheme: str = "http") -> str:

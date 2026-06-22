@@ -3,9 +3,7 @@ import type { Camera } from '../types/config'
 
 export type CameraPayload = {
     name: string
-    source: string
-    source_protocol?: string
-    source_on_demand?: boolean
+    stream: Camera['stream']
     enabled?: boolean
     zones?: Camera['zones']
 }

@@ -2,32 +2,34 @@ import { useEffect, useState } from 'react'
 import { getDetectorConfig, updateDetectorConfig } from '../../../api/detectorApi'
 import { useToast } from '../../../hooks/useToast'
 import { notifyRestartRequired } from '../../../lib/restartRequiredEvents'
-import type { DetectorConfig } from '../../../types/config'
+import type { DetectionConfig } from '../../../types/config'
 import { CustomSelect, NumberStepper, ToggleSwitch } from './ConfigControls'
-import { batchSizeOptions, modelSizeOptions } from './options'
+import { batchSizeOptions, detectionTaskOptions, modelSizeOptions, trackerOptions } from './options'
 import { SectionShell } from './SectionShell'
 
-const defaultDetectorConfig: DetectorConfig = {
-    model_size: 'nano',
+const defaultDetectionConfig: DetectionConfig = {
+    task: 'pose',
+    model_size: 'medium',
     batch_size: 2,
     conf: 0.5,
-    vid_stride: 1,
+    tracker: 'bytetrack.yaml',
     verbose: false,
 }
 
-function hasRestartOnlyDetectorChanges(current: DetectorConfig, initial: DetectorConfig) {
-    return current.model_size !== initial.model_size ||
+function hasRestartOnlyDetectionChanges(current: DetectionConfig, initial: DetectionConfig) {
+    return current.task !== initial.task ||
+        current.model_size !== initial.model_size ||
         current.batch_size !== initial.batch_size ||
         current.conf !== initial.conf ||
-        current.vid_stride !== initial.vid_stride
+        current.tracker !== initial.tracker
 }
 
 function AIConfig() {
     const toast = useToast()
     const [autoStart, setAutoStart] = useState(false)
-    const [detector, setDetector] = useState<DetectorConfig>(defaultDetectorConfig)
+    const [detection, setDetection] = useState<DetectionConfig>(defaultDetectionConfig)
     const [initialAutoStart, setInitialAutoStart] = useState(false)
-    const [initialDetector, setInitialDetector] = useState<DetectorConfig>(defaultDetectorConfig)
+    const [initialDetection, setInitialDetection] = useState<DetectionConfig>(defaultDetectionConfig)
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [loadError, setLoadError] = useState('')
@@ -44,9 +46,9 @@ function AIConfig() {
 
                 if (!ignore) {
                     setAutoStart(config.auto_start)
-                    setDetector(config.detector)
+                    setDetection(config.detection)
                     setInitialAutoStart(config.auto_start)
-                    setInitialDetector(config.detector)
+                    setInitialDetection(config.detection)
                 }
             } catch (error) {
                 const message = error instanceof Error ? error.message : 'Unable to load AI config.'
@@ -69,8 +71,8 @@ function AIConfig() {
         }
     }, [toast])
 
-    const updateDetector = (patch: Partial<DetectorConfig>) => {
-        setDetector((current) => ({
+    const updateDetection = (patch: Partial<DetectionConfig>) => {
+        setDetection((current) => ({
             ...current,
             ...patch,
         }))
@@ -78,18 +80,18 @@ function AIConfig() {
 
     const saveConfig = async () => {
         setIsSaving(true)
-        const shouldNotifyRestart = hasRestartOnlyDetectorChanges(detector, initialDetector)
+        const shouldNotifyRestart = hasRestartOnlyDetectionChanges(detection, initialDetection)
 
         try {
             const savedConfig = await updateDetectorConfig({
                 auto_start: autoStart,
-                detector,
+                detection,
             })
 
             setAutoStart(savedConfig.auto_start)
-            setDetector(savedConfig.detector)
+            setDetection(savedConfig.detection)
             setInitialAutoStart(savedConfig.auto_start)
-            setInitialDetector(savedConfig.detector)
+            setInitialDetection(savedConfig.detection)
             if (shouldNotifyRestart) {
                 notifyRestartRequired()
             }
@@ -103,7 +105,7 @@ function AIConfig() {
 
     const cancelChanges = () => {
         setAutoStart(initialAutoStart)
-        setDetector(initialDetector)
+        setDetection(initialDetection)
         toast.info('AI changes discarded.')
     }
 
@@ -138,9 +140,9 @@ function AIConfig() {
                 <div className="min-w-0 space-y-2">
                     <span className="text-sm font-semibold text-slate-700">Verbose</span>
                     <ToggleSwitch
-                        checked={detector.verbose}
-                        label={detector.verbose ? 'Enabled' : 'Disabled'}
-                        onChange={(checked) => updateDetector({ verbose: checked })}
+                        checked={detection.verbose}
+                        label={detection.verbose ? 'Enabled' : 'Disabled'}
+                        onChange={(checked) => updateDetection({ verbose: checked })}
                     />
                 </div>
 
@@ -155,35 +157,40 @@ function AIConfig() {
             </div>
 
             <CustomSelect
+                label="Task"
+                value={detection.task}
+                options={detectionTaskOptions}
+                onChange={(value) => updateDetection({ task: value })}
+            />
+
+            <CustomSelect
                 label="Model Size"
-                value={detector.model_size}
+                value={detection.model_size}
                 options={modelSizeOptions}
-                onChange={(value) => updateDetector({ model_size: value })}
+                onChange={(value) => updateDetection({ model_size: value })}
             />
 
             <CustomSelect
                 label="Batch Size"
-                value={detector.batch_size}
+                value={detection.batch_size}
                 options={batchSizeOptions}
-                onChange={(value) => updateDetector({ batch_size: value })}
+                onChange={(value) => updateDetection({ batch_size: value })}
             />
 
             <NumberStepper
                 label="Confidence"
-                value={detector.conf}
+                value={detection.conf}
                 min={0}
                 max={1}
                 step={0.05}
-                onChange={(value) => updateDetector({ conf: value })}
+                onChange={(value) => updateDetection({ conf: value })}
             />
 
-            <NumberStepper
-                label="VID Stride"
-                value={detector.vid_stride}
-                min={1}
-                max={100}
-                step={1}
-                onChange={(value) => updateDetector({ vid_stride: value })}
+            <CustomSelect
+                label="Tracker"
+                value={detection.tracker}
+                options={trackerOptions}
+                onChange={(value) => updateDetection({ tracker: value })}
             />
         </SectionShell>
     )

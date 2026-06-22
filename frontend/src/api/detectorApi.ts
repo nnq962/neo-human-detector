@@ -1,12 +1,11 @@
 import { apiRequest } from '../lib/http'
-import type { DetectorConfig, DetectorSettings } from '../types/config'
+import type { DetectionConfig, DetectorSettings } from '../types/config'
 
 export interface DetectorStatus {
     is_running: boolean
-    source?: string | null
     model_path?: string | null
+    task?: string | null
     conf?: number | null
-    vid_stride?: number | null
     batch_size?: number | null
     verbose?: boolean | null
     cameras?: Array<{
@@ -22,11 +21,11 @@ export interface DetectorCommandResponse {
     message: string
 }
 
-export type DetectorConfigUpdatePayload = Partial<DetectorConfig>
+export type DetectionConfigUpdatePayload = Partial<DetectionConfig>
 
 export type DetectorSettingsUpdatePayload = {
     auto_start?: boolean
-    detector?: DetectorConfigUpdatePayload
+    detection?: DetectionConfigUpdatePayload
 }
 
 export function getDetectorConfig() {

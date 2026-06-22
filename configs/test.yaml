@@ -9,14 +9,14 @@ detection:
 # ─── Debug preview (chỉ dùng khi dev local) ──────────────────────────────────
 preview:
   enabled: true
-  scale: 0.55
+  window_width: 1280
+  window_height: 720
 
 # ─── Zone state machine ───────────────────────────────────────────────────────
 zone_state_machine:
-  check_mode: center           # center / bottom_center
   confirm_enter_time: 5.5      # giây, thời gian xác nhận vào zone
   confirm_exit_time: 5.0       # giây, thời gian xác nhận rời zone
-  pending_enter_miss_grace: 1.5
+  pending_enter_miss_grace_time: 1.5
 
 # ─── Re-identification ────────────────────────────────────────────────────────
 reid:
@@ -30,7 +30,7 @@ reid:
     batch_size: 32
 
   track:
-    buffer_min: 20
+    buffer_min: 50
     grace_period: 20
     update_interval: 120
     max_buffer_size: 100

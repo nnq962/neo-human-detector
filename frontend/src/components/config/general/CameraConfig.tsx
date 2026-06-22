@@ -22,10 +22,17 @@ type CameraActionState = {
     status: 'idle' | 'saving' | 'deleting'
 }
 
-type CameraRow = CameraConfigState & {
+type CameraRow = Omit<CameraConfigState, 'stream'> & {
     localId: string
     isNew: boolean
+    source: string
+    source_protocol: string
+    source_on_demand: boolean
 }
+
+type CameraRowPatch = Partial<
+    Pick<CameraRow, 'name' | 'source' | 'source_protocol' | 'source_on_demand' | 'enabled' | 'zones'>
+>
 
 type CameraConfigProps = {
     inputClass: string
@@ -47,12 +54,26 @@ function createEmptyCamera(): CameraRow {
 }
 
 function toCameraRow(camera: CameraConfigState): CameraRow {
+    const legacyCamera = camera as unknown as {
+        source?: string
+        source_protocol?: string
+        source_on_demand?: boolean
+    }
+    const stream = camera.stream || {
+        source: legacyCamera.source || '',
+        protocol: legacyCamera.source_protocol || 'tcp',
+        on_demand: legacyCamera.source_on_demand ?? true,
+    }
+
     return {
-        ...camera,
+        id: camera.id,
+        name: camera.name || '',
+        webrtc_address: camera.webrtc_address,
         localId: camera.id,
         isNew: false,
-        source_protocol: camera.source_protocol || 'tcp',
-        source_on_demand: camera.source_on_demand ?? true,
+        source: stream.source || '',
+        source_protocol: stream.protocol || 'tcp',
+        source_on_demand: stream.on_demand ?? true,
         enabled: camera.enabled ?? true,
         zones: camera.zones || [],
     }
@@ -61,9 +82,11 @@ function toCameraRow(camera: CameraConfigState): CameraRow {
 function toCameraPayload(camera: CameraRow): CameraPayload {
     return {
         name: camera.name.trim(),
-        source: camera.source.trim(),
-        source_protocol: camera.source_protocol || 'tcp',
-        source_on_demand: camera.source_on_demand ?? true,
+        stream: {
+            source: camera.source.trim(),
+            protocol: camera.source_protocol || 'tcp',
+            on_demand: camera.source_on_demand ?? true,
+        },
         enabled: camera.enabled ?? true,
         zones: camera.zones || [],
     }
@@ -110,7 +133,7 @@ function CameraConfig({
         loadCameraList()
     }, [])
 
-    const updateCameraRow = (localId: string, patch: Partial<CameraConfigState>) => {
+    const updateCameraRow = (localId: string, patch: CameraRowPatch) => {
         syncCameras(
             cameras.map((camera) =>
                 camera.localId === localId
@@ -181,7 +204,7 @@ function CameraConfig({
     const saveCamera = async (camera: CameraRow) => {
         const payload = toCameraPayload(camera)
 
-        if (!payload.name || !payload.source) {
+        if (!payload.name || !payload.stream.source) {
             toast.error('Name and source are required.')
             return
         }
@@ -354,7 +377,7 @@ function CameraFields({
     checkState?: CameraCheckState
     actionState?: CameraActionState
     isDeleteConfirmOpen: boolean
-    onChange: (localId: string, patch: Partial<CameraConfigState>) => void
+    onChange: (localId: string, patch: CameraRowPatch) => void
     onSave: (camera: CameraRow) => void
     onCheck: (camera: CameraRow) => void
     onCancel: (camera: CameraRow) => void

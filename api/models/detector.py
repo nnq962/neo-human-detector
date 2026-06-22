@@ -1,36 +1,40 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 
+
 class DetectorStatus(BaseModel):
     is_running: bool
-    source: Optional[str] = None
     model_path: Optional[str] = None
+    task: Optional[str] = None
     conf: Optional[float] = None
-    vid_stride: Optional[int] = None
+    batch_size: Optional[int] = None
     verbose: Optional[bool] = None
+    cameras: list[dict] = Field(default_factory=list)
 
 
-class DetectorConfig(BaseModel):
-    model_size: Literal["nano", "medium"] = "nano"
-    batch_size: Literal[1, 2, 4] = 1
+class DetectionConfig(BaseModel):
+    task: Literal["detect", "pose"] = "pose"
+    model_size: Literal["nano", "medium"] = "medium"
+    batch_size: Literal[1, 2] = 1
     conf: float = Field(0.5, ge=0.0, le=1.0)
-    vid_stride: int = Field(1, ge=1)
+    tracker: str = "bytetrack.yaml"
     verbose: bool = False
 
 
-class DetectorConfigUpdate(BaseModel):
+class DetectionConfigUpdate(BaseModel):
+    task: Optional[Literal["detect", "pose"]] = None
     model_size: Optional[Literal["nano", "medium"]] = None
-    batch_size: Optional[Literal[1, 2, 4]] = None
+    batch_size: Optional[Literal[1, 2]] = None
     conf: Optional[float] = Field(None, ge=0.0, le=1.0)
-    vid_stride: Optional[int] = Field(None, ge=1)
+    tracker: Optional[str] = None
     verbose: Optional[bool] = None
 
 
 class DetectorSettings(BaseModel):
     auto_start: bool = False
-    detector: DetectorConfig = Field(default_factory=DetectorConfig)
+    detection: DetectionConfig = Field(default_factory=DetectionConfig)
 
 
 class DetectorSettingsUpdate(BaseModel):
     auto_start: Optional[bool] = None
-    detector: Optional[DetectorConfigUpdate] = None
+    detection: Optional[DetectionConfigUpdate] = None

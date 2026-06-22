@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import camera, detector, mediamtx, uart, websocket, zones_state_machine
+from api.routes import camera, detector, mediamtx, uart, websocket, zone_state_machine
 
 
 def run_startup_tasks() -> None:
@@ -56,7 +56,7 @@ app.add_middleware(
 app.include_router(detector.router, prefix="/api/detector")
 app.include_router(mediamtx.router, prefix="/api/mediamtx")
 app.include_router(camera.router, prefix="/api/cameras")
-app.include_router(zones_state_machine.router, prefix="/api/zones-state-machine")
+app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine")
 app.include_router(uart.router, prefix="/api/uart")
 app.include_router(websocket.router)
 

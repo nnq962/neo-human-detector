@@ -30,8 +30,9 @@ def build_detection_config(raw: dict) -> DetectionConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 def build_preview_config(raw: dict, *, show: Optional[bool] = None) -> PreviewConfig:
     return PreviewConfig(
-        enabled = bool(raw.get("enabled", True)) if show is None else show,
-        scale   = float(raw.get("scale", 1.0)),
+        enabled       = bool(raw.get("enabled", True)) if show is None else show,
+        window_width  = int(raw.get("window_width", 1280)),
+        window_height = int(raw.get("window_height", 720)),
     )
 
 

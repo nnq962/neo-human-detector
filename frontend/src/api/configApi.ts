@@ -1,23 +1,23 @@
 import { listCameras } from './cameraApi'
 import { getDetectorConfig } from './detectorApi'
 import { getUartConfig } from './uartApi'
-import { getZonesStateMachineConfig } from './zonesStateMachineApi'
+import { getZoneStateMachineConfig } from './zoneStateMachineApi'
 import type { AppConfig } from '../types/config'
 
 export async function getConfig(): Promise<AppConfig> {
-    const [detectorSettings, uart, zonesStateMachine, cameras] = await Promise.all([
+    const [detectorSettings, uart, zoneStateMachine, cameras] = await Promise.all([
         getDetectorConfig(),
         getUartConfig(),
-        getZonesStateMachineConfig(),
+        getZoneStateMachineConfig(),
         listCameras(),
     ])
     const firstCamera = cameras[0]
 
     return {
         auto_start: detectorSettings.auto_start,
-        detector: {
-            ...detectorSettings.detector,
-            ...zonesStateMachine,
+        detection: {
+            ...detectorSettings.detection,
+            ...zoneStateMachine,
         },
         uart,
         cameras,

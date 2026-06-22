@@ -21,7 +21,6 @@ from src.visualization import (
     draw_detections,
     draw_status_bar,
     draw_zones,
-    resize_for_display,
 )
 from src.zones_management import ZoneState, ZoneStateMachine, assign_detections_to_zones
 from utils import LOGGER, load_config, LINE_CHAR
@@ -173,6 +172,13 @@ class Runtime:
         if self.config.reid.enabled:
             self.reid_pipeline = ReIdPipeline.from_config(self.config.reid)
 
+        if self.config.preview.enabled:
+            preview = self.config.preview
+            for cam in self.cameras:
+                win_name = unidecode(str(cam.name).strip())
+                cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(win_name, preview.window_width, preview.window_height)
+
         # ── log ───────────────────────────────────────────────────────────────
         LOGGER.info(" RUNTIME CONFIGURATION ".center(77, LINE_CHAR))
         LOGGER.info("CONFIG PATH: %s", self.config.config_path)
@@ -206,7 +212,7 @@ class Runtime:
         preview = self.config.preview
         LOGGER.info("PREVIEW")
         LOGGER.info("   → Show          : %s", preview.enabled)
-        LOGGER.info("   → Scale         : %.2f", preview.scale)
+        LOGGER.info("   → Window size   : %dx%d", preview.window_width, preview.window_height)
 
         LOGGER.info(LINE_CHAR * 77)
         LOGGER.info("Runtime started.")
@@ -232,9 +238,6 @@ class Runtime:
             fps=fps,
             detection_count=detection_frame.count,
         )
-
-        if self.config.preview.scale != 1.0:
-            canvas = resize_for_display(canvas, self.config.preview.scale)
 
         cv2.imshow(unidecode(str(camera.name).strip()), canvas)
         if cv2.waitKey(1) & 0xFF == ord("q"):

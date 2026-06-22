@@ -10,16 +10,27 @@ class GoalPose(BaseModel):
 
 
 class Zone(BaseModel):
+    id: Optional[str] = None
     name: str
     goal_pose: Optional[GoalPose] = None
     points: List[List[int]] = Field(default_factory=list)
 
 
+class StreamConfig(BaseModel):
+    source: str
+    protocol: str = "tcp"
+    on_demand: bool = True
+
+
+class StreamConfigUpdate(BaseModel):
+    source: Optional[str] = None
+    protocol: Optional[str] = None
+    on_demand: Optional[bool] = None
+
+
 class CameraBase(BaseModel):
     name: str
-    source: str
-    source_protocol: str = "tcp"
-    source_on_demand: bool = True
+    stream: StreamConfig
     enabled: bool = True
     zones: List[Zone] = Field(default_factory=list)
 
@@ -30,9 +41,7 @@ class CameraCreate(CameraBase):
 
 class CameraUpdate(BaseModel):
     name: Optional[str] = None
-    source: Optional[str] = None
-    source_protocol: Optional[str] = None
-    source_on_demand: Optional[bool] = None
+    stream: Optional[StreamConfigUpdate] = None
     enabled: Optional[bool] = None
     zones: Optional[List[Zone]] = None
 

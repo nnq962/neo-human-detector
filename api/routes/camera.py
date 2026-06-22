@@ -24,6 +24,9 @@ def _with_request_webrtc_address(camera: dict, request: Request) -> dict:
 
 
 def _handle_camera_error(error: Exception) -> HTTPException:
+    if isinstance(error, HTTPException):
+        return error
+
     if isinstance(error, FileNotFoundError):
         return HTTPException(status_code=404, detail=str(error))
 

@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react'
 import {
-    getZonesStateMachineConfig,
-    updateZonesStateMachineConfig,
-} from '../../../api/zonesStateMachineApi'
+    getZoneStateMachineConfig,
+    updateZoneStateMachineConfig,
+} from '../../../api/zoneStateMachineApi'
 import { useToast } from '../../../hooks/useToast'
-import type { ZonesStateMachineConfig as ZonesStateMachineConfigValue } from '../../../types/config'
-import { CustomSelect, NumberStepper } from './ConfigControls'
-import { zoneCheckModeOptions } from './options'
+import type { ZoneStateMachineConfig as ZoneStateMachineConfigValue } from '../../../types/config'
+import { NumberStepper } from './ConfigControls'
 import { SectionShell } from './SectionShell'
 
-const defaultZonesStateMachineConfig: ZonesStateMachineConfigValue = {
-    zone_check_mode: 'center',
+const defaultZoneStateMachineConfig: ZoneStateMachineConfigValue = {
     confirm_enter_time: 5.0,
     confirm_exit_time: 5.0,
     pending_enter_miss_grace_time: 1.5,
 }
 
-function ZonesStateMachineConfig() {
+function ZoneStateMachineConfig() {
     const toast = useToast()
-    const [config, setConfig] = useState<ZonesStateMachineConfigValue>(defaultZonesStateMachineConfig)
-    const [initialConfig, setInitialConfig] = useState<ZonesStateMachineConfigValue>(defaultZonesStateMachineConfig)
+    const [config, setConfig] = useState<ZoneStateMachineConfigValue>(defaultZoneStateMachineConfig)
+    const [initialConfig, setInitialConfig] = useState<ZoneStateMachineConfigValue>(defaultZoneStateMachineConfig)
     const [isLoading, setIsLoading] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [loadError, setLoadError] = useState('')
@@ -32,7 +30,7 @@ function ZonesStateMachineConfig() {
             setLoadError('')
 
             try {
-                const apiConfig = await getZonesStateMachineConfig()
+                const apiConfig = await getZoneStateMachineConfig()
 
                 if (!ignore) {
                     setConfig(apiConfig)
@@ -61,7 +59,7 @@ function ZonesStateMachineConfig() {
         }
     }, [toast])
 
-    const updateConfig = (patch: Partial<ZonesStateMachineConfigValue>) => {
+    const updateConfig = (patch: Partial<ZoneStateMachineConfigValue>) => {
         setConfig((current) => ({
             ...current,
             ...patch,
@@ -72,7 +70,7 @@ function ZonesStateMachineConfig() {
         setIsSaving(true)
 
         try {
-            const savedConfig = await updateZonesStateMachineConfig(config)
+            const savedConfig = await updateZoneStateMachineConfig(config)
 
             setConfig(savedConfig)
             setInitialConfig(savedConfig)
@@ -94,7 +92,7 @@ function ZonesStateMachineConfig() {
     }
 
     return (
-        <SectionShell title="Zones State Machine" className="grid gap-4 md:grid-cols-2">
+        <SectionShell title="Zone State Machine" className="grid gap-4 md:grid-cols-2">
             <div className="flex w-full gap-3 md:col-span-2 sm:w-auto">
                 <button
                     type="button"
@@ -119,13 +117,6 @@ function ZonesStateMachineConfig() {
                     {isLoading ? 'Loading zones state machine config...' : loadError}
                 </p>
             ) : null}
-
-            <CustomSelect
-                label="Zone Check Mode"
-                value={config.zone_check_mode}
-                options={zoneCheckModeOptions}
-                onChange={(value) => updateConfig({ zone_check_mode: value })}
-            />
 
             <NumberStepper
                 label="Confirm Enter Time"
@@ -157,4 +148,4 @@ function ZonesStateMachineConfig() {
     )
 }
 
-export default ZonesStateMachineConfig
+export default ZoneStateMachineConfig

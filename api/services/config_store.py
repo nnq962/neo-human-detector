@@ -1,12 +1,18 @@
 import copy
+from contextlib import contextmanager
+import fcntl
 import os
+import tempfile
+import threading
+from typing import Callable, TypeVar
 
 import cv2
 import yaml
 from utils import load_config
 
 CONFIG_PATH = "configs/default.yaml"
-TEST_CONFIG_PATH = "configs/test.yaml"
+_CONFIG_LOCK = threading.RLock()
+_T = TypeVar("_T")
 
 
 class FlowList(list):
@@ -20,14 +26,29 @@ def flow_list_rep(dumper, data):
 yaml.add_representer(FlowList, flow_list_rep)
 
 
-def get_config_data() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError("Configuration file not found.")
-
-    return load_config(CONFIG_PATH)
+def _config_dir() -> str:
+    return os.path.dirname(CONFIG_PATH) or "."
 
 
-def save_config_data(config_dict: dict) -> None:
+def _lock_path() -> str:
+    return f"{CONFIG_PATH}.lock"
+
+
+@contextmanager
+def _locked_config_file(*, exclusive: bool):
+    os.makedirs(_config_dir(), exist_ok=True)
+
+    with _CONFIG_LOCK:
+        with open(_lock_path(), "a", encoding="utf-8") as lock_file:
+            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(lock_file.fileno(), lock_type)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _prepare_config_for_yaml(config_dict: dict) -> dict:
     config_dict = copy.deepcopy(config_dict)
     config_dict.pop("source", None)
 
@@ -44,32 +65,62 @@ def save_config_data(config_dict: dict) -> None:
                     if "points" in zone:
                         zone["points"] = [FlowList(point) for point in zone["points"]]
 
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return config_dict
+
+
+def _read_config_data_unlocked() -> dict:
+    if not os.path.exists(CONFIG_PATH):
+        raise FileNotFoundError("Configuration file not found.")
+
+    return load_config(CONFIG_PATH)
+
+
+def _fsync_config_dir() -> None:
+    try:
+        dir_fd = os.open(_config_dir(), os.O_DIRECTORY)
+    except OSError:
+        return
 
     try:
-        test_config = {}
-        if os.path.exists(TEST_CONFIG_PATH):
-            with open(TEST_CONFIG_PATH, "r", encoding="utf-8") as f:
-                test_config = yaml.safe_load(f) or {}
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
-        new_test_config = copy.deepcopy(config_dict)
 
-        # Khôi phục các tham số đặc biệt cho test.yaml.
-        if "detector" in test_config:
-            if "show" in test_config["detector"]:
-                new_test_config.setdefault("detector", {})["show"] = test_config["detector"]["show"]
-            if "show_scale" in test_config["detector"]:
-                new_test_config.setdefault("detector", {})["show_scale"] = test_config["detector"]["show_scale"]
+def _write_config_data_unlocked(config_dict: dict) -> None:
+    config_dict = _prepare_config_for_yaml(config_dict)
+    directory = _config_dir()
+    basename = os.path.basename(CONFIG_PATH)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{basename}.",
+        suffix=".tmp",
+        dir=directory,
+        text=True,
+    )
 
-        # Xóa auto_start trong test.yaml.
-        new_test_config.pop("auto_start", None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.dump(
+                config_dict,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+            f.flush()
+            os.fsync(f.fileno())
 
-        with open(TEST_CONFIG_PATH, "w", encoding="utf-8") as f:
-            yaml.dump(new_test_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        os.replace(tmp_path, CONFIG_PATH)
+        _fsync_config_dir()
     except Exception:
-        pass
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
 
+
+def _notify_config_saved(config_dict: dict) -> None:
     # Bắn tín hiệu hot-reload cho các tham số an toàn, không cập nhật nóng camera/zones.
     try:
         from api.services import detector as detector_service
@@ -81,10 +132,35 @@ def save_config_data(config_dict: dict) -> None:
         logging.warning(f"Could not trigger hot-reload: {e}")
 
 
+def get_config_data() -> dict:
+    with _locked_config_file(exclusive=False):
+        return _read_config_data_unlocked()
+
+
+def save_config_data(config_dict: dict) -> None:
+    config_dict = copy.deepcopy(config_dict)
+
+    with _locked_config_file(exclusive=True):
+        _write_config_data_unlocked(config_dict)
+
+    _notify_config_saved(config_dict)
+
+
+def update_config_data(mutator: Callable[[dict], _T]) -> _T:
+    with _locked_config_file(exclusive=True):
+        config = _read_config_data_unlocked()
+        result = mutator(config)
+        _write_config_data_unlocked(config)
+
+    _notify_config_saved(config)
+    return result
+
+
 def get_snapshot_image() -> bytes:
     config = get_config_data()
     cameras = config.get("cameras") or []
-    rtsp_url = cameras[0].get("source") if cameras else None
+    stream = cameras[0].get("stream") if cameras else None
+    rtsp_url = stream.get("source") if isinstance(stream, dict) else None
 
     if not rtsp_url:
         raise ValueError("Không tìm thấy RTSP URL trong config.")
