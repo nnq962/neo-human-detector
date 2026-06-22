@@ -23,6 +23,9 @@ from src.visualization.utils import (
 from src.visualization.colors import bbox_color, id_color
 
 
+_CENTER_DOT_COLOR = (0, 0, 255)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 def draw_person_bbox(
     frame: np.ndarray,
@@ -142,7 +145,7 @@ def _draw_bbox_center(frame: np.ndarray, bbox: tuple) -> None:
     r = scale_int(5, scale)
     b = scale_int(2, scale)
     cv2.circle(frame, (cx, cy), r + b, (30, 30, 30), -1, cv2.LINE_AA)
-    cv2.circle(frame, (cx, cy), r, (255, 255, 255), -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), r, _CENTER_DOT_COLOR, -1, cv2.LINE_AA)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

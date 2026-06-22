@@ -1,9 +1,9 @@
 # ─── Detection model ──────────────────────────────────────────────────────────
 detection:
   task: pose             # detect / pose
-  model_size: nano       # nano / small / medium / large / xlarge
+  model_size: medium       # nano / small / medium / large / xlarge
   batch_size: 2
-  conf: 0.55
+  conf: 0.4
   verbose: false
 
 # ─── Debug preview (chỉ dùng khi dev local) ──────────────────────────────────
@@ -63,7 +63,7 @@ cameras:
     name: Sảnh A
     enabled: true
     stream:
-      source: rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101
+      source: rtsp://admin:061223%40bC@192.168.0.10:554/Streaming/Channels/101
       protocol: tcp
       on_demand: true
     zones:
@@ -88,7 +88,7 @@ cameras:
     name: Phòng họp
     enabled: true
     stream:
-      source: rtsp://admin:0612232026camera@192.168.2.50:554/Streaming/Channels/101
+      source: rtsp://admin:061223%40bC@192.168.0.15:554/Streaming/Channels/101
       protocol: tcp
       on_demand: true
     zones: []

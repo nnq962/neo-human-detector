@@ -156,7 +156,6 @@ class Runtime:
                 batch_size = det.batch_size,
                 conf       = det.conf,
                 tracker    = det.tracker,
-                persist    = det.persist,
             )
         )
 

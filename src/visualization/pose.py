@@ -75,6 +75,7 @@ _SIDE_COLOR = {
 
 # Indices 0–4: nose, left_eye, right_eye, left_ear, right_ear
 _HEAD_KP_INDICES: frozenset[int] = frozenset({0, 1, 2, 3, 4})
+_CENTER_DOT_COLOR = (0, 0, 255)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,9 +213,10 @@ def _draw_kp_dot(
     y        : int,
     radius   : int,
     border   : int,
+    color    : tuple[int, int, int] = POSE_KP_COLOR,
 ) -> None:
     cv2.circle(frame, (x, y), radius + border, POSE_KP_BORDER, -1, cv2.LINE_AA)
-    cv2.circle(frame, (x, y), radius,          POSE_KP_COLOR,  -1, cv2.LINE_AA)
+    cv2.circle(frame, (x, y), radius,          color,          -1, cv2.LINE_AA)
 
 
 def _draw_hip_center(
@@ -230,4 +232,4 @@ def _draw_hip_center(
         return
     cx = int((kps[11, 0] + kps[12, 0]) / 2)
     cy = int((kps[11, 1] + kps[12, 1]) / 2)
-    _draw_kp_dot(frame, cx, cy, kp_radius, kp_border)
+    _draw_kp_dot(frame, cx, cy, kp_radius, kp_border, color=_CENTER_DOT_COLOR)

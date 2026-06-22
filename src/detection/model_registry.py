@@ -16,8 +16,10 @@ ModelKey  = Tuple[str, str, int]   # (model_size, task, batch_size)
 MODEL_PATHS: Dict[ModelKey, str] = {
     ("nano", "detect", 1): "weights/person/yolo26n.pt",
     ("nano", "detect", 2): "weights/person/yolo26n.pt",
-    ("nano", "pose",   1): "weights/person/yolo26m-pose.pt",
-    ("nano", "pose",   2): "weights/person/yolo26m-pose.pt",
+    ("medium", "detect", 1): "weights/person/yolo26m.pt",
+    ("medium", "detect", 2): "weights/person/yolo26m.pt",
+    ("medium", "pose",   1): "weights/person/yolo26m-pose.pt",
+    ("medium", "pose",   2): "weights/person/yolo26m-pose.pt",
 }
 
 

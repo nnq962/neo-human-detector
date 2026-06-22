@@ -19,7 +19,6 @@ class DetectionConfig:
     batch_size : int   = 1
     conf       : float = 0.5
     tracker    : str   = "bytetrack.yaml"
-    persist    : bool  = True
     verbose    : bool  = True
 
 

@@ -1,17 +1,24 @@
 
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from src.detection.datatypes import Detection
 import numpy as np
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def parse_yolo_result(result: Any) -> List[Detection]:
+def parse_yolo_result(
+    result: Any,
+    track_id_by_index: Optional[Dict[int, int]] = None,
+) -> List[Detection]:
     """
     Parse một YOLO result thành danh sách Detection.
 
     Hoạt động với cả detect model (result.boxes) và pose model
     (result.boxes + result.keypoints). Phòng thủ: NaN/inf bị loại,
     bbox rỗng trả list rỗng.
+
+    `track_id_by_index` (nếu có) là mapping {index detection gốc → track_id} do
+    tracker bên ngoài cung cấp. Detection nào không có trong mapping vẫn được giữ
+    với track_id=None — tracker không được làm mất detection.
     """
     boxes = getattr(result, "boxes", None)
     if boxes is None or len(boxes) == 0:
@@ -29,6 +36,9 @@ def parse_yolo_result(result: Any) -> List[Detection]:
     ):
         if not _is_valid_detection(bbox, conf):
             continue
+
+        if track_id_by_index is not None:
+            track_id = track_id_by_index.get(i)
 
         x1, y1, x2, y2 = bbox[:4]
         detections.append(
