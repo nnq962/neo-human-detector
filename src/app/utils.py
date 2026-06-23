@@ -64,6 +64,7 @@ def build_reid_config(raw: dict) -> ReIdConfig:
         update_interval           = int(track.get("update_interval", 120)),
         max_buffer_size           = int(track.get("max_buffer_size", 250)),
         gallery_cleanup_interval  = int(track.get("gallery_cleanup_interval", 1800)),
+        max_reverify_misses       = int(track.get("max_reverify_misses", 3)),
         overlap_iou_threshold     = float(quality.get("overlap_iou_threshold", 0.25)),
         overlap_ioa_threshold     = float(quality.get("overlap_ioa_threshold", 0.45)),
         stable_bbox_window        = int(quality.get("stable_bbox_window", 100)),

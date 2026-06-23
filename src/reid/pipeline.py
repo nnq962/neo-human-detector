@@ -88,13 +88,19 @@ class ReIdPipeline:
             allowed_zone_names=allowed_zone_names,
         )
 
-        assignments = self.update(frame=frame, candidates=candidates, frame_idx=frame_idx)
+        assignments = self.update(
+            camera_id=camera_id,
+            frame=frame,
+            candidates=candidates,
+            frame_idx=frame_idx,
+        )
         return self.enrich_detection_frame(detection_frame, assignments)
 
     # ── lower-level API ───────────────────────────────────────────────────────
     def update(
         self,
         *,
+        camera_id: str,
         frame: np.ndarray | None,
         candidates: list[ReIdCandidate],
         frame_idx: int,
@@ -105,10 +111,10 @@ class ReIdPipeline:
         Nếu không có frame hoặc candidate rỗng thì chỉ tick cleanup nhẹ.
         """
         if frame is None or not candidates:
-            self.manager.tick(frame_idx)
+            self.manager.tick(camera_id, frame_idx)
             return []
 
-        assignments_by_key = self.manager.update(frame, candidates, frame_idx)
+        assignments_by_key = self.manager.update(camera_id, frame, candidates, frame_idx)
         return [
             assignments_by_key[candidate.key]
             for candidate in candidates

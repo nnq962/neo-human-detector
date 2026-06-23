@@ -54,6 +54,7 @@ class ReIdTrackManager:
 
     def update(
         self,
+        camera_id: str,
         frame: np.ndarray,
         candidates: list[ReIdCandidate],
         frame_idx: int,
@@ -73,18 +74,18 @@ class ReIdTrackManager:
                 frame, candidate, frame_idx, current_bboxes,
             )
 
-        self.cleanup_dead_tracks(alive_keys, frame_idx)
+        self.cleanup_dead_tracks(camera_id, alive_keys, frame_idx)
         self.cleanup_gallery_if_needed(frame_idx)
 
         return assignments
 
-    def tick(self, frame_idx: int) -> None:
+    def tick(self, camera_id: str, frame_idx: int) -> None:
         """
         Tick nhẹ khi frame không có candidate.
 
         Không extract embedding; chỉ cleanup track/gallery theo thời gian.
         """
-        self.cleanup_dead_tracks(set(), frame_idx)
+        self.cleanup_dead_tracks(camera_id, set(), frame_idx)
         self.cleanup_gallery_if_needed(frame_idx)
 
     def get_track_state(self, key: ReIdTrackKey) -> ReIdTrackState | None:
@@ -150,6 +151,7 @@ class ReIdTrackManager:
         track.similarity = None if result.status == ReIdTrackStatus.NEW else result.similarity
         track.status = ReIdTrackStatus.MATCHED
         track.matched_at = frame_idx
+        track.reverify_miss_count = 0
         self._total_confirmed += 1
 
         LOGGER.info(
@@ -187,10 +189,28 @@ class ReIdTrackManager:
 
         # Update EMA profile trong gallery nếu embedding mới vẫn khớp tốt với profile cũ.
         if similarity >= self.config.sim_threshold_match:
+            track.reverify_miss_count = 0
             self._maybe_refresh_gallery(track, embedding, frame_idx)
             return
 
-        self._detach_identity(track, similarity, "reverify mismatch")
+        track.reverify_miss_count += 1
+        if track.reverify_miss_count < self.config.max_reverify_misses:
+            LOGGER.debug(
+                "ReID reverify miss track=%s/%s global_id=%s similarity=%s miss=%d/%d",
+                track.key.camera_id,
+                track.key.track_id,
+                track.global_id,
+                fmt_sim(similarity),
+                track.reverify_miss_count,
+                self.config.max_reverify_misses,
+            )
+            return
+
+        self._detach_identity(
+            track,
+            similarity,
+            f"reverify mismatch {track.reverify_miss_count}/{self.config.max_reverify_misses}",
+        )
 
     def _detach_identity(
         self,
@@ -206,6 +226,7 @@ class ReIdTrackManager:
         track.matched_at = 0
         track.embedding_buffer.clear()
         track.good_frame_count = 0
+        track.reverify_miss_count = 0
 
         LOGGER.warning(
             "ReID detached track=%s/%s from global_id=%s, similarity=%s, reason=%s",
@@ -234,12 +255,19 @@ class ReIdTrackManager:
             return
         self.gallery.update_profile(track.global_id, embedding, frame_idx)
 
-    def cleanup_dead_tracks(self, alive_keys: set[ReIdTrackKey], frame_idx: int) -> None:
-        """Xóa các track tạm không còn xuất hiện trong candidate sau `grace_period` frame."""
+    def cleanup_dead_tracks(
+        self,
+        camera_id: str,
+        alive_keys: set[ReIdTrackKey],
+        frame_idx: int,
+    ) -> None:
+        """Xóa track tạm của đúng camera hiện tại sau `grace_period` frame."""
         dead_keys = [
             key
             for key, track in self.active_tracks.items()
-            if key not in alive_keys and frame_idx - track.last_seen > self.config.grace_period
+            if key.camera_id == camera_id
+            and key not in alive_keys
+            and frame_idx - track.last_seen > self.config.grace_period
         ]
         for key in dead_keys:
             LOGGER.debug(

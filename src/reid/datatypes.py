@@ -39,6 +39,7 @@ class ReIdConfig:
     update_interval         : int = 120   # Chu kỳ refresh embedding đại diện sau khi đã confirm.
     max_buffer_size         : int = 250   # Số embedding tối đa giữ trong buffer của mỗi track.
     gallery_cleanup_interval: int = 1800  # Chu kỳ frame để dọn global_id quá lâu không gặp.
+    max_reverify_misses     : int = 3     # Số lần reverify fail liên tiếp trước khi detach.
 
     # Bbox quality: quyết định frame nào đủ sạch để extract ReID embedding.
     overlap_iou_threshold     : float = 0.25  # Bỏ crop nếu IoU với người khác quá cao.
@@ -130,6 +131,7 @@ class ReIdTrackState:
     confidence      : float = 0.0
     bbox            : Optional[BBoxXYXY] = None
     matched_at      : int = 0
+    reverify_miss_count: int = 0
 
     def add_embedding(
         self,
