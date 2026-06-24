@@ -1,8 +1,8 @@
-from typing import List
+from fastapi import APIRouter, Request, status
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
-
-from api.models.camera import Camera, CameraCreate, CameraUpdate
+from api.models.camera import CameraCreate, CameraUpdate
+from api.models.response import ApiResponse
+from api.routes.responses import error_from_exception, ok
 from api.services import mediamtx as mediamtx_service
 from api.services import camera as camera_service
 
@@ -23,74 +23,63 @@ def _with_request_webrtc_address(camera: dict, request: Request) -> dict:
     )
 
 
-def _handle_camera_error(error: Exception) -> HTTPException:
-    if isinstance(error, HTTPException):
-        return error
-
-    if isinstance(error, FileNotFoundError):
-        return HTTPException(status_code=404, detail=str(error))
-
-    if isinstance(error, KeyError):
-        return HTTPException(status_code=404, detail=str(error))
-
-    if isinstance(error, ValueError):
-        return HTTPException(status_code=409, detail=str(error))
-
-    return HTTPException(status_code=500, detail=str(error))
-
-
-@router.get("", response_model=List[Camera])
+@router.get("", response_model=ApiResponse)
 def list_cameras(request: Request):
     try:
         cameras = camera_service.list_cameras()
+        data = [_with_request_webrtc_address(camera, request) for camera in cameras]
 
-        return [_with_request_webrtc_address(camera, request) for camera in cameras]
+        return ok("Cameras loaded successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
-@router.get("/{camera_id}", response_model=Camera)
+@router.get("/{camera_id}", response_model=ApiResponse)
 def get_camera(camera_id: str, request: Request):
     try:
-        return _with_request_webrtc_address(camera_service.get_camera(camera_id), request)
+        data = _with_request_webrtc_address(camera_service.get_camera(camera_id), request)
+        return ok("Camera loaded successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
-@router.post("", response_model=Camera, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
 def create_camera(camera: CameraCreate, request: Request):
     try:
-        return _with_request_webrtc_address(camera_service.create_camera(camera), request)
+        data = _with_request_webrtc_address(camera_service.create_camera(camera), request)
+        return ok("Camera created successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
-@router.put("/{camera_id}", response_model=Camera)
+@router.put("/{camera_id}", response_model=ApiResponse)
 def replace_camera(camera_id: str, camera: CameraCreate, request: Request):
     try:
-        return _with_request_webrtc_address(
+        data = _with_request_webrtc_address(
             camera_service.replace_camera(camera_id, camera),
             request,
         )
+        return ok("Camera replaced successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
-@router.patch("/{camera_id}", response_model=Camera)
+@router.patch("/{camera_id}", response_model=ApiResponse)
 def update_camera(camera_id: str, camera: CameraUpdate, request: Request):
     try:
-        return _with_request_webrtc_address(
+        data = _with_request_webrtc_address(
             camera_service.update_camera(camera_id, camera),
             request,
         )
+        return ok("Camera updated successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
-@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{camera_id}", response_model=ApiResponse)
 def delete_camera(camera_id: str):
     try:
-        camera_service.delete_camera(camera_id)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        data = camera_service.delete_camera(camera_id)
+        return ok("Camera deleted successfully.", data)
     except Exception as error:
-        raise _handle_camera_error(error)
+        return error_from_exception(error, conflict_on_value_error=True)

@@ -121,15 +121,7 @@ def _write_config_data_unlocked(config_dict: dict) -> None:
 
 
 def _notify_config_saved(config_dict: dict) -> None:
-    # Bắn tín hiệu hot-reload cho các tham số an toàn, không cập nhật nóng camera/zones.
-    try:
-        from api.services import detector as detector_service
-
-        detector_service.update_dynamic_params(config_dict)
-    except Exception as e:
-        import logging
-
-        logging.warning(f"Could not trigger hot-reload: {e}")
+    return None
 
 
 def get_config_data() -> dict:

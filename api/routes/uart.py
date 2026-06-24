@@ -1,38 +1,34 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from api.models.response import ApiResponse
 from api.models.uart import UartConfig, UartConfigUpdate
+from api.routes.responses import error_from_exception, ok
 from api.services import uart as uart_service
 
 
 router = APIRouter()
 
 
-@router.get("", response_model=UartConfig)
+@router.get("", response_model=ApiResponse)
 def get_uart_config():
     try:
-        return uart_service.get_uart_config()
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return ok("UART config loaded successfully.", uart_service.get_uart_config())
+    except Exception as error:
+        return error_from_exception(error)
 
 
-@router.patch("", response_model=UartConfig)
+@router.patch("", response_model=ApiResponse)
 def update_uart_config(update: UartConfigUpdate):
     try:
-        return uart_service.update_uart_config(update)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return ok("UART config updated successfully.", uart_service.update_uart_config(update))
+    except Exception as error:
+        return error_from_exception(error)
 
 
-@router.put("", response_model=UartConfig)
+@router.put("", response_model=ApiResponse)
 def replace_uart_config(config: UartConfig):
     try:
-        return uart_service.update_uart_config(UartConfigUpdate(**config.model_dump()))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        data = uart_service.update_uart_config(UartConfigUpdate(**config.model_dump()))
+        return ok("UART config replaced successfully.", data)
+    except Exception as error:
+        return error_from_exception(error)

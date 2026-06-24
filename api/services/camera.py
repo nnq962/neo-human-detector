@@ -145,11 +145,11 @@ def create_camera(camera: CameraCreate) -> dict:
         _ensure_unique_camera_id(cameras, next_camera["id"])
         _ensure_zone_ids(next_camera, cameras)
 
-        mediamtx_service.upsert_camera_path(next_camera)
         cameras.append(next_camera)
         return next_camera
 
     created_camera = config_store.update_config_data(mutate)
+    mediamtx_service.upsert_camera_path(created_camera)
     return _with_runtime_fields(created_camera)
 
 
@@ -166,13 +166,19 @@ def replace_camera(camera_id: str, camera: CameraCreate) -> dict:
         _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
         _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
-        if _stream_config_changed(current_camera, next_camera):
-            mediamtx_service.upsert_camera_path(next_camera)
+        sync_required = _stream_config_changed(current_camera, next_camera)
 
         cameras[index] = next_camera
-        return next_camera
+        return {
+            "camera": next_camera,
+            "sync_required": sync_required,
+        }
 
-    replaced_camera = config_store.update_config_data(mutate)
+    result = config_store.update_config_data(mutate)
+    replaced_camera = result["camera"]
+    if result["sync_required"]:
+        mediamtx_service.upsert_camera_path(replaced_camera)
+
     return _with_runtime_fields(replaced_camera)
 
 
@@ -196,13 +202,19 @@ def update_camera(camera_id: str, patch: CameraUpdate) -> dict:
         _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
         _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
-        if _stream_config_changed(current_camera, next_camera):
-            mediamtx_service.upsert_camera_path(next_camera)
+        sync_required = _stream_config_changed(current_camera, next_camera)
 
         cameras[index] = next_camera
-        return next_camera
+        return {
+            "camera": next_camera,
+            "sync_required": sync_required,
+        }
 
-    updated_camera = config_store.update_config_data(mutate)
+    result = config_store.update_config_data(mutate)
+    updated_camera = result["camera"]
+    if result["sync_required"]:
+        mediamtx_service.upsert_camera_path(updated_camera)
+
     return _with_runtime_fields(updated_camera)
 
 
@@ -211,9 +223,8 @@ def delete_camera(camera_id: str) -> dict:
         cameras = _get_cameras(config)
         index = _find_camera_index(cameras, camera_id)
         camera = cameras.pop(index)
-
-        mediamtx_service.delete_camera_path(camera_id, ignore_missing=True)
         return camera
 
     deleted_camera = config_store.update_config_data(mutate)
+    mediamtx_service.delete_camera_path(camera_id, ignore_missing=True)
     return _with_runtime_fields(deleted_camera)

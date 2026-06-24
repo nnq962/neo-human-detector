@@ -1,10 +1,13 @@
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from api.services.detector import get_latest_ws_payload
 from uart.uart_manager import uart_manager
 from utils import LOGGER
 
 router = APIRouter()
+
+
+def get_latest_bbox_payload():
+    return None
 
 # ────────────────────────────────────────────────────────────────
 # Gửi dữ liệu lên web priview
@@ -15,7 +18,7 @@ async def websocket_endpoint(websocket: WebSocket):
     last_camera_timestamps = {}
     try:
         while True:
-            payload = get_latest_ws_payload()
+            payload = get_latest_bbox_payload()
             cameras = payload.get("cameras", {}) if payload else {}
             camera_timestamps = {
                 camera_id: camera_payload.get("timestamp")

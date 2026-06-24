@@ -1,13 +1,32 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import camera, detector, mediamtx, uart, websocket, zone_state_machine
+from api.routes import camera, detection, mediamtx, reid, uart, websocket, zone_state_machine
+from api.routes.responses import error_response
+
+
+STANDARD_RESPONSE_PREFIXES = (
+    "/api/cameras",
+    "/api/detection",
+    "/api/mediamtx",
+    "/api/reid",
+    "/api/uart",
+    "/api/zone-state-machine",
+)
+
+
+def _uses_standard_api_response(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(f"{prefix}/")
+        for prefix in STANDARD_RESPONSE_PREFIXES
+    )
 
 
 def run_startup_tasks() -> None:
     from api.services.config_store import get_config_data
-    from api.services.detector import start
     from api.services.load_cameras import sync_camera_paths, wait_for_mediamtx
     from utils import LOGGER
 
@@ -27,13 +46,6 @@ def run_startup_tasks() -> None:
     except Exception as e:
         LOGGER.error(f"Failed to sync MediaMTX camera paths: {e}")
 
-    try:
-        if cfg.get("auto_start", False):
-            LOGGER.info("auto_start is TRUE. Starting detector automatically...")
-            start()
-    except Exception as e:
-        LOGGER.error(f"Failed to auto-start detector: {e}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,7 +53,37 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+OPENAPI_TAGS = [
+    {"name": "Detection", "description": "Detection model configuration."},
+    {"name": "MediaMTX", "description": "MediaMTX integration utilities."},
+    {"name": "Cameras", "description": "Camera and zone configuration."},
+    {"name": "Zone State Machine", "description": "Zone state timing configuration."},
+    {"name": "ReID", "description": "Re-identification configuration."},
+    {"name": "UART", "description": "UART serial configuration."},
+]
+
+
+app = FastAPI(lifespan=lifespan, openapi_tags=OPENAPI_TAGS)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if _uses_standard_api_response(request.url.path):
+        return error_response(exc.status_code, str(exc.detail))
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if _uses_standard_api_response(request.url.path):
+        return error_response(422, "Validation error.", exc.errors())
+
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 # Cấu hình CORS
 app.add_middleware(
@@ -53,11 +95,16 @@ app.add_middleware(
 )
 
 # ────────────────────────────────────────────────────────────────
-app.include_router(detector.router, prefix="/api/detector")
-app.include_router(mediamtx.router, prefix="/api/mediamtx")
-app.include_router(camera.router, prefix="/api/cameras")
-app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine")
-app.include_router(uart.router, prefix="/api/uart")
+app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
+app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
+app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
+app.include_router(
+    zone_state_machine.router,
+    prefix="/api/zone-state-machine",
+    tags=["Zone State Machine"],
+)
+app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])
+app.include_router(uart.router, prefix="/api/uart", tags=["UART"])
 app.include_router(websocket.router)
 
 # ────────────────────────────────────────────────────────────────
