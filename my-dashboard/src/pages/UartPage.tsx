@@ -28,6 +28,18 @@ const COMMON_BAUDRATES = [
   115200, 230400, 460800, 921600,
 ]
 
+const MOCK_LINES: (() => string)[] = [
+  () => `MOVE:${rnd(-1,1).toFixed(3)},0.000,${rnd(-0.3,0.3).toFixed(3)}`,
+  () => `STATUS:OK|BATTERY:${Math.floor(rnd(60,95))}%`,
+  () => `POSE:${rnd(0,10).toFixed(3)},${rnd(0,10).toFixed(3)},${rnd(0,6.28).toFixed(3)}`,
+  () => `DETECT:${Math.floor(rnd(0,4))}|CONF:${rnd(0.70,0.99).toFixed(2)}`,
+  () => `PING`,
+  () => `GOTO:${rnd(0,10).toFixed(2)},${rnd(0,10).toFixed(2)},0.000`,
+  () => `TRACK:ID=${Math.floor(rnd(0,8))}|DIST:${rnd(0.5,5).toFixed(2)}m`,
+  () => `REID:MATCH|ID=${Math.floor(rnd(0,20))}|SIM:${rnd(0.75,0.99).toFixed(3)}`,
+]
+function rnd(min: number, max: number) { return Math.random() * (max - min) + min }
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type WsStatus = "disconnected" | "connecting" | "connected" | "error"
@@ -219,38 +231,32 @@ function UartMonitorCard() {
   const [status, setStatus]   = useState<WsStatus>("disconnected")
   const [log, setLog]         = useState<LogEntry[]>([])
   const wsRef                 = useRef<WebSocket | null>(null)
-  const logEndRef             = useRef<HTMLDivElement>(null)
+  const mockRef               = useRef<ReturnType<typeof setInterval> | null>(null)
+  const terminalRef           = useRef<HTMLDivElement>(null)
   const counterRef            = useRef(0)
 
+  function pushLine(raw: string) {
+    const ts = new Date().toLocaleTimeString("vi-VN", { hour12: false })
+    setLog((prev) => {
+      const next = [...prev, { id: ++counterRef.current, ts, raw }]
+      return next.length > MAX_LOG ? next.slice(next.length - MAX_LOG) : next
+    })
+  }
+
   function connect() {
-    if (wsRef.current) return
+    if (mockRef.current || wsRef.current) return
     setStatus("connecting")
-
-    const ws = new WebSocket(`ws://${window.location.host}/ws/uart`)
-    wsRef.current = ws
-
-    ws.onopen  = () => setStatus("connected")
-    ws.onerror = () => setStatus("error")
-    ws.onclose = () => {
-      setStatus("disconnected")
-      wsRef.current = null
-    }
-    ws.onmessage = (e) => {
-      const ts = new Date().toLocaleTimeString("vi-VN", { hour12: false })
-      let raw: string
-      try {
-        raw = JSON.stringify(JSON.parse(e.data), null, 0)
-      } catch {
-        raw = e.data
-      }
-      setLog((prev) => {
-        const next = [...prev, { id: ++counterRef.current, ts, raw }]
-        return next.length > MAX_LOG ? next.slice(next.length - MAX_LOG) : next
-      })
-    }
+    setTimeout(() => {
+      setStatus("connected")
+      mockRef.current = setInterval(() => {
+        const fn = MOCK_LINES[Math.floor(Math.random() * MOCK_LINES.length)]
+        pushLine(fn())
+      }, 280)
+    }, 700)
   }
 
   function disconnect() {
+    if (mockRef.current) { clearInterval(mockRef.current); mockRef.current = null }
     wsRef.current?.close()
     wsRef.current = null
     setStatus("disconnected")
@@ -260,14 +266,20 @@ function UartMonitorCard() {
     setLog([])
   }
 
-  // Auto-scroll to bottom when new data arrives
+  // Auto-scroll only when user is already near the bottom
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    const el = terminalRef.current
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (isNearBottom) el.scrollTop = el.scrollHeight
   }, [log])
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { wsRef.current?.close() }
+    return () => {
+      if (mockRef.current) clearInterval(mockRef.current)
+      wsRef.current?.close()
+    }
   }, [])
 
   const statusColor: Record<WsStatus, string> = {
@@ -285,26 +297,18 @@ function UartMonitorCard() {
   }
 
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col overflow-hidden">
       <CardHeader>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2.5">
             <CardTitle>Dữ liệu nhận</CardTitle>
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex size-2">
-                {status === "connected" && (
-                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
-                )}
-                <span className={cn("relative inline-flex size-2 rounded-full", statusColor[status])} />
-              </span>
-              <span className="text-xs text-muted-foreground">{statusLabel[status]}</span>
-            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
+              className="flex-1 sm:flex-none"
               disabled={log.length === 0}
               onClick={clearLog}
             >
@@ -313,12 +317,12 @@ function UartMonitorCard() {
             </Button>
 
             {status === "connected" || status === "connecting" ? (
-              <Button variant="destructive" size="sm" onClick={disconnect}>
+              <Button variant="destructive" size="sm" className="flex-1 sm:flex-none" onClick={disconnect}>
                 <PlugZapIcon />
                 Ngắt kết nối
               </Button>
             ) : (
-              <Button size="sm" onClick={connect}>
+              <Button size="sm" className="flex-1 sm:flex-none" onClick={connect}>
                 <PlugZap />
                 Kết nối
               </Button>
@@ -327,9 +331,20 @@ function UartMonitorCard() {
         </div>
       </CardHeader>
 
-      <CardContent className="p-0 pb-0!">
+      <CardContent className="relative p-0">
+        {/* Status badge — outside scroll container so it stays fixed */}
+        <div className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-md bg-zinc-800/80 px-2.5 py-1 font-sans text-xs font-medium text-white backdrop-blur-sm">
+          <span className="relative flex size-2">
+            {status === "connected" && (
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+            )}
+            <span className={cn("relative inline-flex size-2 rounded-full", statusColor[status])} />
+          </span>
+          {statusLabel[status]}
+        </div>
+
         {/* Terminal */}
-        <div className="h-[420px] overflow-y-auto bg-zinc-950 dark:bg-zinc-900 rounded-b-xl font-mono text-xs leading-relaxed
+        <div ref={terminalRef} className="h-[420px] overflow-y-auto border-t bg-zinc-950 dark:bg-zinc-900 font-mono text-xs leading-relaxed
           [&::-webkit-scrollbar]:w-1
           [&::-webkit-scrollbar-track]:bg-transparent
           [&::-webkit-scrollbar-thumb]:rounded-full
@@ -352,7 +367,6 @@ function UartMonitorCard() {
                   <span className="text-green-400 break-all">{entry.raw}</span>
                 </div>
               ))}
-              <div ref={logEndRef} />
             </div>
           )}
         </div>

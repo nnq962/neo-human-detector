@@ -22,6 +22,15 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 function maskRtspPassword(url: string): string {
   return url.replace(/^(rtsp:\/\/[^:]+):([^@]+)@/, "$1:***@")
@@ -58,9 +67,10 @@ function GoalPoseField({
   }, [value])
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="w-5 shrink-0 text-xs font-mono font-medium text-muted-foreground">{label}</span>
-      <Input
+    <div className="flex h-8 items-center rounded-md border border-input bg-background text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:disabled]:opacity-50">
+      <span className="shrink-0 select-none pl-2.5 pr-2 text-muted-foreground">{label}</span>
+      <div className="self-stretch w-px bg-border" />
+      <input
         type="number"
         step="0.01"
         value={raw}
@@ -79,7 +89,7 @@ function GoalPoseField({
         }}
         onWheel={(e) => e.currentTarget.blur()}
         disabled={disabled}
-        className="h-7 text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="h-full min-w-0 flex-1 bg-transparent px-2.5 outline-none disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       />
     </div>
   )
@@ -346,7 +356,7 @@ export function CameraPage() {
         </Card>
 
         {/* Video + zone management */}
-        <Card className="pb-0">
+        <Card>
           <CardHeader>
             <CardTitle>Hiển thị camera</CardTitle>
           </CardHeader>
@@ -369,18 +379,19 @@ export function CameraPage() {
               </div>
 
               {/* Zone panel */}
-              <div className="flex shrink-0 flex-col border-t md:border-t-0 md:border-l w-full md:w-64 max-h-[300px] md:max-h-none">
+              <div className="flex shrink-0 flex-col border-t md:border-t-0 md:border-l w-full md:w-64 h-[300px] md:h-auto">
                 {isInteracting ? (
                   <>
                     {/* Header */}
-                    <div className="border-b px-4 py-3">
+                    <div className="flex h-14 shrink-0 items-center border-b px-4">
                       <p className="text-sm font-medium">
                         {isAddingZone ? "Thêm zone" : `Đang sửa: ${editingZoneName}`}
                       </p>
                     </div>
 
                     {/* Scrollable content */}
-                    <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+                    <ScrollArea className="flex-1 min-h-0">
+                    <div className="p-4 flex flex-col gap-4">
                       {isEditingVertices && (
                         <>
                           {/* Zone name */}
@@ -442,6 +453,7 @@ export function CameraPage() {
                           : "Kéo các điểm trên video để chỉnh lại vị trí của zone."}
                       </p>
                     </div>
+                    </ScrollArea>
 
                     {/* Pinned buttons */}
                     <div className="border-t p-4 flex flex-col gap-2">
@@ -458,7 +470,7 @@ export function CameraPage() {
                 ) : (
                   <>
                     {/* Normal header */}
-                    <div className="flex items-center justify-between border-b px-4 py-3">
+                    <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
                       <span className="text-sm font-medium">Zones ({camera.zones.length})</span>
                       <Button size="sm" variant="outline" onClick={() => setIsAddingZone(true)}>
                         <Plus />
@@ -467,49 +479,74 @@ export function CameraPage() {
                     </div>
 
                     {/* Zone list */}
-                    <ul className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/40">
-                      {camera.zones.length === 0 ? (
-                        <li className="px-4 py-6 text-center text-xs text-muted-foreground">
-                          Chưa có zone nào.
-                        </li>
-                      ) : (
-                        camera.zones.map((zone, index) => (
-                          <li
-                            key={zone.id ?? index}
-                            className="flex items-center justify-between px-3 py-2.5 transition-colors hover:bg-muted/50"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {/* Number badge */}
-                              <span
-                                className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                                style={{ backgroundColor: ZONE_COLORS[index % ZONE_COLORS.length] }}
-                              >
-                                {index + 1}
-                              </span>
-                              <span className="text-sm truncate">{zone.name}</span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="size-7"
-                                onClick={() => handleStartEdit(index)}
-                              >
-                                <Pencil className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
-                                onClick={() => setDeletingZoneId(zone.id ?? null)}
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      <ul>
+                        {camera.zones.length === 0 ? (
+                          <li className="px-4 py-6 text-center text-xs text-muted-foreground">
+                            Chưa có zone nào.
                           </li>
-                        ))
-                      )}
-                    </ul>
+                        ) : (
+                          camera.zones.map((zone, index) => (
+                            <li
+                              key={zone.id ?? index}
+                              className="flex items-center gap-2 overflow-hidden px-3 py-2.5 transition-colors hover:bg-muted/50"
+                            >
+                              <div className="flex flex-1 items-center gap-2 overflow-hidden">
+                                {/* Number badge */}
+                                <span
+                                  className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                                  style={{ backgroundColor: ZONE_COLORS[index % ZONE_COLORS.length] }}
+                                >
+                                  {index + 1}
+                                </span>
+                                <span className="truncate text-sm">{zone.name}</span>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="size-7"
+                                  onClick={() => handleStartEdit(index)}
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Popover
+                                  open={deletingZoneId === zone.id}
+                                  onOpenChange={(open) => setDeletingZoneId(open ? (zone.id ?? null) : null)}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="end" className="w-56">
+                                    <PopoverHeader>
+                                      <PopoverTitle>Xóa zone</PopoverTitle>
+                                      <PopoverDescription>
+                                        Bạn có chắc muốn xóa{" "}
+                                        <span className="font-medium text-foreground">"{zone.name}"</span>?
+                                      </PopoverDescription>
+                                    </PopoverHeader>
+                                    <div className="flex justify-end gap-2">
+                                      <Button size="sm" variant="outline" onClick={() => setDeletingZoneId(null)}>
+                                        Hủy
+                                      </Button>
+                                      <Button size="sm" variant="destructive" disabled={isDeletingZone} onClick={handleDeleteZone}>
+                                        {isDeletingZone ? "Đang xóa..." : "Xóa"}
+                                      </Button>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </div>
                   </>
                 )}
               </div>
@@ -579,29 +616,6 @@ export function CameraPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete zone */}
-      <Dialog
-        open={deletingZoneId !== null}
-        onOpenChange={(open) => { if (!open) setDeletingZoneId(null) }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Xóa zone</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            Bạn có chắc muốn xóa zone{" "}
-            <span className="font-medium text-foreground">
-              "{camera.zones.find((z) => z.id === deletingZoneId)?.name}"
-            </span>?
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeletingZoneId(null)}>Hủy</Button>
-            <Button variant="destructive" disabled={isDeletingZone} onClick={handleDeleteZone}>
-              {isDeletingZone ? "Đang xóa..." : "Xóa"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

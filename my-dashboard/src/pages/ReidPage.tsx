@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
+
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 
@@ -206,91 +206,93 @@ function GeneralCard() {
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-5">
-        <div className="flex flex-col divide-y [&>*:last-child]:pb-0">
-          <BoolRow
-            label="Bật Re-ID"
-            desc="Kích hoạt toàn bộ chức năng Re-ID"
-            value={v.enabled}
-            editing={editing}
-            onChange={(val) => setDraft((p) => ({ ...p, enabled: val }))}
-          />
-          <BoolRow
-            label="Chỉ trong zone"
-            desc="Chỉ xử lý Re-ID cho người đang ở trong vùng (zone)"
-            value={v.zone_only}
-            editing={editing}
-            onChange={(val) => setDraft((p) => ({ ...p, zone_only: val }))}
-          />
-          <BoolRow
-            label="Yêu cầu zone có người"
-            desc="Bỏ qua nếu zone chưa có người nào được xác nhận vào"
-            value={v.require_occupied_zone}
-            editing={editing}
-            onChange={(val) => setDraft((p) => ({ ...p, require_occupied_zone: val }))}
-          />
-        </div>
-
-        <Separator />
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2 flex flex-col gap-1.5">
-            <FieldLabel
-              label="Model path"
-              desc="Đường dẫn đến file trọng số mô hình Re-ID"
+      <CardContent className="flex flex-col">
+        <div className="flex flex-col divide-y">
+          {/* Bool rows */}
+          <div className="flex flex-col divide-y">
+            <BoolRow
+              label="Bật Re-ID"
+              desc="Kích hoạt toàn bộ chức năng Re-ID"
+              value={v.enabled}
+              editing={editing}
+              onChange={(val) => setDraft((p) => ({ ...p, enabled: val }))}
             />
-            {editing ? (
-              <Input
-                className="h-8 text-sm"
-                value={draft.model_path}
-                onChange={(e) => setDraft((p) => ({ ...p, model_path: e.target.value }))}
-              />
-            ) : (
-              <div className="flex h-8 items-center">
-                <span className="text-sm text-muted-foreground truncate">{saved.model_path}</span>
-              </div>
-            )}
+            <BoolRow
+              label="Chỉ trong zone"
+              desc="Chỉ xử lý Re-ID cho người đang ở trong vùng (zone)"
+              value={v.zone_only}
+              editing={editing}
+              onChange={(val) => setDraft((p) => ({ ...p, zone_only: val }))}
+            />
+            <BoolRow
+              label="Yêu cầu zone có người"
+              desc="Bỏ qua nếu zone chưa có người nào được xác nhận vào"
+              value={v.require_occupied_zone}
+              editing={editing}
+              onChange={(val) => setDraft((p) => ({ ...p, require_occupied_zone: val }))}
+            />
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel label="Device" desc="Thiết bị tính toán" />
-            {editing ? (
-              <Select
-                value={draft.device}
-                onValueChange={(val) => setDraft((p) => ({ ...p, device: val }))}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  {DEVICE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-8 items-center">
-                <Badge variant="outline">
-                  {DEVICE_OPTIONS.find((o) => o.value === saved.device)?.label ?? saved.device}
-                </Badge>
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel
-              label="Embedding batch size"
-              desc="Số ảnh xử lý song song khi trích xuất embedding"
-            />
-            {editing ? (
-              <NumField
-                value={draft.embedding_batch_size}
-                onChange={(val) => setDraft((p) => ({ ...p, embedding_batch_size: val }))}
-                min={1}
+          {/* Model / Device / Batch */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-4 pb-1">
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
+              <FieldLabel
+                label="Model path"
+                desc="Đường dẫn đến file trọng số mô hình Re-ID"
               />
-            ) : (
-              <div className="flex h-8 items-center text-sm">{saved.embedding_batch_size}</div>
-            )}
+              {editing ? (
+                <Input
+                  className="h-8 text-sm"
+                  value={draft.model_path}
+                  onChange={(e) => setDraft((p) => ({ ...p, model_path: e.target.value }))}
+                />
+              ) : (
+                <div className="flex h-8 items-center">
+                  <span className="text-sm text-muted-foreground truncate">{saved.model_path}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel label="Device" desc="Thiết bị tính toán" />
+              {editing ? (
+                <Select
+                  value={draft.device}
+                  onValueChange={(val) => setDraft((p) => ({ ...p, device: val }))}
+                >
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {DEVICE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex h-8 items-center">
+                  <Badge variant="outline">
+                    {DEVICE_OPTIONS.find((o) => o.value === saved.device)?.label ?? saved.device}
+                  </Badge>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel
+                label="Embedding batch size"
+                desc="Số ảnh xử lý song song khi trích xuất embedding"
+              />
+              {editing ? (
+                <NumField
+                  value={draft.embedding_batch_size}
+                  onChange={(val) => setDraft((p) => ({ ...p, embedding_batch_size: val }))}
+                  min={1}
+                />
+              ) : (
+                <div className="flex h-8 items-center text-sm">{saved.embedding_batch_size}</div>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>
@@ -298,7 +300,7 @@ function GeneralCard() {
   )
 }
 
-// ── Track card ────────────────────────────────────────────────────────────────
+// ── Track card ───────────────────────────────────────────────────────────────
 
 function TrackCard() {
   type T = typeof DEFAULTS.track
@@ -506,7 +508,7 @@ function GalleryCard() {
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Sim threshold match" desc="Ngưỡng độ tương đồng để xác nhận khớp (match)" />
             {editing
-              ? <NumField value={draft.sim_threshold_match} onChange={(val) => setDraft((p) => ({ ...p, sim_threshold_match: val }))} step={0.01} min={0} max={1} />
+              ? <SliderField value={draft.sim_threshold_match} onChange={(val) => setDraft((p) => ({ ...p, sim_threshold_match: val }))} />
               : <div className="flex h-8 items-center text-sm">{v.sim_threshold_match}</div>
             }
           </div>
@@ -514,7 +516,7 @@ function GalleryCard() {
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="EMA alpha" desc="Hệ số làm mượt EMA khi cập nhật embedding vào gallery" />
             {editing
-              ? <NumField value={draft.ema_alpha} onChange={(val) => setDraft((p) => ({ ...p, ema_alpha: val }))} step={0.01} min={0} max={1} />
+              ? <SliderField value={draft.ema_alpha} onChange={(val) => setDraft((p) => ({ ...p, ema_alpha: val }))} />
               : <div className="flex h-8 items-center text-sm">{v.ema_alpha}</div>
             }
           </div>

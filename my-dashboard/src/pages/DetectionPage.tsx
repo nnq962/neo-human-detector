@@ -14,6 +14,9 @@ import {
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -115,39 +118,39 @@ function ModelSizeCard({ currentSize }: { currentSize: string }) {
         <CardTitle>Tham khảo model size</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="w-10 py-2.5 pl-4" />
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Model</th>
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Tốc độ</th>
-              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Độ chính xác</th>
-              <th className="hidden px-4 py-2.5 text-left text-xs font-medium text-muted-foreground sm:table-cell">Ghi chú</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="w-10 pl-4 pr-0" />
+              <TableHead className="text-xs text-muted-foreground">Model</TableHead>
+              <TableHead className="text-xs text-muted-foreground">Tốc độ</TableHead>
+              <TableHead className="text-xs text-muted-foreground">Độ chính xác</TableHead>
+              <TableHead className="hidden text-xs text-muted-foreground sm:table-cell">Ghi chú</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {SIZE_OPTIONS.map(({ value, label, speedDots, accDots, note }) => {
               const active = value === currentSize
               return (
-                <tr key={value} className={`border-b last:border-0 ${active ? "bg-muted/50" : ""}`}>
-                  <td className="w-10 py-3 pl-4 pr-0">
+                <TableRow key={value} className={active ? "bg-muted/50 hover:bg-muted/50" : ""}>
+                  <TableCell className="w-10 pl-4 pr-0">
                     {active && <Check className="size-4 text-primary" />}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <span className={active ? "font-semibold" : "text-muted-foreground"}>{label}</span>
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <DotBar filled={speedDots} color="bg-blue-400 dark:bg-blue-500" />
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <DotBar filled={accDots} color="bg-green-400 dark:bg-green-500" />
-                  </td>
-                  <td className="hidden px-4 py-3 text-xs text-muted-foreground sm:table-cell">{note}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">{note}</TableCell>
+                </TableRow>
               )
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   )
