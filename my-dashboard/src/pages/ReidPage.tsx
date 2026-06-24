@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react"
 import { Check, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
+import {
+  reidApi,
+  type ReIdConfig,
+  type ReIdDevice,
+  type ReIdGalleryConfig,
+  type ReIdQualityConfig,
+  type ReIdTrackConfig,
+} from "@/api/reid.api"
+import { useInvalidateReid, useReidConfig } from "@/hooks/use-reid"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +23,7 @@ import {
 } from "@/components/ui/select"
 
 import { Slider } from "@/components/ui/slider"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -22,41 +32,14 @@ const DEVICE_OPTIONS = [
   { value: "auto", label: "Auto" },
   { value: "cpu",  label: "CPU" },
   { value: "cuda", label: "CUDA (GPU)" },
+  { value: "mps",  label: "MPS" },
 ]
 
-// ── Defaults ──────────────────────────────────────────────────────────────────
-
-const DEFAULTS = {
-  general: {
-    enabled: true,
-    zone_only: true,
-    require_occupied_zone: true,
-    model_path: "weights/reid/osnet_ain_ms_d_c.pth.tar",
-    device: "auto",
-    embedding_batch_size: 32,
-  },
-  track: {
-    buffer_min: 50,
-    grace_period: 300,
-    update_interval: 120,
-    max_buffer_size: 100,
-    gallery_cleanup_interval: 1800,
-    max_reverify_misses: 5,
-  },
-  quality: {
-    overlap_iou_threshold: 0.25,
-    overlap_ioa_threshold: 0.45,
-    stable_bbox_window: 30,
-    stable_center_shift_ratio: 0.2,
-    stable_size_change_ratio: 0.25,
-    laplacian_var_threshold: 50.0,
-  },
-  gallery: {
-    sim_threshold_match: 0.75,
-    ema_alpha: 0.75,
-    max_samples: 5,
-    ttl_minutes: 2.0,
-  },
+type GeneralConfig = Pick<
+  ReIdConfig,
+  "enabled" | "zone_only" | "require_occupied_zone" | "model_path" | "device"
+> & {
+  embedding_batch_size: number
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -177,10 +160,16 @@ function SliderField({ value, onChange }: { value: number; onChange: (v: number)
 
 // ── General card ──────────────────────────────────────────────────────────────
 
-function GeneralCard() {
-  type G = typeof DEFAULTS.general
-  const [saved, setSaved] = useState<G>({ ...DEFAULTS.general })
-  const [draft, setDraft] = useState<G>({ ...DEFAULTS.general })
+function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => void }) {
+  const saved: GeneralConfig = {
+    enabled: config.enabled,
+    zone_only: config.zone_only,
+    require_occupied_zone: config.require_occupied_zone,
+    model_path: config.model_path,
+    device: config.device,
+    embedding_batch_size: config.embedding.batch_size,
+  }
+  const [draft, setDraft] = useState<GeneralConfig>({ ...saved })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -188,11 +177,23 @@ function GeneralCard() {
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setSaved({ ...draft })
-    toast.success("Đã lưu cấu hình chung Re-ID")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await reidApi.update({
+        enabled: draft.enabled,
+        zone_only: draft.zone_only,
+        require_occupied_zone: draft.require_occupied_zone,
+        model_path: draft.model_path?.trim() || undefined,
+        device: draft.device,
+        embedding: { batch_size: draft.embedding_batch_size },
+      })
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const v = editing ? draft : saved
@@ -243,12 +244,12 @@ function GeneralCard() {
               {editing ? (
                 <Input
                   className="h-8 text-sm"
-                  value={draft.model_path}
+                  value={draft.model_path ?? ""}
                   onChange={(e) => setDraft((p) => ({ ...p, model_path: e.target.value }))}
                 />
               ) : (
                 <div className="flex h-8 items-center">
-                  <span className="text-sm text-muted-foreground truncate">{saved.model_path}</span>
+                  <span className="text-sm text-muted-foreground truncate">{saved.model_path ?? "—"}</span>
                 </div>
               )}
             </div>
@@ -258,7 +259,7 @@ function GeneralCard() {
               {editing ? (
                 <Select
                   value={draft.device}
-                  onValueChange={(val) => setDraft((p) => ({ ...p, device: val }))}
+                  onValueChange={(val) => setDraft((p) => ({ ...p, device: val as ReIdDevice }))}
                 >
                   <SelectTrigger className="h-8 text-sm">
                     <SelectValue />
@@ -302,25 +303,28 @@ function GeneralCard() {
 
 // ── Track card ───────────────────────────────────────────────────────────────
 
-function TrackCard() {
-  type T = typeof DEFAULTS.track
-  const [saved, setSaved] = useState<T>({ ...DEFAULTS.track })
-  const [draft, setDraft] = useState<T>({ ...DEFAULTS.track })
+function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () => void }) {
+  const [draft, setDraft] = useState<ReIdTrackConfig>({ ...config })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function startEdit() { setDraft({ ...saved }); setEditing(true) }
+  function startEdit() { setDraft({ ...config }); setEditing(true) }
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setSaved({ ...draft })
-    toast.success("Đã lưu cấu hình Track")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await reidApi.update({ track: draft })
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const v = editing ? draft : saved
+  const v = editing ? draft : config
 
   return (
     <Card>
@@ -388,25 +392,28 @@ function TrackCard() {
 
 // ── Quality card ──────────────────────────────────────────────────────────────
 
-function QualityCard() {
-  type Q = typeof DEFAULTS.quality
-  const [saved, setSaved] = useState<Q>({ ...DEFAULTS.quality })
-  const [draft, setDraft] = useState<Q>({ ...DEFAULTS.quality })
+function QualityCard({ config, onSaved }: { config: ReIdQualityConfig; onSaved: () => void }) {
+  const [draft, setDraft] = useState<ReIdQualityConfig>({ ...config })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function startEdit() { setDraft({ ...saved }); setEditing(true) }
+  function startEdit() { setDraft({ ...config }); setEditing(true) }
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setSaved({ ...draft })
-    toast.success("Đã lưu cấu hình chất lượng")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await reidApi.update({ quality: draft })
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const v = editing ? draft : saved
+  const v = editing ? draft : config
 
   return (
     <Card>
@@ -474,25 +481,28 @@ function QualityCard() {
 
 // ── Gallery card ──────────────────────────────────────────────────────────────
 
-function GalleryCard() {
-  type Gal = typeof DEFAULTS.gallery
-  const [saved, setSaved] = useState<Gal>({ ...DEFAULTS.gallery })
-  const [draft, setDraft] = useState<Gal>({ ...DEFAULTS.gallery })
+function GalleryCard({ config, onSaved }: { config: ReIdGalleryConfig; onSaved: () => void }) {
+  const [draft, setDraft] = useState<ReIdGalleryConfig>({ ...config })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  function startEdit() { setDraft({ ...saved }); setEditing(true) }
+  function startEdit() { setDraft({ ...config }); setEditing(true) }
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    setSaved({ ...draft })
-    toast.success("Đã lưu cấu hình Gallery")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await reidApi.update({ gallery: draft })
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const v = editing ? draft : saved
+  const v = editing ? draft : config
 
   return (
     <Card>
@@ -545,12 +555,44 @@ function GalleryCard() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function ReidPage() {
+  const { data: config, isLoading, isError, refetch } = useReidConfig()
+  const invalidateReid = useInvalidateReid()
+
+  function handleSaved() {
+    invalidateReid()
+    refetch()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-72" />
+        <Skeleton className="h-64" />
+        <Skeleton className="h-64" />
+        <Skeleton className="h-48" />
+      </div>
+    )
+  }
+
+  if (isError || !config) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Re-ID</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Không tải được cấu hình Re-ID.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6">
-      <GeneralCard />
-      <TrackCard />
-      <QualityCard />
-      <GalleryCard />
+      <GeneralCard config={config} onSaved={handleSaved} />
+      <TrackCard config={config.track} onSaved={handleSaved} />
+      <QualityCard config={config.quality} onSaved={handleSaved} />
+      <GalleryCard config={config.gallery} onSaved={handleSaved} />
     </div>
   )
 }

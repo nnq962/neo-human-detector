@@ -79,8 +79,8 @@ function UartConfigCard() {
     if (!br || br < 1) { toast.error("Baudrate không hợp lệ"); return }
     setSaving(true)
     try {
-      await uartApi.update({ port: port.trim(), baudrate: br })
-      toast.success("Đã cập nhật cấu hình UART")
+      const response = await uartApi.update({ port: port.trim(), baudrate: br })
+      toast.success(response.message)
       invalidate()
       setEditing(false)
     } catch (err) {

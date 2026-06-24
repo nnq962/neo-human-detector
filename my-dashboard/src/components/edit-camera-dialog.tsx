@@ -56,11 +56,11 @@ export function EditCameraDialog({ camera, open, onOpenChange }: Props) {
         }
       }
 
-      await camerasApi.update(camera.id, {
+      const response = await camerasApi.update(camera.id, {
         name: values.name,
         enabled: values.enabled,
       })
-      toast.success("Đã cập nhật camera")
+      toast.success(response.message)
       invalidateCameras()
       onOpenChange(false)
     } catch (err) {

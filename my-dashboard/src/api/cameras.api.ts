@@ -50,33 +50,52 @@ export interface CameraUpdate {
   zones?: Zone[]
 }
 
+export interface ApiResponse<T> {
+  success: boolean
+  message: string
+  data: T
+}
+
+function ensureApiSuccess<T>(response: ApiResponse<T>): ApiResponse<T> {
+  if (!response.success) {
+    throw new Error(response.message || "API request failed")
+  }
+
+  return response
+}
+
+function unwrapApiResponse<T>(response: ApiResponse<T>): T {
+  return ensureApiSuccess(response).data
+}
+
 // ── API calls ────────────────────────────────────────────────────────────────
 
 export const camerasApi = {
   list: () =>
-    apiRequest<Camera[]>("/cameras"),
+    apiRequest<ApiResponse<Camera[]>>("/cameras").then(unwrapApiResponse),
 
   get: (id: string) =>
-    apiRequest<Camera>(`/cameras/${id}`),
+    apiRequest<ApiResponse<Camera>>(`/cameras/${id}`).then(unwrapApiResponse),
 
   create: (data: CameraCreate) =>
-    apiRequest<Camera>("/cameras", {
+    apiRequest<ApiResponse<Camera>>("/cameras", {
       method: "POST",
       body: JSON.stringify(data),
-    }),
+    }).then(ensureApiSuccess),
 
   replace: (id: string, data: CameraCreate) =>
-    apiRequest<Camera>(`/cameras/${id}`, {
+    apiRequest<ApiResponse<Camera>>(`/cameras/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
-    }),
+    }).then(ensureApiSuccess),
 
   update: (id: string, data: CameraUpdate) =>
-    apiRequest<Camera>(`/cameras/${id}`, {
+    apiRequest<ApiResponse<Camera>>(`/cameras/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
-    }),
+    }).then(ensureApiSuccess),
 
   delete: (id: string) =>
-    apiRequest<void>(`/cameras/${id}`, { method: "DELETE" }),
+    apiRequest<ApiResponse<Camera>>(`/cameras/${id}`, { method: "DELETE" })
+      .then(ensureApiSuccess),
 }

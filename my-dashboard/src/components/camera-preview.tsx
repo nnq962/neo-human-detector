@@ -87,20 +87,6 @@ function getAbsolutePolygonPoints(polygon: Polygon) {
   )
 }
 
-function getContainedVideoRect(preview: PreviewSize, source: VideoSize) {
-  if (!preview.width || !preview.height || !source.width || !source.height) return null
-  const scale = Math.min(preview.width / source.width, preview.height / source.height)
-  const width = source.width * scale
-  const height = source.height * scale
-  return {
-    scale,
-    width,
-    height,
-    offsetX: (preview.width - width) / 2,
-    offsetY: (preview.height - height) / 2,
-  }
-}
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface CameraPreviewProps {

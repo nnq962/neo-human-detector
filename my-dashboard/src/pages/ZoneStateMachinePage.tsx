@@ -1,19 +1,18 @@
 import { useEffect, useRef, useState } from "react"
 import { Check, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
+import {
+  zoneStateMachineApi,
+  type ZoneStateMachineConfig,
+} from "@/api/zone-state-machine.api"
+import {
+  useInvalidateZoneStateMachine,
+  useZoneStateMachineConfig,
+} from "@/hooks/use-zone-state-machine"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-
-// ── Defaults ──────────────────────────────────────────────────────────────────
-
-const DEFAULTS = {
-  confirm_enter_time: 6.0,
-  confirm_exit_time: 6.0,
-  pending_enter_miss_grace_time: 1.5,
-}
-
-type Config = typeof DEFAULTS
+import { Skeleton } from "@/components/ui/skeleton"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -123,7 +122,7 @@ function VArrow({ dir, label, sublabel }: { dir: "up" | "down"; label: string; s
   )
 }
 
-function StateDiagram({ config }: { config: Config }) {
+function StateDiagram({ config }: { config: ZoneStateMachineConfig }) {
   const { confirm_enter_time, confirm_exit_time, pending_enter_miss_grace_time } = config
   return (
     <div
@@ -162,8 +161,14 @@ function StateDiagram({ config }: { config: Config }) {
 
 // ── Config card ───────────────────────────────────────────────────────────────
 
-function ConfigCard({ config, onSave }: { config: Config; onSave: (c: Config) => void }) {
-  const [draft, setDraft] = useState<Config>({ ...config })
+function ConfigCard({
+  config,
+  onSaved,
+}: {
+  config: ZoneStateMachineConfig
+  onSaved: () => void
+}) {
+  const [draft, setDraft] = useState<ZoneStateMachineConfig>({ ...config })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -171,11 +176,16 @@ function ConfigCard({ config, onSave }: { config: Config; onSave: (c: Config) =>
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    onSave({ ...draft })
-    toast.success("Đã lưu cấu hình Zone State Machine")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await zoneStateMachineApi.update(draft)
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const v = editing ? draft : config
@@ -248,11 +258,41 @@ function ConfigCard({ config, onSave }: { config: Config; onSave: (c: Config) =>
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function ZoneStateMachinePage() {
-  const [config, setConfig] = useState<Config>({ ...DEFAULTS })
+  const { data: config, isLoading, isError, refetch } = useZoneStateMachineConfig()
+  const invalidateZoneStateMachine = useInvalidateZoneStateMachine()
+
+  function handleSaved() {
+    invalidateZoneStateMachine()
+    refetch()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-40" />
+        <Skeleton className="h-80" />
+      </div>
+    )
+  }
+
+  if (isError || !config) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Zone State Machine</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Không tải được cấu hình Zone State Machine.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
-      <ConfigCard config={config} onSave={setConfig} />
+      <ConfigCard config={config} onSaved={handleSaved} />
 
       <Card>
         <CardHeader>

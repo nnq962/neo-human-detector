@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from "react"
+import { useState } from "react"
 import { Check, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
+import {
+  detectionApi,
+  type DetectionBatchSize,
+  type DetectionConfig,
+  type DetectionModelSize,
+  type DetectionTask,
+} from "@/api/detection.api"
+import { useDetectionConfig, useInvalidateDetection } from "@/hooks/use-detection"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -13,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -23,7 +31,6 @@ import {
 const TASK_OPTIONS = [
   { value: "detect",  label: "Detect",  desc: "Phát hiện đối tượng (bounding box)" },
   { value: "pose",    label: "Pose",    desc: "Ước lượng tư thế (keypoints + bounding box)" },
-  { value: "segment", label: "Segment", desc: "Phân đoạn thực thể (instance mask)" },
 ]
 
 const SIZE_OPTIONS = [
@@ -34,18 +41,6 @@ const SIZE_OPTIONS = [
   { value: "xlarge", label: "XLarge (x)", speedDots: 1, accDots: 5, note: "Chính xác nhất" },
 ]
 
-// ── Defaults ──────────────────────────────────────────────────────────────────
-
-const DEFAULTS = {
-  task: "pose",
-  model_size: "medium",
-  batch_size: 2,
-  conf: 0.4,
-  verbose: false,
-}
-
-type Config = typeof DEFAULTS
-
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 function FieldLabel({ label, desc }: { label: string; desc?: string }) {
@@ -54,48 +49,6 @@ function FieldLabel({ label, desc }: { label: string; desc?: string }) {
       <span className="text-xs font-medium">{label}</span>
       {desc && <span className="text-[11px] leading-snug text-muted-foreground">{desc}</span>}
     </div>
-  )
-}
-
-function NumField({
-  value, onChange, step = 1, min, max,
-}: {
-  value: number; onChange: (v: number) => void
-  step?: number; min?: number; max?: number
-}) {
-  const [raw, setRaw] = useState(String(value))
-  const synced = useRef(value)
-
-  useEffect(() => {
-    if (synced.current !== value) {
-      synced.current = value
-      setRaw(String(value))
-    }
-  }, [value])
-
-  return (
-    <Input
-      type="number"
-      step={step}
-      min={min}
-      max={max}
-      value={raw}
-      onChange={(e) => {
-        setRaw(e.target.value)
-        const n = parseFloat(e.target.value)
-        if (!isNaN(n)) { synced.current = n; onChange(n) }
-      }}
-      onBlur={() => {
-        const n = parseFloat(raw)
-        if (isNaN(n) || raw.trim() === "") {
-          setRaw(String(value)); synced.current = value
-        } else {
-          setRaw(String(n)); synced.current = n
-        }
-      }}
-      onWheel={(e) => e.currentTarget.blur()}
-      className="h-8 text-sm [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-    />
   )
 }
 
@@ -158,8 +111,14 @@ function ModelSizeCard({ currentSize }: { currentSize: string }) {
 
 // ── Config card ───────────────────────────────────────────────────────────────
 
-function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: Config) => void }) {
-  const [draft, setDraft] = useState<Config>({ ...config })
+function DetectionConfigCard({
+  config,
+  onSaved,
+}: {
+  config: DetectionConfig
+  onSaved: () => void
+}) {
+  const [draft, setDraft] = useState<DetectionConfig>({ ...config })
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -167,11 +126,16 @@ function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: C
   function cancel() { setEditing(false) }
   async function save() {
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 600))
-    onSave({ ...draft })
-    toast.success("Đã lưu cấu hình Detection")
-    setEditing(false)
-    setSaving(false)
+    try {
+      const response = await detectionApi.update(draft)
+      toast.success(response.message)
+      onSaved()
+      setEditing(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lưu cấu hình thất bại")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const v = editing ? draft : config
@@ -211,7 +175,7 @@ function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: C
             {editing ? (
               <Select
                 value={draft.task}
-                onValueChange={(val) => setDraft((p) => ({ ...p, task: val }))}
+                onValueChange={(val) => setDraft((p) => ({ ...p, task: val as DetectionTask }))}
               >
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper">
@@ -233,7 +197,7 @@ function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: C
             {editing ? (
               <Select
                 value={draft.model_size}
-                onValueChange={(val) => setDraft((p) => ({ ...p, model_size: val }))}
+                onValueChange={(val) => setDraft((p) => ({ ...p, model_size: val as DetectionModelSize }))}
               >
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper">
@@ -255,7 +219,7 @@ function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: C
             {editing ? (
               <Select
                 value={String(draft.batch_size)}
-                onValueChange={(val) => setDraft((p) => ({ ...p, batch_size: parseInt(val) }))}
+                onValueChange={(val) => setDraft((p) => ({ ...p, batch_size: parseInt(val) as DetectionBatchSize }))}
               >
                 <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper">
@@ -308,11 +272,41 @@ function DetectionConfigCard({ config, onSave }: { config: Config; onSave: (c: C
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function DetectionPage() {
-  const [config, setConfig] = useState<Config>({ ...DEFAULTS })
+  const { data: config, isLoading, isError, refetch } = useDetectionConfig()
+  const invalidateDetection = useInvalidateDetection()
+
+  function handleSaved() {
+    invalidateDetection()
+    refetch()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-64" />
+        <Skeleton className="h-64" />
+      </div>
+    )
+  }
+
+  if (isError || !config) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Detection</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Không tải được cấu hình Detection.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
-      <DetectionConfigCard config={config} onSave={setConfig} />
+      <DetectionConfigCard config={config} onSaved={handleSaved} />
       <ModelSizeCard currentSize={config.model_size} />
     </div>
   )

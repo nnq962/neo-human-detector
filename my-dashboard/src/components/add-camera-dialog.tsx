@@ -44,13 +44,13 @@ export function AddCameraDialog({ open, onOpenChange }: Props) {
         return
       }
 
-      await camerasApi.create({
+      const response = await camerasApi.create({
         name: values.name,
         stream: { source: values.source, protocol: "tcp", on_demand: true },
         enabled: true,
         zones: [],
       })
-      toast.success(`Đã thêm camera "${values.name}"`)
+      toast.success(response.message)
       invalidateCameras()
       reset()
       onOpenChange(false)

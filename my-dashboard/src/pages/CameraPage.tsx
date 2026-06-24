@@ -147,8 +147,8 @@ export function CameraPage() {
   async function handleDeleteCamera() {
     setIsDeleting(true)
     try {
-      await camerasApi.delete(id!)
-      toast.success(`Đã xóa camera "${camera?.name}"`)
+      const response = await camerasApi.delete(id!)
+      toast.success(response.message)
       invalidateCameras()
       navigate("/")
     } catch (err) {
@@ -200,7 +200,7 @@ export function CameraPage() {
       const updatedZones = draftZones.map((z, i) =>
         i === selectedZoneIndex ? { ...z, name: trimmedName, goal_pose: draftGoalPose } : z,
       )
-      await camerasApi.update(id!, { zones: updatedZones })
+      const response = await camerasApi.update(id!, { zones: updatedZones })
 
       // Cập nhật cache ngay lập tức trước khi thoát edit mode
       // để displayZones không flash về dữ liệu cũ trong khi chờ refetch
@@ -213,7 +213,7 @@ export function CameraPage() {
       setDraftZones([])
       setDraftZoneName("")
       setZoneNameError("")
-      toast.success("Đã cập nhật zone")
+      toast.success(response.message)
       invalidateCameras()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Cập nhật zone thất bại")
@@ -249,8 +249,8 @@ export function CameraPage() {
         points: pendingPoints as [number, number][],
         goal_pose: null,
       }
-      await camerasApi.update(id!, { zones: [...camera.zones, newZone] })
-      toast.success("Đã thêm zone")
+      const response = await camerasApi.update(id!, { zones: [...camera.zones, newZone] })
+      toast.success(response.message)
       invalidateCamera()
       invalidateCameras()
     } catch (err) {
@@ -269,8 +269,8 @@ export function CameraPage() {
     setIsDeletingZone(true)
     try {
       const updatedZones = camera.zones.filter((z) => z.id !== deletingZoneId)
-      await camerasApi.update(id!, { zones: updatedZones })
-      toast.success("Đã xóa zone")
+      const response = await camerasApi.update(id!, { zones: updatedZones })
+      toast.success(response.message)
       invalidateCamera()
       invalidateCameras()
     } catch (err) {
