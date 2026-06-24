@@ -1,16 +1,34 @@
-import { Button } from "@/components/ui/button"
+import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { DashboardLayout } from "@/layouts/DashboardLayout"
+import { DashboardPage } from "@/pages/DashboardPage"
+import { CameraPage } from "@/pages/CameraPage"
+import { UartPage } from "@/pages/UartPage"
+import { ReidPage } from "@/pages/ReidPage"
+import { ZoneStateMachinePage } from "@/pages/ZoneStateMachinePage"
+import { DetectionPage } from "@/pages/DetectionPage"
 
 function App() {
   return (
-    <TooltipProvider>
-      <div className="flex min-h-screen items-center justify-center">
-        <Button>Hello AI Dashboard</Button>
-      </div>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<DashboardLayout />}>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/cameras/:id" element={<CameraPage />} />
+          <Route path="/uart" element={<UartPage />} />
+          <Route path="/re-id" element={<ReidPage />} />
+          <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
+          <Route path="/detection" element={<DetectionPage />} />
+        </Route>
+      </Routes>
 
-      <Toaster />
-    </TooltipProvider>
+      <Toaster
+        richColors
+        position="top-center"
+        expand
+        visibleToasts={3}
+      />
+    </BrowserRouter>
   )
 }
 
