@@ -1,4 +1,4 @@
-import { apiRequest } from "./client"
+import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } from "./client"
 
 export type ReIdDevice = "auto" | "cpu" | "cuda" | "mps"
 
@@ -53,24 +53,6 @@ export interface ReIdConfigUpdate {
   track?: Partial<ReIdTrackConfig>
   quality?: Partial<ReIdQualityConfig>
   gallery?: Partial<ReIdGalleryConfig>
-}
-
-export interface ApiResponse<T> {
-  success: boolean
-  message: string
-  data: T
-}
-
-function ensureApiSuccess<T>(response: ApiResponse<T>): ApiResponse<T> {
-  if (!response.success) {
-    throw new Error(response.message || "API request failed")
-  }
-
-  return response
-}
-
-function unwrapApiResponse<T>(response: ApiResponse<T>): T {
-  return ensureApiSuccess(response).data
 }
 
 export const reidApi = {

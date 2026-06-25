@@ -1,4 +1,4 @@
-import { apiRequest } from "./client"
+import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } from "./client"
 
 export type DetectionTask = "detect" | "pose"
 export type DetectionModelSize = "nano" | "medium"
@@ -13,24 +13,6 @@ export interface DetectionConfig {
 }
 
 export type DetectionConfigUpdate = Partial<DetectionConfig>
-
-export interface ApiResponse<T> {
-  success: boolean
-  message: string
-  data: T
-}
-
-function ensureApiSuccess<T>(response: ApiResponse<T>): ApiResponse<T> {
-  if (!response.success) {
-    throw new Error(response.message || "API request failed")
-  }
-
-  return response
-}
-
-function unwrapApiResponse<T>(response: ApiResponse<T>): T {
-  return ensureApiSuccess(response).data
-}
 
 export const detectionApi = {
   get: () =>

@@ -1,4 +1,4 @@
-import { apiRequest } from "./client"
+import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } from "./client"
 
 export interface UartConfig {
   port: string
@@ -8,24 +8,6 @@ export interface UartConfig {
 export interface UartConfigUpdate {
   port?: string
   baudrate?: number
-}
-
-export interface ApiResponse<T> {
-  success: boolean
-  message: string
-  data: T
-}
-
-function ensureApiSuccess<T>(response: ApiResponse<T>): ApiResponse<T> {
-  if (!response.success) {
-    throw new Error(response.message || "API request failed")
-  }
-
-  return response
-}
-
-function unwrapApiResponse<T>(response: ApiResponse<T>): T {
-  return ensureApiSuccess(response).data
 }
 
 export const uartApi = {
