@@ -1,25 +1,34 @@
-import { ToastProvider } from './components/feedback/ToastProvider'
-import Topbar from './components/layout/Topbar'
-import GeneralConfig from './components/config/GeneralConfig'
-import ZonesConfig from './components/config/ZonesConfig'
-
-function AppContent() {
-  return (
-    <main className="min-h-screen bg-slate-50">
-      <Topbar />
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <GeneralConfig />
-        <ZonesConfig />
-      </div>
-    </main>
-  )
-}
+import { BrowserRouter, Route, Routes } from "react-router-dom"
+import { Toaster } from "@/components/ui/sonner"
+import { DashboardLayout } from "@/layouts/DashboardLayout"
+import { DashboardPage } from "@/pages/DashboardPage"
+import { CameraPage } from "@/pages/CameraPage"
+import { UartPage } from "@/pages/UartPage"
+import { ReidPage } from "@/pages/ReidPage"
+import { ZoneStateMachinePage } from "@/pages/ZoneStateMachinePage"
+import { DetectionPage } from "@/pages/DetectionPage"
 
 function App() {
   return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<DashboardLayout />}>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/cameras/:id" element={<CameraPage />} />
+          <Route path="/uart" element={<UartPage />} />
+          <Route path="/re-id" element={<ReidPage />} />
+          <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
+          <Route path="/detection" element={<DetectionPage />} />
+        </Route>
+      </Routes>
+
+      <Toaster
+        richColors
+        position="top-center"
+        expand
+        visibleToasts={3}
+      />
+    </BrowserRouter>
   )
 }
 
