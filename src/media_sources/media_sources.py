@@ -41,3 +41,7 @@ class MediaSources:
     def release(self) -> None:
         """Giải phóng tất cả tài nguyên."""
         self._reader.close()
+
+    def request_stop(self) -> None:
+        """Yêu cầu reader dừng sớm nhưng để runtime thread tự close tài nguyên."""
+        self._reader.request_stop()

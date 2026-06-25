@@ -120,15 +120,9 @@ class UartManager:
                     cmd = data.strip()
                     
                     if cmd == "sync":
-                        # Gọi gửi lại payload UART gần nhất
-                        from api.services.detector import sync_uart_payload
-                        sync_uart_payload()
+                        LOGGER.info("Bỏ qua lệnh sync vì detector service đã được xoá.")
                         
-                        # (Tuỳ chọn) Nếu bạn vẫn cần gửi cả cục JSON cho mục đích khác:
-                        # from api.services.detector import get_latest_ws_payload
-                        # payload = get_latest_ws_payload()
-                        # if payload:
-                        #     self.send_json({"type": "SYNC", "data": payload})
+                        # Không còn payload detector để gửi lại qua UART.
                             
             time.sleep(0.01) # Tránh ăn CPU
 

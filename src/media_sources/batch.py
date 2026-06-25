@@ -64,6 +64,10 @@ class _BaseBatch:
         """Alias của close() (tương thích API cũ)."""
         self.close()
 
+    def request_stop(self) -> None:
+        """Signal blocking readers to stop without changing opened state."""
+        self.close()
+
     # ─── iterator / context manager ──────────────────────────────────────────
 
     def __iter__(self):
@@ -277,3 +281,10 @@ class StreamBatchReader(_BaseBatch):
                 LOGGER.warning("Thread không dừng đúng hạn: %s", t.name)
         self._threads = []
         self._opened = False
+
+    def request_stop(self) -> None:
+        self._stop.set()
+        for reader in self._readers:
+            reader.request_stop()
+        with self._lock:
+            self._lock.notify_all()

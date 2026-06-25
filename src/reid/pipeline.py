@@ -37,9 +37,11 @@ class ReIdPipeline:
         config: ReIdConfig | None = None,
         embedding_function: EmbeddingFunction,
         gallery: IdentityGallery | None = None,
+        close_callback: Callable[[], None] | None = None,
     ):
         self.config = config or ReIdConfig()
         self.gallery = gallery or IdentityGallery(self.config)
+        self._close_callback = close_callback
         self.manager = ReIdTrackManager(
             gallery=self.gallery,
             embedding_function=embedding_function,
@@ -60,7 +62,16 @@ class ReIdPipeline:
         def embedding_function(crop: np.ndarray) -> np.ndarray:
             return embedder.extract_embedding(crop, color_format="bgr").detach().cpu().numpy()
 
-        return cls(config=config, embedding_function=embedding_function)
+        return cls(
+            config=config,
+            embedding_function=embedding_function,
+            close_callback=embedder.close,
+        )
+
+    def close(self) -> None:
+        if self._close_callback is not None:
+            self._close_callback()
+            self._close_callback = None
 
     # ── primary API ───────────────────────────────────────────────────────────
     def process(

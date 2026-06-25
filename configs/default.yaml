@@ -1,13 +1,13 @@
 detection:
-  task: pose
+  task: detect
   model_size: medium
   batch_size: 2
-  conf: 0.4
+  conf: 0.47
   verbose: false
 zone_state_machine:
-  confirm_enter_time: 1.0
-  confirm_exit_time: 2.0
-  pending_enter_miss_grace_time: 3.0
+  confirm_enter_time: 6.0
+  confirm_exit_time: 6.0
+  pending_enter_miss_grace_time: 1.5
 reid:
   enabled: true
   zone_only: true
@@ -15,88 +15,43 @@ reid:
   model_path: weights/reid/osnet_ain_ms_d_c.pth.tar
   device: auto
   embedding:
-    batch_size: 32
+    batch_size: 1
   track:
-    buffer_min: 20
-    grace_period: 20
-    update_interval: 120
-    max_buffer_size: 100
-    gallery_cleanup_interval: 1800
-    max_reverify_misses: 2
+    buffer_min: 1
+    grace_period: 0
+    update_interval: 1
+    max_buffer_size: 1
+    gallery_cleanup_interval: 1
+    max_reverify_misses: 0
   quality:
-    overlap_iou_threshold: 0.25
-    overlap_ioa_threshold: 0.45
-    stable_bbox_window: 100
-    stable_center_shift_ratio: 0.2
-    stable_size_change_ratio: 0.25
-    laplacian_var_threshold: 50.0
+    overlap_iou_threshold: 1.0
+    overlap_ioa_threshold: 1.0
+    stable_bbox_window: 1
+    stable_center_shift_ratio: 0.0
+    stable_size_change_ratio: 0.0
+    laplacian_var_threshold: 0.0
   gallery:
-    sim_threshold_match: 0.8
-    sim_threshold_unsure: 0.65
-    ema_alpha: 0.75
-    max_samples: 5
-    ttl_minutes: 2.0
+    sim_threshold_match: 1.0
+    ema_alpha: 1.0
+    max_samples: 1
+    ttl_minutes: 0.0
 uart:
-  port: /dev/ttyS4
-  baudrate: 115200
+  port: /dev/ttyS0
+  baudrate: 600
 cameras:
-- id: 6x056
-  name: Sảnh giao dịch
-  enabled: true
+- name: AI Center
   stream:
     source: rtsp://admin:061223%40bC@192.168.0.10:554/Streaming/Channels/101
     protocol: tcp
     on_demand: true
-  zones:
-  - id: 11dx4
-    name: thu
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [461, 516]
-    - [725, 444]
-    - [657, 307]
-    - [418, 354]
-  - id: 5jh36
-    name: quyet
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [519, 820]
-    - [804, 804]
-    - [819, 1080]
-    - [524, 1080]
-- id: 98mgh
-  name: Phòng họp
   enabled: true
+  zones: []
+  id: gcphg
+- name: Android Center
   stream:
     source: rtsp://admin:061223%40bC@192.168.0.15:554/Streaming/Channels/101
     protocol: tcp
     on_demand: true
-  zones:
-  - id: tyn3u
-    name: khai
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [1122, 598]
-    - [1425, 473]
-    - [1579, 741]
-    - [1286, 872]
-  - id: qvtmv
-    name: anh
-    goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
-    points:
-    - [285, 766]
-    - [617, 710]
-    - [709, 1045]
-    - [343, 1059]
+  enabled: true
+  zones: []
+  id: rtdll

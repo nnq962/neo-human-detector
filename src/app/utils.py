@@ -23,14 +23,14 @@ def build_detection_config(raw: dict) -> DetectionConfig:
         model_size = str(raw.get("model_size", "nano")),
         batch_size = int(raw.get("batch_size", 1)),
         conf       = float(raw.get("conf", 0.5)),
-        verbose    = bool(raw.get("verbose", True)),
+        verbose    = bool(raw.get("verbose", False)),
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 def build_preview_config(raw: dict, *, show: Optional[bool] = None) -> PreviewConfig:
     return PreviewConfig(
-        enabled       = bool(raw.get("enabled", True)) if show is None else show,
+        enabled       = bool(raw.get("enabled", False)) if show is None else show,
         window_width  = int(raw.get("window_width", 1280)),
         window_height = int(raw.get("window_height", 720)),
     )

@@ -30,8 +30,8 @@ reid:
     batch_size: 32
 
   track:
-    buffer_min: 50
-    grace_period: 20
+    buffer_min: 20             # Cần 20 embedding tốt để confirm (giảm từ 50 → confirm nhanh hơn)
+    grace_period: 90           # Giữ track sống 90 frame khi ra khỏi zone (phải > buffer_min + stable_bbox_window)
     update_interval: 120
     max_buffer_size: 100
     gallery_cleanup_interval: 1800
@@ -40,14 +40,13 @@ reid:
   quality:                     # Lọc crop trước khi extract embedding
     overlap_iou_threshold: 0.25
     overlap_ioa_threshold: 0.45
-    stable_bbox_window: 100
+    stable_bbox_window: 30     # Warmup 30 frame thay vì 100 (tổng min để confirm = 30+20 = 50 frame ≈ 2s)
     stable_center_shift_ratio: 0.20
     stable_size_change_ratio: 0.25
     laplacian_var_threshold: 50.0
 
   gallery:
     sim_threshold_match: 0.80
-    sim_threshold_unsure: 0.65
     ema_alpha: 0.75
     max_samples: 5
     ttl_minutes: 2.0

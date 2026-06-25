@@ -4,7 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import camera, detection, mediamtx, reid, uart, websocket, zone_state_machine
+from api.routes import camera, detection, mediamtx, reid, runtime, uart, websocket, zone_state_machine
 from api.routes.responses import error_response
 
 
@@ -13,6 +13,7 @@ STANDARD_RESPONSE_PREFIXES = (
     "/api/detection",
     "/api/mediamtx",
     "/api/reid",
+    "/api/runtime",
     "/api/uart",
     "/api/zone-state-machine",
 )
@@ -59,6 +60,7 @@ OPENAPI_TAGS = [
     {"name": "Cameras", "description": "Camera and zone configuration."},
     {"name": "Zone State Machine", "description": "Zone state timing configuration."},
     {"name": "ReID", "description": "Re-identification configuration."},
+    {"name": "Runtime", "description": "Application runtime lifecycle."},
     {"name": "UART", "description": "UART serial configuration."},
 ]
 
@@ -104,6 +106,7 @@ app.include_router(
     tags=["Zone State Machine"],
 )
 app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])
+app.include_router(runtime.router, prefix="/api/runtime", tags=["Runtime"])
 app.include_router(uart.router, prefix="/api/uart", tags=["UART"])
 app.include_router(websocket.router)
 

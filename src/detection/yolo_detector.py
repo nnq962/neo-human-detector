@@ -18,10 +18,12 @@ Lưu ý về tracking đa camera:
   cho từng camera index.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+import gc
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 from ultralytics import YOLO
 from ultralytics.trackers import BYTETracker
 from ultralytics.utils.checks import check_yaml
@@ -92,15 +94,25 @@ class YoloDetector:
         return output
 
     def close(self) -> None:
-        """Dọn tài nguyên predictor nội bộ của Ultralytics."""
+        """Dọn tài nguyên predictor/model nội bộ của Ultralytics."""
         try:
-            predictor = getattr(self.model, "predictor", None)
-            if predictor is not None:
-                self.model.predictor = None
+            model = getattr(self, "model", None)
+            if model is not None:
+                try:
+                    model.to("cpu")
+                except Exception:
+                    pass
+
+                predictor = getattr(model, "predictor", None)
+                if predictor is not None:
+                    model.predictor = None
+
+                self.model = None
         except Exception:
             pass
         finally:
             self._trackers.clear()
+            _release_torch_memory()
 
     # ── private ───────────────────────────────────────────────────────────────
 
@@ -164,3 +176,20 @@ class YoloDetector:
             return None
         height, width = orig_img.shape[:2]
         return int(width), int(height)
+
+
+def _release_torch_memory() -> None:
+    gc.collect()
+
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+        except Exception:
+            pass
+
+    if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+        try:
+            torch.mps.empty_cache()
+        except Exception:
+            pass

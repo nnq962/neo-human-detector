@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { LogIn, LogOut, Play, RotateCcw, Square } from "lucide-react"
 import { Link } from "react-router-dom"
+import { toast } from "sonner"
 import {
   Area,
   AreaChart,
@@ -17,7 +18,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { CameraPreview } from "@/components/camera-preview"
+import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
+import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { cn } from "@/lib/utils"
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
@@ -55,37 +58,102 @@ const mockHourlyData = [
 
 type PipelineStatus = "running" | "stopped" | "starting" | "stopping" | "restarting" | "error"
 
-const STATUS_CONFIG: Record<PipelineStatus, { label: string; sub: string; dotClass: string; badgeClass: string }> = {
-  running:    { label: "Running",       sub: "Đã chạy 2 giờ 14 phút",     dotClass: "bg-green-500",  badgeClass: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400" },
-  stopped:    { label: "Stopped",       sub: "Dừng lúc 14:32",             dotClass: "bg-zinc-400",   badgeClass: "border-border bg-muted text-muted-foreground" },
-  starting:   { label: "Starting...",   sub: "Đang khởi động...",          dotClass: "bg-amber-400",  badgeClass: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" },
-  stopping:   { label: "Stopping...",   sub: "Đang dừng...",               dotClass: "bg-amber-400",  badgeClass: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" },
-  restarting: { label: "Restarting...", sub: "Đang khởi động lại...",      dotClass: "bg-blue-400",   badgeClass: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400" },
-  error:      { label: "Error",         sub: "Không thể kết nối camera",   dotClass: "bg-red-500",    badgeClass: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400" },
+const STATUS_CONFIG: Record<PipelineStatus, { label: string; dotClass: string; badgeClass: string }> = {
+  running:    { label: "Running",       dotClass: "bg-green-500",  badgeClass: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400" },
+  stopped:    { label: "Stopped",       dotClass: "bg-zinc-400",   badgeClass: "border-border bg-muted text-muted-foreground" },
+  starting:   { label: "Starting...",   dotClass: "bg-amber-400",  badgeClass: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" },
+  stopping:   { label: "Stopping...",   dotClass: "bg-amber-400",  badgeClass: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" },
+  restarting: { label: "Restarting...", dotClass: "bg-blue-400",   badgeClass: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400" },
+  error:      { label: "Error",         dotClass: "bg-red-500",    badgeClass: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400" },
+}
+
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0) return `${h} giờ ${m} phút`
+  if (m > 0) return `${m} phút ${s} giây`
+  return `${s} giây`
+}
+
+function getStatusSub(displayState: PipelineStatus, rtStatus: RuntimeStatus | null): string {
+  switch (displayState) {
+    case "running":
+      return rtStatus?.uptime_seconds != null
+        ? `Đã chạy ${formatUptime(rtStatus.uptime_seconds)}`
+        : "Đang chạy..."
+    case "stopped":
+      return rtStatus?.stopped_at
+        ? `Dừng lúc ${new Date(rtStatus.stopped_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
+        : "Đã dừng"
+    case "error":
+      return rtStatus?.last_error ?? "Lỗi không xác định"
+    case "starting":   return "Đang khởi động..."
+    case "stopping":   return "Đang dừng..."
+    case "restarting": return "Đang khởi động lại..."
+  }
 }
 
 function PipelineCard() {
-  const [status, setStatus] = useState<PipelineStatus>("running")
+  const { status: rtStatus, connected } = useRuntimeStatus()
+  const [isRestarting, setIsRestarting] = useState(false)
+  const [isActing, setIsActing] = useState(false)
 
-  const transitioning = status === "starting" || status === "stopping" || status === "restarting"
-  const s = STATUS_CONFIG[status]
+  const wsState = rtStatus?.state ?? null
+
+  useEffect(() => {
+    if (isRestarting && (wsState === "running" || wsState === "error")) {
+      setIsRestarting(false)
+    }
+  }, [wsState, isRestarting])
+
+  const displayState: PipelineStatus = (() => {
+    if (wsState === null) return "stopped"
+    if (isRestarting && wsState !== "running" && wsState !== "error") return "restarting"
+    return wsState
+  })()
+
+  const transitioning = displayState === "starting" || displayState === "stopping" || displayState === "restarting"
+  const s = STATUS_CONFIG[displayState]
+  const sub = rtStatus === null && !connected
+    ? "Đang kết nối tới server..."
+    : getStatusSub(displayState, rtStatus)
+
+  const buttonsDisabled = !connected || transitioning || isActing
 
   async function handleStart() {
-    setStatus("starting")
-    await new Promise((r) => setTimeout(r, 1500))
-    setStatus("running")
+    setIsActing(true)
+    try {
+      await runtimeApi.start()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không thể khởi động pipeline")
+    } finally {
+      setIsActing(false)
+    }
   }
 
   async function handleStop() {
-    setStatus("stopping")
-    await new Promise((r) => setTimeout(r, 1500))
-    setStatus("stopped")
+    setIsActing(true)
+    try {
+      await runtimeApi.stop()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không thể dừng pipeline")
+    } finally {
+      setIsActing(false)
+    }
   }
 
   async function handleRestart() {
-    setStatus("restarting")
-    await new Promise((r) => setTimeout(r, 2000))
-    setStatus("running")
+    setIsRestarting(true)
+    setIsActing(true)
+    try {
+      await runtimeApi.restart()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không thể khởi động lại pipeline")
+      setIsRestarting(false)
+    } finally {
+      setIsActing(false)
+    }
   }
 
   return (
@@ -111,7 +179,7 @@ function PipelineCard() {
                 {s.label}
               </Badge>
             </div>
-            <span className="text-xs text-muted-foreground">{s.sub}</span>
+            <span className="text-xs text-muted-foreground">{sub}</span>
           </div>
         </div>
 
@@ -120,7 +188,7 @@ function PipelineCard() {
           <Button
             size="sm"
             className="flex-1 sm:flex-none"
-            disabled={status === "running" || transitioning}
+            disabled={buttonsDisabled || displayState === "running"}
             onClick={handleStart}
           >
             <Play />
@@ -130,7 +198,7 @@ function PipelineCard() {
             size="sm"
             variant="destructive"
             className="flex-1 sm:flex-none"
-            disabled={status === "stopped" || transitioning}
+            disabled={buttonsDisabled || displayState === "stopped"}
             onClick={handleStop}
           >
             <Square />
@@ -140,7 +208,7 @@ function PipelineCard() {
             size="sm"
             variant="outline"
             className="flex-1 sm:flex-none"
-            disabled={status === "stopped" || transitioning}
+            disabled={buttonsDisabled || displayState === "stopped"}
             onClick={handleRestart}
           >
             <RotateCcw />

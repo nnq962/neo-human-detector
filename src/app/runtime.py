@@ -5,6 +5,7 @@ Runtime: MediaSources → YOLO → Zone management → ReID → Visualization.
 from __future__ import annotations
 
 import numpy as np
+import threading
 from typing import Dict, List, Optional
 
 import cv2
@@ -37,12 +38,18 @@ class Runtime:
         self.zone_machines: Dict[str, ZoneStateMachine] = {}
         self.reid_pipeline: Optional[ReIdPipeline] = None
         self.is_running = False
+        self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
         self._frame_counters: Dict[str, int] = {}
 
     def run(self) -> None:
         """Chạy vòng lặp detect cho đến khi hết stream hoặc Ctrl+C."""
+        self._stop_requested.clear()
         self._prepare()
+
+        if self._stop_requested.is_set():
+            return
+
         self.is_running = True
 
         try:
@@ -51,9 +58,12 @@ class Runtime:
 
             predict_function = self.detector.track_batch
 
+            if self._stop_requested.is_set():
+                return
+
             with self.media_sources:
                 for frames, metas in self.media_sources:
-                    if not self.is_running:
+                    if self._stop_requested.is_set() or not self.is_running:
                         break
 
                     detection_frames = predict_function(frames)
@@ -107,11 +117,12 @@ class Runtime:
             self.stop()
 
     def stop(self) -> None:
+        self._stop_requested.set()
         self.is_running = False
 
         if self.media_sources is not None:
             try:
-                self.media_sources.release()
+                self.media_sources.request_stop()
             except Exception:
                 pass
             self.media_sources = None
@@ -120,12 +131,27 @@ class Runtime:
             self.detector.close()
             self.detector = None
 
+        if self.reid_pipeline is not None:
+            self.reid_pipeline.close()
+            self.reid_pipeline = None
+
         try:
             cv2.destroyAllWindows()
         except Exception:
             pass
 
         LOGGER.info("Runtime stopped.")
+
+    def request_stop(self) -> None:
+        """Signal the runtime loop to stop without closing model resources."""
+        self._stop_requested.set()
+        self.is_running = False
+
+        if self.media_sources is not None:
+            try:
+                self.media_sources.release()
+            except Exception:
+                pass
 
     # ── setup ─────────────────────────────────────────────────────────────────
     def _prepare(self) -> None:

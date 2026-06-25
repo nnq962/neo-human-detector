@@ -8,6 +8,7 @@ File này bọc OSNet-AIN checkpoint hiện có. Runtime chỉ import/load embed
 from __future__ import annotations
 
 from collections import OrderedDict
+import gc
 from pathlib import Path
 from typing import Literal, Sequence, Union
 
@@ -56,6 +57,32 @@ class OSNetPersonEmbedder:
         self.transform = self._build_preprocess()
         self.model = self._load_model(verbose=verbose)
 
+    def close(self) -> None:
+        """Release model references and cached accelerator memory."""
+        try:
+            model = getattr(self, "model", None)
+            if model is not None:
+                try:
+                    model.to("cpu")
+                except Exception:
+                    pass
+                self.model = None
+        finally:
+            gc.collect()
+
+            if torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                except Exception:
+                    pass
+
+            if hasattr(torch, "mps") and hasattr(torch.mps, "empty_cache"):
+                try:
+                    torch.mps.empty_cache()
+                except Exception:
+                    pass
+
     def extract_embedding(
         self,
         image: ImageInput,
@@ -80,6 +107,9 @@ class OSNetPersonEmbedder:
         actual_batch_size = batch_size or self.batch_size
         if actual_batch_size <= 0:
             raise ValueError("batch_size must be positive")
+
+        if self.model is None:
+            raise RuntimeError("ReID embedder is closed.")
 
         outputs: list[Tensor] = []
         for start in range(0, len(images), actual_batch_size):
