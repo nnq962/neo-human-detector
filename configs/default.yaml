@@ -1,5 +1,5 @@
 detection:
-  task: detect
+  task: pose
   model_size: medium
   batch_size: 2
   conf: 0.47
@@ -17,24 +17,24 @@ reid:
   embedding:
     batch_size: 1
   track:
-    buffer_min: 1
-    grace_period: 0
-    update_interval: 1
+    buffer_min: 30
+    grace_period: 90
+    update_interval: 120
     max_buffer_size: 1
-    gallery_cleanup_interval: 1
-    max_reverify_misses: 0
+    gallery_cleanup_interval: 1800
+    max_reverify_misses: 5
   quality:
-    overlap_iou_threshold: 1.0
-    overlap_ioa_threshold: 1.0
-    stable_bbox_window: 1
-    stable_center_shift_ratio: 0.0
-    stable_size_change_ratio: 0.0
-    laplacian_var_threshold: 0.0
+    overlap_iou_threshold: 0.25
+    overlap_ioa_threshold: 0.45
+    stable_bbox_window: 30
+    stable_center_shift_ratio: 0.2
+    stable_size_change_ratio: 0.25
+    laplacian_var_threshold: 50.0
   gallery:
-    sim_threshold_match: 1.0
-    ema_alpha: 1.0
-    max_samples: 1
-    ttl_minutes: 0.0
+    sim_threshold_match: 0.75
+    ema_alpha: 0.75
+    max_samples: 5
+    ttl_minutes: 2.0
 uart:
   port: /dev/ttyS0
   baudrate: 600
@@ -45,7 +45,18 @@ cameras:
     protocol: tcp
     on_demand: true
   enabled: true
-  zones: []
+  zones:
+  - id: 8xcdb
+    name: nnq
+    goal_pose:
+      x: 0.0
+      y: 0.0
+      theta: 0.0
+    points:
+    - [418, 802]
+    - [763, 757]
+    - [819, 1080]
+    - [439, 1080]
   id: gcphg
 - name: Android Center
   stream:
@@ -53,5 +64,12 @@ cameras:
     protocol: tcp
     on_demand: true
   enabled: true
-  zones: []
+  zones:
+  - name: pop
+    points:
+    - [669, 415]
+    - [889, 395]
+    - [913, 574]
+    - [750, 594]
+    id: rnxy5
   id: rtdll

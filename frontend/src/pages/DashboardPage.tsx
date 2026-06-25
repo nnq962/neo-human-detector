@@ -15,10 +15,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { CameraPreview } from "@/components/camera-preview"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
+import { useBboxes, type CameraDetectionPayload } from "@/hooks/use-bboxes"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { cn } from "@/lib/utils"
@@ -68,9 +76,12 @@ const STATUS_CONFIG: Record<PipelineStatus, { label: string; dotClass: string; b
 }
 
 function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400)
   const h = Math.floor(seconds / 3600)
+  const hInDay = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
+  if (d > 0) return `${d} ngày ${hInDay} giờ ${m} phút`
   if (h > 0) return `${h} giờ ${m} phút`
   if (m > 0) return `${m} phút ${s} giây`
   return `${s} giây`
@@ -96,6 +107,7 @@ function getStatusSub(displayState: PipelineStatus, rtStatus: RuntimeStatus | nu
 
 function PipelineCard() {
   const { status: rtStatus, connected } = useRuntimeStatus()
+  const [autoStart, setAutoStart] = useState(false)
   const [isRestarting, setIsRestarting] = useState(false)
   const [isActing, setIsActing] = useState(false)
 
@@ -184,7 +196,23 @@ function PipelineCard() {
         </div>
 
         {/* Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Auto start</span>
+            <Select
+              value={autoStart ? "true" : "false"}
+              onValueChange={(value) => setAutoStart(value === "true")}
+              
+            >
+              <SelectTrigger size="sm" className="w-[100px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectItem value="false">Enabled</SelectItem>
+                <SelectItem value="true">Disabled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             size="sm"
             className="flex-1 sm:flex-none"
@@ -223,13 +251,19 @@ function PipelineCard() {
 
 // ── Camera cell ───────────────────────────────────────────────────────────────
 
-function CameraCell({ camera }: { camera: Camera }) {
+function CameraCell({ camera, cameraDetections }: { camera: Camera; cameraDetections?: CameraDetectionPayload }) {
   return (
     <Link
       to={`/cameras/${camera.id}`}
       className="relative block aspect-video overflow-hidden rounded-lg ring-1 ring-border transition-shadow hover:ring-2 hover:ring-ring"
     >
-      <CameraPreview src={camera.webrtc_address ?? ""} />
+      <CameraPreview
+        src={camera.webrtc_address ?? ""}
+        zones={camera.zones}
+        zoneStates={cameraDetections?.zones}
+        detections={cameraDetections?.detections}
+        hideFaceKeypoints={true}
+      />
       <div className="pointer-events-none absolute bottom-3 left-3 z-30 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
         {camera.name}
       </div>
@@ -280,6 +314,7 @@ function EventItem({ event }: { event: (typeof mockEvents)[number] }) {
 
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
+  const bboxes = useBboxes()
   const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
@@ -304,7 +339,7 @@ export function DashboardPage() {
           ) : (
             <div className={cn("grid gap-4", gridCols)}>
               {cameras.map((cam) => (
-                <CameraCell key={cam.id} camera={cam} />
+                <CameraCell key={cam.id} camera={cam} cameraDetections={bboxes[cam.id]} />
               ))}
             </div>
           )}

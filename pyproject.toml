@@ -1,13 +1,13 @@
 [project]
 name = "neo-human-detector-batch"
 version = "0.1.0"
-requires-python = ">=3.8"
+requires-python = ">=3.10,<3.11"
 dependencies = [
     "colorlog>=6.10.1",
     "fastapi>=0.124.4",
     "gdown>=5.2.2",
     "lapx>=0.9.4",
-    "opencv-python>=4.13.0.92",
+    "opencv-python",
     "pyserial>=3.5",
     "pytz>=2026.2",
     "tensorboard>=2.14.0",
@@ -22,3 +22,6 @@ dependencies = [
 dev = [
     "ruff>=0.15.14",
 ]
+
+[tool.uv.sources]
+opencv-python = { path = "../../python-wheels/opencv/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }

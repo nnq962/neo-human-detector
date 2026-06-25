@@ -3,6 +3,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from api.routes.responses import ok
 from api.services import runtime as runtime_service
+from src.app.runtime_state import runtime_state
 from uart.uart_manager import uart_manager
 from utils import LOGGER
 
@@ -12,14 +13,14 @@ MAX_RUNTIME_STATUS_INTERVAL_SECONDS = 10.0
 
 
 def get_latest_bbox_payload():
-    return None
+    return runtime_state.get_latest_payload()
 
 # ────────────────────────────────────────────────────────────────
-# Gửi dữ liệu lên web priview
-@router.websocket("/ws/bboxes")
+# Gửi dữ liệu bbox/pose runtime lên web preview
+@router.websocket("/ws/runtime/bboxes")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    LOGGER.info("Client connected to /ws/bboxes")
+    LOGGER.info("Client connected to /ws/runtime/bboxes")
     last_camera_timestamps = {}
     try:
         while True:
@@ -38,7 +39,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Quét dữ liệu 20 lần mỗi giây (50ms)
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
-        LOGGER.info("Client disconnected from /ws/bboxes")
+        LOGGER.info("Client disconnected from /ws/runtime/bboxes")
 
 # ────────────────────────────────────────────────────────────────
 # Chuyển dữ liệu từ uart receive lên web config

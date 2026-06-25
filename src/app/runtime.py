@@ -12,6 +12,7 @@ import cv2
 from unidecode import unidecode
 
 from src.app.datatypes import RuntimeConfig
+from src.app.runtime_state import build_camera_detection_payload, runtime_state
 from src.app.utils import build_runtime_config
 from src.camera_initializer import Camera, load_cameras_from_config
 from src.detection.datatypes import InferenceFrame
@@ -68,6 +69,7 @@ class Runtime:
 
                     detection_frames = predict_function(frames)
                     self._validate_batch_lengths(frames, metas, detection_frames)
+                    batch_payload: dict[str, dict] = {}
 
                     for frame, meta, detection_frame, camera in zip(
                         frames, metas, detection_frames, self.cameras
@@ -94,6 +96,12 @@ class Runtime:
                             detection_frame=detection_frame,
                             zone_names=zone_names,
                         )
+                        batch_payload[camera.id] = build_camera_detection_payload(
+                            camera=camera,
+                            detection_frame=detection_frame,
+                            timestamp=meta.timestamp,
+                            zone_names=zone_names,
+                        )
 
                         if self.config.detection.verbose:
                             matched = sum(
@@ -110,6 +118,9 @@ class Runtime:
 
                         if self.config.preview.enabled:
                             self._render(frame, camera, detection_frame, fps)
+
+                    if batch_payload:
+                        runtime_state.publish_detection_batch(batch_payload)
 
         except KeyboardInterrupt:
             LOGGER.info("Ctrl+C — stopping runtime.")
@@ -140,6 +151,7 @@ class Runtime:
         except Exception:
             pass
 
+        runtime_state.clear()
         LOGGER.info("Runtime stopped.")
 
     def request_stop(self) -> None:

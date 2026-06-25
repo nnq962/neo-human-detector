@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Canvas, Circle, FabricText, Point, Polygon, Polyline, controlsUtils } from "fabric"
+import { Canvas, Circle, FabricText, Line, Point, Polygon, Polyline, controlsUtils } from "fabric"
 import { cn } from "@/lib/utils"
 import type { Zone } from "@/api/cameras.api"
+import type { DetectionPayload, RuntimeZonePayload } from "@/hooks/use-bboxes"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,26 @@ function generateSdpFragment(offer: OfferData, candidates: RTCIceCandidate[]) {
   return frag
 }
 
+// ── Detection drawing constants ───────────────────────────────────────────────
+
+const DETECTION_COLORS = [
+  "#ef4444", "#f97316", "#eab308", "#22c55e",
+  "#06b6d4", "#a855f7", "#ec4899", "#14b8a6",
+]
+
+// COCO 17-keypoint skeleton connections
+const COCO_SKELETON: [number, number][] = [
+  [15, 13], [13, 11], [16, 14], [14, 12],
+  [11, 12], [5, 11], [6, 12], [5, 6],
+  [5, 7], [6, 8], [7, 9], [8, 10],
+  [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6],
+]
+
+// nose, left/right eye, left/right ear
+const FACE_KEYPOINT_INDICES = new Set([0, 1, 2, 3, 4])
+
+const POSE_CONF_THRESHOLD = 0.3
+
 // ── Fabric helpers ────────────────────────────────────────────────────────────
 
 const zoneColors = [
@@ -80,11 +101,30 @@ const zoneColors = [
   { fill: "rgba(236, 72, 153, 0.22)", stroke: "#ec4899" },
 ]
 
+const zoneStateColors: Record<string, { fill: string; stroke: string }> = {
+  EMPTY:         { fill: "rgba(239, 68, 68, 0.18)",   stroke: "#ef4444" },
+  PENDING_ENTER: { fill: "rgba(245, 158, 11, 0.22)",  stroke: "#f59e0b" },
+  OCCUPIED:      { fill: "rgba(34, 197, 94, 0.22)",   stroke: "#22c55e" },
+  PENDING_EXIT:  { fill: "rgba(234, 179, 8, 0.22)",    stroke: "#eab308" },
+}
+
 function getAbsolutePolygonPoints(polygon: Polygon) {
   const transform = polygon.calcTransformMatrix()
   return polygon.points.map((p) =>
     new Point(p.x - polygon.pathOffset.x, p.y - polygon.pathOffset.y).transform(transform),
   )
+}
+
+function getZoneRuntimeState(zone: Zone, zoneStates?: Record<string, RuntimeZonePayload>) {
+  if (!zoneStates) return null
+  const byId = zone.id ? zoneStates[zone.id] : undefined
+  return byId?.state ?? zoneStates[zone.name]?.state ?? null
+}
+
+function getZoneColor(zone: Zone, index: number, zoneStates?: Record<string, RuntimeZonePayload>) {
+  const state = getZoneRuntimeState(zone, zoneStates)
+  if (state && zoneStateColors[state]) return zoneStateColors[state]
+  return zoneColors[index % zoneColors.length]
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -99,6 +139,9 @@ export interface CameraPreviewProps {
   onZoneAdd?: (points: number[][]) => void
   onZonePointsChange?: (index: number, points: number[][]) => void
   onZoneSelect?: (index: number) => void
+  detections?: DetectionPayload[]
+  zoneStates?: Record<string, RuntimeZonePayload>
+  hideFaceKeypoints?: boolean
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -113,6 +156,9 @@ export function CameraPreview({
   onZoneAdd,
   onZonePointsChange,
   onZoneSelect,
+  detections = [],
+  zoneStates,
+  hideFaceKeypoints = false,
 }: CameraPreviewProps) {
   const containerRef    = useRef<HTMLDivElement>(null)
   const videoRef        = useRef<HTMLVideoElement>(null)
@@ -186,7 +232,7 @@ export function CameraPreview({
     const offsetY = (previewSize.height - renderedH) / 2
 
     zones.forEach((zone, index) => {
-      const color     = zoneColors[index % zoneColors.length]
+      const color     = getZoneColor(zone, index, zoneStates)
       const isSelected = index === selectedZoneIndex
       const points    = zone.points.map(([x, y]) => ({ x: offsetX + x * scale, y: offsetY + y * scale }))
       if (points.length < 3) return
@@ -275,8 +321,66 @@ export function CameraPreview({
       })
     }
 
+    // ── Draw detections (bbox + optional pose) ────────────────────────────
+    detections.forEach((det) => {
+      const color = DETECTION_COLORS[0]
+      const [x1, y1, x2, y2] = det.bbox.xyxy
+      const cx1 = offsetX + x1 * scale
+      const cy1 = offsetY + y1 * scale
+      const cx2 = offsetX + x2 * scale
+      const cy2 = offsetY + y2 * scale
+
+      // Polyline draws from absolute canvas points — same pattern as draft zones
+      canvas.add(new Polyline(
+        [{ x: cx1, y: cy1 }, { x: cx2, y: cy1 }, { x: cx2, y: cy2 }, { x: cx1, y: cy2 }, { x: cx1, y: cy1 }],
+        { fill: "transparent", stroke: color, strokeWidth: 2, selectable: false, evented: false },
+      ))
+
+      const idParts: string[] = []
+      if (det.track_id != null) idParts.push(`#${det.track_id}`)
+      if (det.global_id != null) idParts.push(`ID:${det.global_id}`)
+
+      const scoreParts = [`${(det.confidence * 100).toFixed(0)}%`]
+      if (det.similarity != null) scoreParts.push(`sim:${det.similarity.toFixed(2)}`)
+
+      const lines: string[] = []
+      if (idParts.length > 0) lines.push(idParts.join("  "))
+      lines.push(scoreParts.join("  "))
+      if (det.status) lines.push(det.status)
+
+      canvas.add(new FabricText(lines.join("\n"), {
+        left: cx1 + 3,
+        top: cy1 + 3,
+        fontSize: 11,
+        lineHeight: 1.35,
+        fill: "#ffffff",
+        backgroundColor: `${color}bb`,
+        padding: 3,
+        originX: "left",
+        originY: "top",
+        selectable: false,
+        evented: false,
+      }))
+
+      if (det.pose) {
+        const kps = det.pose.keypoints
+
+        COCO_SKELETON.forEach(([i, j]) => {
+          if (hideFaceKeypoints && (FACE_KEYPOINT_INDICES.has(i) || FACE_KEYPOINT_INDICES.has(j))) return
+          const ki = kps[i], kj = kps[j]
+          if (!ki || !kj || ki[2] < POSE_CONF_THRESHOLD || kj[2] < POSE_CONF_THRESHOLD) return
+          canvas.add(new Line(
+            [offsetX + ki[0] * scale, offsetY + ki[1] * scale,
+             offsetX + kj[0] * scale, offsetY + kj[1] * scale],
+            { stroke: color, strokeWidth: 1.5, opacity: 0.8, selectable: false, evented: false },
+          ))
+        })
+
+      }
+    })
+
     canvas.requestRenderAll()
-  }, [previewSize, videoSize, zones, selectedZoneIndex, isEditingVertices, isAddingZone, draftPoints, onZoneSelect, onZonePointsChange])
+  }, [previewSize, videoSize, zones, zoneStates, selectedZoneIndex, isEditingVertices, isAddingZone, draftPoints, detections, hideFaceKeypoints, onZoneSelect, onZonePointsChange])
 
   // ── Add zone — mouse interaction ─────────────────────────────────────────
   useEffect(() => {
