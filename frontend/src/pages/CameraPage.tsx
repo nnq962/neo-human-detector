@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCamera } from "@/hooks/use-camera"
 import { useInvalidateCameras } from "@/hooks/use-cameras"
+import { useUartEvents } from "@/hooks/use-uart-events"
 import { camerasApi, type Camera, type Zone, type GoalPose } from "@/api/cameras.api"
 import { EditCameraDialog } from "@/components/edit-camera-dialog"
 import { CameraPreview } from "@/components/camera-preview"
@@ -45,6 +46,26 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value !== "string" || value.trim() === "") return null
+
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : null
+}
+
+function getGoalPoseFromUartData(data: unknown): GoalPose | null {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return null
+
+  const payload = data as Record<string, unknown>
+  const x = toFiniteNumber(payload.x)
+  const y = toFiniteNumber(payload.y)
+  const theta = toFiniteNumber(payload.theta)
+
+  if (x === null || y === null || theta === null) return null
+  return { x, y, theta }
+}
+
 function GoalPoseField({
   label,
   value,
@@ -67,7 +88,7 @@ function GoalPoseField({
   }, [value])
 
   return (
-    <div className="flex h-8 items-center rounded-md border border-input bg-background text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:disabled]:opacity-50">
+    <div className="box-border flex h-8 w-full max-w-full items-center rounded-md border border-input bg-background text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:disabled]:opacity-50">
       <span className="shrink-0 select-none pl-2.5 pr-2 text-muted-foreground">{label}</span>
       <div className="self-stretch w-px bg-border" />
       <input
@@ -138,6 +159,36 @@ export function CameraPage() {
   const isInteracting = isAddingZone || isEditingVertices
   const displayZones  = isEditingVertices ? draftZones : (camera?.zones ?? [])
 
+  const { status: uartEventsStatus } = useUartEvents({
+    enabled: isEditingVertices && realtimeGoalPose,
+    type: "json",
+    onEvent: (event) => {
+      const goalPose = getGoalPoseFromUartData(event.data)
+      if (goalPose) setDraftGoalPose(goalPose)
+    },
+  })
+
+  useEffect(() => {
+    setEditOpen(false)
+    setDeleteOpen(false)
+    setIsAddingZone(false)
+    setIsEditingVertices(false)
+    setSelectedZoneIndex(null)
+    setDraftZones([])
+    setIsConfirming(false)
+    setDraftZoneName("")
+    setZoneNameError("")
+    setDraftGoalPose({ x: 0, y: 0, theta: 0 })
+    setRealtimeGoalPose(false)
+    setPendingPoints(null)
+    setZoneNameDialogOpen(false)
+    setPendingZoneName("")
+    setPendingZoneNameError("")
+    setIsSavingZone(false)
+    setDeletingZoneId(null)
+    setIsDeletingZone(false)
+  }, [id])
+
   function invalidateCamera() {
     queryClient.invalidateQueries({ queryKey: ["cameras", id] })
   }
@@ -166,6 +217,20 @@ export function CameraPage() {
     setSelectedZoneIndex(index)
     setDraftZones([...(camera?.zones ?? [])])
     setIsEditingVertices(true)
+    setDraftZoneName(zone?.name ?? "")
+    setZoneNameError("")
+    setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
+    setRealtimeGoalPose(false)
+  }
+
+  function handleZoneSelect(index: number) {
+    if (index === selectedZoneIndex) return
+
+    setSelectedZoneIndex(index)
+
+    if (!isEditingVertices) return
+
+    const zone = draftZones[index]
     setDraftZoneName(zone?.name ?? "")
     setZoneNameError("")
     setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
@@ -374,12 +439,12 @@ export function CameraPage() {
                   selectedZoneIndex={selectedZoneIndex}
                   onZoneAdd={handleZoneAdd}
                   onZonePointsChange={handleZonePointsChange}
-                  onZoneSelect={setSelectedZoneIndex}
+                  onZoneSelect={handleZoneSelect}
                 />
               </div>
 
               {/* Zone panel */}
-              <div className="flex shrink-0 flex-col border-t md:border-t-0 md:border-l w-full md:w-64 h-[300px] md:h-auto">
+              <div className="flex h-[475px] w-full shrink-0 flex-col border-t md:h-auto md:w-64 md:border-l md:border-t-0">
                 {isInteracting ? (
                   <>
                     {/* Header */}
@@ -389,71 +454,88 @@ export function CameraPage() {
                       </p>
                     </div>
 
-                    {/* Scrollable content */}
-                    <ScrollArea className="flex-1 min-h-0">
-                    <div className="p-4 flex flex-col gap-4">
-                      {isEditingVertices && (
-                        <>
-                          {/* Zone name */}
-                          <div className="flex flex-col gap-1.5">
-                            <p className="text-xs font-medium">Tên zone</p>
-                            <Input
-                              value={draftZoneName}
-                              onChange={(e) => { setDraftZoneName(e.target.value); setZoneNameError("") }}
-                              className="h-7 text-xs"
-                              placeholder="Tên zone"
-                            />
-                            {zoneNameError && (
-                              <p className="text-xs text-destructive">{zoneNameError}</p>
-                            )}
-                          </div>
+                    {/* Content */}
+                    <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                      <div className="box-border flex w-full max-w-full min-w-0 flex-col gap-4 overflow-x-hidden p-4">
+                        {isEditingVertices && (
+                          <>
+                            {/* Zone name */}
+                            <div className="flex min-w-0 flex-col gap-1.5">
+                              <p className="text-xs font-medium">Tên zone</p>
+                              <Input
+                                value={draftZoneName}
+                                onChange={(e) => { setDraftZoneName(e.target.value); setZoneNameError("") }}
+                                className="h-7 text-xs"
+                                placeholder="Tên zone"
+                              />
+                              {zoneNameError && (
+                                <p className="text-xs text-destructive">{zoneNameError}</p>
+                              )}
+                            </div>
 
-                          {/* Goal pose fields */}
-                          <div className="flex flex-col gap-2">
-                            <p className="text-xs font-medium">Goal Pose</p>
-                            <GoalPoseField
-                              label="X"
-                              value={draftGoalPose.x}
-                              onChange={(v) => setDraftGoalPose((p) => ({ ...p, x: v }))}
-                              disabled={realtimeGoalPose}
-                            />
-                            <GoalPoseField
-                              label="Y"
-                              value={draftGoalPose.y}
-                              onChange={(v) => setDraftGoalPose((p) => ({ ...p, y: v }))}
-                              disabled={realtimeGoalPose}
-                            />
-                            <GoalPoseField
-                              label="θ"
-                              value={draftGoalPose.theta}
-                              onChange={(v) => setDraftGoalPose((p) => ({ ...p, theta: v }))}
-                              disabled={realtimeGoalPose}
-                            />
-                          </div>
+                            {/* Goal pose fields */}
+                            <div className="flex min-w-0 flex-col gap-2">
+                              <p className="text-xs font-medium">Goal Pose</p>
+                              <GoalPoseField
+                                label="X"
+                                value={draftGoalPose.x}
+                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, x: v }))}
+                                disabled={realtimeGoalPose}
+                              />
+                              <GoalPoseField
+                                label="Y"
+                                value={draftGoalPose.y}
+                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, y: v }))}
+                                disabled={realtimeGoalPose}
+                              />
+                              <GoalPoseField
+                                label="θ"
+                                value={draftGoalPose.theta}
+                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, theta: v }))}
+                                disabled={realtimeGoalPose}
+                              />
+                            </div>
 
-                          {/* Realtime switch */}
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground leading-snug">
-                              Nhận giá trị realtime
-                            </span>
-                            <Switch
-                              checked={realtimeGoalPose}
-                              onCheckedChange={setRealtimeGoalPose}
-                            />
-                          </div>
+                            {/* Realtime switch */}
+                            <div className="flex min-w-0 items-center justify-between gap-2">
+                              <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground leading-snug">
+                                <span>Nhận giá trị realtime</span>
+                                <span className="relative flex size-2 shrink-0">
+                                  {uartEventsStatus === "connected" && (
+                                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+                                  )}
+                                  <span
+                                    className={`relative inline-flex size-2 rounded-full ${
+                                      uartEventsStatus === "connected"
+                                        ? "bg-green-400"
+                                        : uartEventsStatus === "connecting"
+                                          ? "bg-amber-400"
+                                          : uartEventsStatus === "error"
+                                            ? "bg-red-400"
+                                            : "bg-muted-foreground/60"
+                                    }`}
+                                  />
+                                </span>
+                              </span>
+                              <Switch
+                                checked={realtimeGoalPose}
+                                onCheckedChange={setRealtimeGoalPose}
+                                className="shrink-0"
+                              />
+                            </div>
 
-                          <Separator />
-                        </>
-                      )}
+                            <Separator />
+                          </>
+                        )}
 
-                      {/* Instruction */}
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {isAddingZone
-                          ? "Click lên video để thêm từng điểm. Double-click để hoàn tất polygon."
-                          : "Kéo các điểm trên video để chỉnh lại vị trí của zone."}
-                      </p>
+                        {/* Instruction */}
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {isAddingZone
+                            ? "Click lên video để thêm từng điểm. Double-click để hoàn tất polygon."
+                            : "Kéo các điểm trên video để chỉnh lại vị trí của zone."}
+                        </p>
+                      </div>
                     </div>
-                    </ScrollArea>
 
                     {/* Pinned buttons */}
                     <div className="border-t p-4 flex flex-col gap-2">
@@ -479,8 +561,8 @@ export function CameraPage() {
                     </div>
 
                     {/* Zone list */}
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                      <ul>
+                    <ScrollArea className="min-h-0 w-full min-w-0 flex-1">
+                      <ul className="w-full min-w-0 py-1">
                         {camera.zones.length === 0 ? (
                           <li className="px-4 py-6 text-center text-xs text-muted-foreground">
                             Chưa có zone nào.
@@ -489,64 +571,67 @@ export function CameraPage() {
                           camera.zones.map((zone, index) => (
                             <li
                               key={zone.id ?? index}
-                              className="flex items-center gap-2 overflow-hidden px-3 py-2.5 transition-colors hover:bg-muted/50"
+                              className="min-w-0 overflow-hidden"
                             >
-                              <div className="flex flex-1 items-center gap-2 overflow-hidden">
-                                {/* Number badge */}
-                                <span
-                                  className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                                  style={{ backgroundColor: ZONE_COLORS[index % ZONE_COLORS.length] }}
-                                >
-                                  {index + 1}
-                                </span>
-                                <span className="truncate text-sm">{zone.name}</span>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1">
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="size-7"
-                                  onClick={() => handleStartEdit(index)}
-                                >
-                                  <Pencil className="size-3.5" />
-                                </Button>
-                                <Popover
-                                  open={deletingZoneId === zone.id}
-                                  onOpenChange={(open) => setDeletingZoneId(open ? (zone.id ?? null) : null)}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent align="end" className="w-56">
-                                    <PopoverHeader>
-                                      <PopoverTitle>Xóa zone</PopoverTitle>
-                                      <PopoverDescription>
-                                        Bạn có chắc muốn xóa{" "}
-                                        <span className="font-medium text-foreground">"{zone.name}"</span>?
-                                      </PopoverDescription>
-                                    </PopoverHeader>
-                                    <div className="flex justify-end gap-2">
-                                      <Button size="sm" variant="outline" onClick={() => setDeletingZoneId(null)}>
-                                        Hủy
+                              <div className="flex items-center gap-2 overflow-hidden px-3 py-2.5 transition-colors hover:bg-muted/50">
+                                <div className="flex flex-1 items-center gap-2 overflow-hidden">
+                                  {/* Number badge */}
+                                  <span
+                                    className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                                    style={{ backgroundColor: ZONE_COLORS[index % ZONE_COLORS.length] }}
+                                  >
+                                    {index + 1}
+                                  </span>
+                                  <span className="truncate text-sm">{zone.name}</span>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="size-7"
+                                    onClick={() => handleStartEdit(index)}
+                                  >
+                                    <Pencil className="size-3.5" />
+                                  </Button>
+                                  <Popover
+                                    open={deletingZoneId === zone.id}
+                                    onOpenChange={(open) => setDeletingZoneId(open ? (zone.id ?? null) : null)}
+                                  >
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                                      >
+                                        <Trash2 className="size-3.5" />
                                       </Button>
-                                      <Button size="sm" variant="destructive" disabled={isDeletingZone} onClick={handleDeleteZone}>
-                                        {isDeletingZone ? "Đang xóa..." : "Xóa"}
-                                      </Button>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
+                                    </PopoverTrigger>
+                                    <PopoverContent align="end" className="w-56">
+                                      <PopoverHeader>
+                                        <PopoverTitle>Xóa zone</PopoverTitle>
+                                        <PopoverDescription>
+                                          Bạn có chắc muốn xóa{" "}
+                                          <span className="font-medium text-foreground">"{zone.name}"</span>?
+                                        </PopoverDescription>
+                                      </PopoverHeader>
+                                      <div className="flex justify-end gap-2">
+                                        <Button size="sm" variant="outline" onClick={() => setDeletingZoneId(null)}>
+                                          Hủy
+                                        </Button>
+                                        <Button size="sm" variant="destructive" disabled={isDeletingZone} onClick={handleDeleteZone}>
+                                          {isDeletingZone ? "Đang xóa..." : "Xóa"}
+                                        </Button>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                               </div>
+                              {index < camera.zones.length - 1 && <Separator />}
                             </li>
                           ))
                         )}
                       </ul>
-                    </div>
+                    </ScrollArea>
                   </>
                 )}
               </div>
