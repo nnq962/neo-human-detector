@@ -21,20 +21,15 @@ def get_latest_bbox_payload():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     LOGGER.info("Client connected to /ws/runtime/bboxes")
-    last_camera_timestamps = {}
+    last_sequence = None
     try:
         while True:
             payload = get_latest_bbox_payload()
-            cameras = payload.get("cameras", {}) if payload else {}
-            camera_timestamps = {
-                camera_id: camera_payload.get("timestamp")
-                for camera_id, camera_payload in cameras.items()
-                if isinstance(camera_payload, dict) and camera_payload.get("timestamp") is not None
-            }
+            sequence = payload.get("sequence") if payload else None
 
-            if camera_timestamps and camera_timestamps != last_camera_timestamps:
+            if payload and sequence != last_sequence:
                 await websocket.send_json(payload)
-                last_camera_timestamps = camera_timestamps
+                last_sequence = sequence
             
             # Quét dữ liệu 20 lần mỗi giây (50ms)
             await asyncio.sleep(0.05)

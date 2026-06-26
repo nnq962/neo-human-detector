@@ -26,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { CameraPreview } from "@/components/camera-preview"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
+import { useAutoStartConfig, useUpdateAutoStartConfig } from "@/hooks/use-auto-start"
 import { useBboxes, type CameraDetectionPayload } from "@/hooks/use-bboxes"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
@@ -62,11 +63,11 @@ const mockHourlyData = [
   { hour: "22:00", count: 1  },
 ]
 
-// ── Pipeline card ─────────────────────────────────────────────────────────────
+// ── Runtime card ─────────────────────────────────────────────────────────────
 
-type PipelineStatus = "running" | "stopped" | "starting" | "stopping" | "restarting" | "error"
+type RuntimeDisplayState = "running" | "stopped" | "starting" | "stopping" | "restarting" | "error"
 
-const STATUS_CONFIG: Record<PipelineStatus, { label: string; dotClass: string; badgeClass: string }> = {
+const STATUS_CONFIG: Record<RuntimeDisplayState, { label: string; dotClass: string; badgeClass: string }> = {
   running:    { label: "Running",       dotClass: "bg-green-500",  badgeClass: "border-green-500/30 bg-green-500/10 text-green-600 dark:text-green-400" },
   stopped:    { label: "Stopped",       dotClass: "bg-zinc-400",   badgeClass: "border-border bg-muted text-muted-foreground" },
   starting:   { label: "Starting...",   dotClass: "bg-amber-400",  badgeClass: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" },
@@ -87,7 +88,7 @@ function formatUptime(seconds: number): string {
   return `${s} giây`
 }
 
-function getStatusSub(displayState: PipelineStatus, rtStatus: RuntimeStatus | null): string {
+function getStatusSub(displayState: RuntimeDisplayState, rtStatus: RuntimeStatus | null): string {
   switch (displayState) {
     case "running":
       return rtStatus?.uptime_seconds != null
@@ -105,13 +106,15 @@ function getStatusSub(displayState: PipelineStatus, rtStatus: RuntimeStatus | nu
   }
 }
 
-function PipelineCard() {
+function RuntimeCard() {
   const { status: rtStatus, connected } = useRuntimeStatus()
-  const [autoStart, setAutoStart] = useState(false)
+  const { data: autoStartConfig } = useAutoStartConfig()
+  const updateAutoStart = useUpdateAutoStartConfig()
   const [isRestarting, setIsRestarting] = useState(false)
   const [isActing, setIsActing] = useState(false)
 
   const wsState = rtStatus?.state ?? null
+  const autoStart = autoStartConfig?.auto_start ?? false
 
   useEffect(() => {
     if (isRestarting && (wsState === "running" || wsState === "error")) {
@@ -119,7 +122,7 @@ function PipelineCard() {
     }
   }, [wsState, isRestarting])
 
-  const displayState: PipelineStatus = (() => {
+  const displayState: RuntimeDisplayState = (() => {
     if (wsState === null) return "stopped"
     if (isRestarting && wsState !== "running" && wsState !== "error") return "restarting"
     return wsState
@@ -138,7 +141,7 @@ function PipelineCard() {
     try {
       await runtimeApi.start()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Không thể khởi động pipeline")
+      toast.error(e instanceof Error ? e.message : "Không thể khởi động runtime")
     } finally {
       setIsActing(false)
     }
@@ -149,7 +152,7 @@ function PipelineCard() {
     try {
       await runtimeApi.stop()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Không thể dừng pipeline")
+      toast.error(e instanceof Error ? e.message : "Không thể dừng runtime")
     } finally {
       setIsActing(false)
     }
@@ -161,7 +164,7 @@ function PipelineCard() {
     try {
       await runtimeApi.restart()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Không thể khởi động lại pipeline")
+      toast.error(e instanceof Error ? e.message : "Không thể khởi động lại runtime")
       setIsRestarting(false)
     } finally {
       setIsActing(false)
@@ -186,7 +189,7 @@ function PipelineCard() {
           </div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold">AI Detection Pipeline</span>
+              <span className="text-sm font-semibold">AI Detection Runtime</span>
               <Badge variant="outline" className={cn("text-[11px]", s.badgeClass)}>
                 {s.label}
               </Badge>
@@ -201,15 +204,24 @@ function PipelineCard() {
             <span className="text-xs font-medium text-muted-foreground">Auto start</span>
             <Select
               value={autoStart ? "true" : "false"}
-              onValueChange={(value) => setAutoStart(value === "true")}
-              
+              disabled={updateAutoStart.isPending}
+              onValueChange={(value) => {
+                updateAutoStart.mutate(
+                  { auto_start: value === "true" },
+                  {
+                    onError: (e) => {
+                      toast.error(e instanceof Error ? e.message : "Không thể cập nhật auto start")
+                    },
+                  },
+                )
+              }}
             >
               <SelectTrigger size="sm" className="w-[100px]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="false">Enabled</SelectItem>
-                <SelectItem value="true">Disabled</SelectItem>
+              <SelectContent position="popper" className="w-fit min-w-0">
+                <SelectItem value="true">Enabled</SelectItem>
+                <SelectItem value="false">Disabled</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -320,8 +332,8 @@ export function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
 
-      {/* Pipeline control */}
-      <PipelineCard />
+      {/* Runtime control */}
+      <RuntimeCard />
 
       {/* Camera grid */}
       <Card>

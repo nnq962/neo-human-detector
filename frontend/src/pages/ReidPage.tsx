@@ -264,7 +264,7 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
                   <SelectTrigger className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent position="popper">
+                  <SelectContent position="popper" className="w-fit min-w-0">
                     {DEVICE_OPTIONS.map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                     ))}

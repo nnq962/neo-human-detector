@@ -45,7 +45,12 @@ class RuntimeStateStore:
     def clear(self) -> None:
         """Clear realtime payload when runtime stops."""
         with self._lock:
-            self._latest_payload = None
+            self._sequence += 1
+            self._latest_payload = {
+                "timestamp": time.time(),
+                "sequence": self._sequence,
+                "cameras": {},
+            }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

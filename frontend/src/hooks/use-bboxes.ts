@@ -61,19 +61,6 @@ export function useBboxes() {
   useEffect(() => {
     stoppedRef.current = false
 
-    // Dùng object để closures có thể mutate timer reference
-    const stale = { timer: null as ReturnType<typeof setTimeout> | null }
-    const STALE_MS = 500
-
-    function clearStaleTimer() {
-      if (stale.timer) { clearTimeout(stale.timer); stale.timer = null }
-    }
-
-    function resetStaleTimer() {
-      clearStaleTimer()
-      stale.timer = setTimeout(() => setCameras({}), STALE_MS)
-    }
-
     function connect() {
       if (stoppedRef.current) return
       const ws = new WebSocket(getWsUrl())
@@ -84,13 +71,11 @@ export function useBboxes() {
           const msg = JSON.parse(e.data) as BboxesPayload
           if (msg.cameras) {
             setCameras(msg.cameras)
-            resetStaleTimer()
           }
         } catch {}
       }
 
       ws.onclose = () => {
-        clearStaleTimer()
         setCameras({})
         if (!stoppedRef.current) {
           retryRef.current = setTimeout(connect, 3000)
@@ -104,7 +89,6 @@ export function useBboxes() {
 
     return () => {
       stoppedRef.current = true
-      clearStaleTimer()
       if (retryRef.current) clearTimeout(retryRef.current)
       wsRef.current?.close()
     }

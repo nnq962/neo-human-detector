@@ -15,6 +15,7 @@ type OfferData = { iceUfrag: string; icePwd: string; medias: string[] }
 
 const DOUBLE_TAP_MAX_DELAY_MS = 350
 const DOUBLE_TAP_MAX_DISTANCE_PX = 28
+const STREAM_RECONNECT_DELAY_MS = 3000
 
 function getWhepUrl(src: string) {
   const t = src.trim()
@@ -451,11 +452,10 @@ export function CameraPreview({
       setStatus("error"); setError("Thiếu stream URL"); setResolution("Unavailable"); return
     }
 
-    let closed = false
-    let sessionUrl = ""
-    let offerData: OfferData | null = null
-    const queued: RTCIceCandidate[] = []
-    const pc = new RTCPeerConnection()
+    let disposed = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let cleanupConnection: (() => void) | null = null
+    let attempt = 0
 
     const updateResolution = () => {
       const { videoWidth: w, videoHeight: h } = video
@@ -463,25 +463,68 @@ export function CameraPreview({
       setVideoSize({ width: w, height: h })
     }
 
-    const closeStream = () => {
-      closed = true
-      if (sessionUrl) fetch(sessionUrl, { method: "DELETE" }).catch(() => undefined)
-      pc.getSenders().forEach((s) => s.track?.stop())
-      pc.getReceivers().forEach((r) => r.track?.stop())
-      pc.close(); video.pause(); video.srcObject = null
+    const clearReconnectTimer = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
     }
 
-    const sendCandidates = (cs: RTCIceCandidate[]) => {
-      if (!offerData || !sessionUrl || !cs.length) return
-      fetch(sessionUrl, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/trickle-ice-sdpfrag", "If-Match": "*" },
-        body: generateSdpFragment(offerData, cs),
-      }).catch(() => undefined)
+    const closeCurrentConnection = () => {
+      const cleanup = cleanupConnection
+      cleanupConnection = null
+      cleanup?.()
     }
 
-    const connect = async () => {
-      setStatus("connecting"); setError(""); setResolution("Detecting...")
+    const scheduleReconnect = (reason: string) => {
+      if (disposed) return
+      setStatus("error")
+      setResolution("Unavailable")
+      setError(`${reason}. Đang thử kết nối lại...`)
+      clearReconnectTimer()
+      closeCurrentConnection()
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, STREAM_RECONNECT_DELAY_MS)
+    }
+
+    const connect = async (): Promise<void> => {
+      if (disposed) return
+
+      clearReconnectTimer()
+      closeCurrentConnection()
+
+      attempt += 1
+      setStatus("connecting")
+      setError(attempt > 1 ? "Đang thử kết nối lại..." : "")
+      setResolution("Detecting...")
+
+      let connectionClosed = false
+      let sessionUrl = ""
+      let offerData: OfferData | null = null
+      const queued: RTCIceCandidate[] = []
+      const pc = new RTCPeerConnection()
+
+      cleanupConnection = () => {
+        connectionClosed = true
+        if (sessionUrl) fetch(sessionUrl, { method: "DELETE" }).catch(() => undefined)
+        pc.getSenders().forEach((s) => s.track?.stop())
+        pc.getReceivers().forEach((r) => r.track?.stop())
+        pc.close()
+        video.pause()
+        video.srcObject = null
+      }
+
+      const sendCandidates = (cs: RTCIceCandidate[]) => {
+        if (!offerData || !sessionUrl || !cs.length) return
+        fetch(sessionUrl, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/trickle-ice-sdpfrag", "If-Match": "*" },
+          body: generateSdpFragment(offerData, cs),
+        }).catch(() => undefined)
+      }
+
       try {
         const optRes = await fetch(endpointUrl, { method: "OPTIONS" })
         const iceServers = parseIceServers(optRes.headers.get("link"))
@@ -491,12 +534,18 @@ export function CameraPreview({
         pc.addTransceiver("audio", { direction: "recvonly" })
         pc.createDataChannel("")
 
-        pc.ontrack = (e) => { if (!closed || !video.srcObject) video.srcObject = e.streams[0] }
+        pc.ontrack = (e) => {
+          if (!disposed && !connectionClosed) video.srcObject = e.streams[0]
+        }
         pc.onconnectionstatechange = () => {
-          if (closed) return
-          if (pc.connectionState === "connected") setStatus("live")
+          if (disposed || connectionClosed) return
+          if (pc.connectionState === "connected") {
+            setStatus("live")
+            setError("")
+            return
+          }
           if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
-            setStatus("error"); setError(`WebRTC ${pc.connectionState}`)
+            scheduleReconnect(`WebRTC ${pc.connectionState}`)
           }
         }
         pc.onicecandidate = (e) => {
@@ -519,11 +568,10 @@ export function CameraPreview({
         sessionUrl = getSessionUrl(response, endpointUrl)
         await pc.setRemoteDescription({ type: "answer", sdp: await response.text() })
         sendCandidates(queued.splice(0))
-        if (!closed) await video.play()
+        if (!disposed && !connectionClosed) await video.play()
       } catch (err) {
-        if (closed) return
-        setStatus("error"); setResolution("Unavailable")
-        setError(err instanceof Error ? err.message : "Không thể mở stream")
+        if (disposed || connectionClosed) return
+        scheduleReconnect(err instanceof Error ? err.message : "Không thể mở stream")
       }
     }
 
@@ -531,9 +579,11 @@ export function CameraPreview({
     video.addEventListener("resize", updateResolution)
     connect()
     return () => {
+      disposed = true
+      clearReconnectTimer()
       video.removeEventListener("loadedmetadata", updateResolution)
       video.removeEventListener("resize", updateResolution)
-      closeStream()
+      closeCurrentConnection()
     }
   }, [src, reconnectKey])
 

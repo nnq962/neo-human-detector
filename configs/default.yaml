@@ -1,3 +1,4 @@
+auto_start: false
 detection:
   task: pose
   model_size: medium
@@ -36,8 +37,8 @@ reid:
     max_samples: 5
     ttl_minutes: 2.0
 uart:
-  port: /dev/ttyS0
-  baudrate: 600
+  port: /dev/ttyAMA1
+  baudrate: 19200
 cameras:
 - name: AI Center
   stream:

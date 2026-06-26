@@ -127,7 +127,7 @@ function UartConfigCard() {
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue placeholder="Chọn port..." />
                 </SelectTrigger>
-                <SelectContent position="popper">
+                <SelectContent position="popper" className="w-fit min-w-0">
                   {COMMON_PORTS.map((p) => (
                     <SelectItem key={p} value={p}>{p}</SelectItem>
                   ))}
@@ -146,7 +146,7 @@ function UartConfigCard() {
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue placeholder="Chọn baudrate..." />
                 </SelectTrigger>
-                <SelectContent position="popper">
+                <SelectContent position="popper" className="w-fit min-w-0">
                   {COMMON_BAUDRATES.map((b) => (
                     <SelectItem key={b} value={String(b)}>
                       {b.toLocaleString()}

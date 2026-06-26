@@ -4,12 +4,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import camera, detection, mediamtx, reid, runtime, uart, websocket, zone_state_machine
+from api.routes import auto_start, camera, detection, mediamtx, reid, runtime, uart, websocket, zone_state_machine
 from api.routes.responses import error_response
 
 
 STANDARD_RESPONSE_PREFIXES = (
     "/api/cameras",
+    "/api/auto-start",
     "/api/detection",
     "/api/mediamtx",
     "/api/reid",
@@ -29,6 +30,8 @@ def _uses_standard_api_response(path: str) -> bool:
 def run_startup_tasks() -> None:
     from api.services.config_store import get_config_data
     from api.services.load_cameras import sync_camera_paths, wait_for_mediamtx
+    from api.services.runtime import DEFAULT_CONFIG_PATH, start_runtime
+    from api.models.runtime import RuntimeCommandRequest
     from utils import LOGGER
 
     try:
@@ -47,6 +50,13 @@ def run_startup_tasks() -> None:
     except Exception as e:
         LOGGER.error(f"Failed to sync MediaMTX camera paths: {e}")
 
+    if cfg.get("auto_start") is True:
+        try:
+            start_runtime(RuntimeCommandRequest(config_path=DEFAULT_CONFIG_PATH, preview=False))
+            LOGGER.info("Runtime auto-start requested from config.")
+        except Exception as e:
+            LOGGER.error(f"Failed to auto-start runtime: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,6 +65,7 @@ async def lifespan(app: FastAPI):
 
 
 OPENAPI_TAGS = [
+    {"name": "Auto Start", "description": "Runtime auto-start configuration."},
     {"name": "Detection", "description": "Detection model configuration."},
     {"name": "MediaMTX", "description": "MediaMTX integration utilities."},
     {"name": "Cameras", "description": "Camera and zone configuration."},
@@ -97,6 +108,7 @@ app.add_middleware(
 )
 
 # ────────────────────────────────────────────────────────────────
+app.include_router(auto_start.router, prefix="/api/auto-start", tags=["Auto Start"])
 app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
 app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
 app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
