@@ -1,3 +1,5 @@
+from fastapi import HTTPException, status
+
 from api.models.uart import UartConfig, UartConfigUpdate
 from api.services import config_store
 
@@ -17,6 +19,15 @@ def get_uart_config() -> dict:
     config = config_store.get_config_data()
 
     return _normalize_uart_config(config.get("uart", {}))
+
+
+def get_uart_status() -> dict:
+    from uart.uart_manager import uart_manager
+
+    return {
+        **get_uart_config(),
+        "runtime": uart_manager.status(),
+    }
 
 
 def update_uart_config(update: UartConfigUpdate) -> dict:
@@ -41,3 +52,23 @@ def update_uart_config(update: UartConfigUpdate) -> dict:
         return uart_config
 
     return get_uart_config()
+
+
+def send_uart_string(command: str) -> dict:
+    command = command.strip()
+    if not command:
+        raise ValueError("UART command must not be empty.")
+
+    from uart.uart_manager import uart_manager
+
+    sent = uart_manager.send_string(command)
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="UART is not connected or command could not be sent.",
+        )
+
+    return {
+        "sent": True,
+        "command": command,
+    }

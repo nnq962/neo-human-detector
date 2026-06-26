@@ -96,6 +96,8 @@ class Runtime:
                             detection_frame=detection_frame,
                             zone_names=zone_names,
                         )
+
+                        # ws/runtime/bboxes
                         batch_payload[camera.id] = build_camera_detection_payload(
                             camera=camera,
                             detection_frame=detection_frame,
@@ -103,6 +105,7 @@ class Runtime:
                             zone_names=zone_names,
                         )
 
+                        # Debug log
                         if self.config.detection.verbose:
                             matched = sum(
                                 1 for d in detection_frame.detections if d.global_id is not None
@@ -116,6 +119,7 @@ class Runtime:
                                 fps,
                             )
 
+                        # Debug preview
                         if self.config.preview.enabled:
                             self._render(frame, camera, detection_frame, fps)
 

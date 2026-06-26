@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Pencil, PlugZap, PlugZapIcon, Send, Trash2, X, Check } from "lucide-react"
 import { toast } from "sonner"
 import { useUartConfig, useInvalidateUart } from "@/hooks/use-uart"
-import { uartApi } from "@/api/uart.api"
+import { useUartEvents, type UartEventsStatus } from "@/hooks/use-uart-events"
+import { uartApi, type UartEvent } from "@/api/uart.api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -28,26 +29,13 @@ const COMMON_BAUDRATES = [
   115200, 230400, 460800, 921600,
 ]
 
-const MOCK_LINES: (() => string)[] = [
-  () => `MOVE:${rnd(-1,1).toFixed(3)},0.000,${rnd(-0.3,0.3).toFixed(3)}`,
-  () => `STATUS:OK|BATTERY:${Math.floor(rnd(60,95))}%`,
-  () => `POSE:${rnd(0,10).toFixed(3)},${rnd(0,10).toFixed(3)},${rnd(0,6.28).toFixed(3)}`,
-  () => `DETECT:${Math.floor(rnd(0,4))}|CONF:${rnd(0.70,0.99).toFixed(2)}`,
-  () => `PING`,
-  () => `GOTO:${rnd(0,10).toFixed(2)},${rnd(0,10).toFixed(2)},0.000`,
-  () => `TRACK:ID=${Math.floor(rnd(0,8))}|DIST:${rnd(0.5,5).toFixed(2)}m`,
-  () => `REID:MATCH|ID=${Math.floor(rnd(0,20))}|SIM:${rnd(0.75,0.99).toFixed(3)}`,
-]
-function rnd(min: number, max: number) { return Math.random() * (max - min) + min }
-
 // ── Types ──────────────────────────────────────────────────────────────────
-
-type WsStatus = "disconnected" | "connecting" | "connected" | "error"
 
 interface LogEntry {
   id: number
   ts: string
   raw: string
+  type?: UartEvent["type"]
 }
 
 const MAX_LOG = 200
@@ -171,12 +159,19 @@ function UartSendCard() {
   const [sending, setSending] = useState(false)
 
   async function handleSend() {
-    if (!command.trim()) return
+    const nextCommand = command.trim()
+    if (!nextCommand) return
+
     setSending(true)
-    await new Promise((r) => setTimeout(r, 2000))
-    toast.success(`Đã gửi: "${command.trim()}"`)
-    setCommand("")
-    setSending(false)
+    try {
+      const result = await uartApi.send(nextCommand)
+      toast.success(`Đã gửi: "${result.command}"`)
+      setCommand("")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gửi lệnh thất bại")
+    } finally {
+      setSending(false)
+    }
   }
 
   const SAMPLE_COMMANDS = [
@@ -228,39 +223,23 @@ function UartSendCard() {
 // ── UART Monitor Card ───────────────────────────────────────────────────────
 
 function UartMonitorCard() {
-  const [status, setStatus]   = useState<WsStatus>("disconnected")
   const [log, setLog]         = useState<LogEntry[]>([])
-  const wsRef                 = useRef<WebSocket | null>(null)
-  const mockRef               = useRef<ReturnType<typeof setInterval> | null>(null)
   const terminalRef           = useRef<HTMLDivElement>(null)
   const counterRef            = useRef(0)
 
-  function pushLine(raw: string) {
-    const ts = new Date().toLocaleTimeString("vi-VN", { hour12: false })
+  const pushLine = (raw: string, timestamp?: number, type?: UartEvent["type"]) => {
+    const date = timestamp ? new Date(timestamp * 1000) : new Date()
+    const ts = date.toLocaleTimeString("vi-VN", { hour12: false })
     setLog((prev) => {
-      const next = [...prev, { id: ++counterRef.current, ts, raw }]
+      const next = [...prev, { id: ++counterRef.current, ts, raw, type }]
       return next.length > MAX_LOG ? next.slice(next.length - MAX_LOG) : next
     })
   }
 
-  function connect() {
-    if (mockRef.current || wsRef.current) return
-    setStatus("connecting")
-    setTimeout(() => {
-      setStatus("connected")
-      mockRef.current = setInterval(() => {
-        const fn = MOCK_LINES[Math.floor(Math.random() * MOCK_LINES.length)]
-        pushLine(fn())
-      }, 280)
-    }, 700)
-  }
-
-  function disconnect() {
-    if (mockRef.current) { clearInterval(mockRef.current); mockRef.current = null }
-    wsRef.current?.close()
-    wsRef.current = null
-    setStatus("disconnected")
-  }
+  const { status, connect, disconnect } = useUartEvents({
+    onEvent: (event) => pushLine(event.raw, event.timestamp, event.type),
+    onRawMessage: (message) => pushLine(message),
+  })
 
   function clearLog() {
     setLog([])
@@ -274,22 +253,14 @@ function UartMonitorCard() {
     if (isNearBottom) el.scrollTop = el.scrollHeight
   }, [log])
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (mockRef.current) clearInterval(mockRef.current)
-      wsRef.current?.close()
-    }
-  }, [])
-
-  const statusColor: Record<WsStatus, string> = {
+  const statusColor: Record<UartEventsStatus, string> = {
     disconnected: "bg-muted-foreground",
     connecting:   "bg-amber-400",
     connected:    "bg-green-400",
     error:        "bg-red-400",
   }
 
-  const statusLabel: Record<WsStatus, string> = {
+  const statusLabel: Record<UartEventsStatus, string> = {
     disconnected: "Chưa kết nối",
     connecting:   "Đang kết nối...",
     connected:    "Đang kết nối",
@@ -364,6 +335,16 @@ function UartMonitorCard() {
               {log.map((entry) => (
                 <div key={entry.id} className="flex gap-3 group">
                   <span className="shrink-0 text-zinc-600 select-none">{entry.ts}</span>
+                  {entry.type && (
+                    <span
+                      className={cn(
+                        "shrink-0 select-none uppercase",
+                        entry.type === "json" ? "text-cyan-400" : "text-amber-300",
+                      )}
+                    >
+                      {entry.type}
+                    </span>
+                  )}
                   <span className="text-green-400 break-all">{entry.raw}</span>
                 </div>
               ))}

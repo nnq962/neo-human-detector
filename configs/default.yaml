@@ -37,8 +37,8 @@ reid:
     max_samples: 5
     ttl_minutes: 2.0
 uart:
-  port: /dev/ttyAMA1
-  baudrate: 19200
+  port: /dev/ttyUSB0
+  baudrate: 115200
 cameras:
 - name: AI Center
   stream:
@@ -58,6 +58,17 @@ cameras:
     - [763, 757]
     - [819, 1080]
     - [439, 1080]
+  - id: sfats
+    name: Khách
+    goal_pose:
+      x: 0.0
+      y: 0.0
+      theta: 0.0
+    points:
+    - [1483, 354]
+    - [1584, 443]
+    - [1485, 529]
+    - [1373, 419]
   id: gcphg
 - name: Android Center
   stream:
@@ -66,11 +77,15 @@ cameras:
     on_demand: true
   enabled: true
   zones:
-  - name: pop
+  - id: l5t3k
+    name: Khải
+    goal_pose:
+      x: 0.0
+      y: 0.0
+      theta: 0.0
     points:
-    - [669, 415]
-    - [889, 395]
-    - [913, 574]
-    - [750, 594]
-    id: rnxy5
+    - [1131, 490]
+    - [1578, 432]
+    - [1552, 812]
+    - [1126, 845]
   id: rtdll

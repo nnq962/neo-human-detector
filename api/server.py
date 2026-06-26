@@ -57,11 +57,32 @@ def run_startup_tasks() -> None:
         except Exception as e:
             LOGGER.error(f"Failed to auto-start runtime: {e}")
 
+    try:
+        from uart.uart_manager import uart_manager
+
+        uart_manager.connect()
+    except Exception as e:
+        LOGGER.error(f"Failed to initialize UART: {e}")
+
+
+def run_shutdown_tasks() -> None:
+    from utils import LOGGER
+
+    try:
+        from uart.uart_manager import uart_manager
+
+        uart_manager.close()
+    except Exception as e:
+        LOGGER.error(f"Failed to close UART: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     run_startup_tasks()
-    yield
+    try:
+        yield
+    finally:
+        run_shutdown_tasks()
 
 
 OPENAPI_TAGS = [

@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from api.models.response import ApiResponse
-from api.models.uart import UartConfig, UartConfigUpdate
+from api.models.uart import UartConfig, UartConfigUpdate, UartSendStringRequest
 from api.routes.responses import error_from_exception, ok
 from api.services import uart as uart_service
 
@@ -13,6 +13,36 @@ router = APIRouter()
 def get_uart_config():
     try:
         return ok("UART config loaded successfully.", uart_service.get_uart_config())
+    except Exception as error:
+        return error_from_exception(error)
+
+
+@router.get("/status", response_model=ApiResponse)
+def get_uart_status():
+    try:
+        return ok("UART status loaded successfully.", uart_service.get_uart_status())
+    except Exception as error:
+        return error_from_exception(error)
+
+
+@router.post("/send-string", response_model=ApiResponse)
+def send_uart_string(request: UartSendStringRequest):
+    try:
+        return ok(
+            "UART command sent successfully.",
+            uart_service.send_uart_string(request.command),
+        )
+    except Exception as error:
+        return error_from_exception(error)
+
+
+@router.post("/send", response_model=ApiResponse)
+def send_uart_command(request: UartSendStringRequest):
+    try:
+        return ok(
+            "UART command sent successfully.",
+            uart_service.send_uart_string(request.command),
+        )
     except Exception as error:
         return error_from_exception(error)
 

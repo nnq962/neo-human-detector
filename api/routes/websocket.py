@@ -37,22 +37,30 @@ async def websocket_endpoint(websocket: WebSocket):
         LOGGER.info("Client disconnected from /ws/runtime/bboxes")
 
 # ────────────────────────────────────────────────────────────────
-# Chuyển dữ liệu từ uart receive lên web config
-@router.websocket("/ws/uart")
-async def uart_websocket_endpoint(websocket: WebSocket):
+# Chuyển toàn bộ event UART receive lên web config/debug.
+@router.websocket("/ws/uart/events")
+async def uart_events_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    last_timestamp = 0
-    LOGGER.info("Client connected to /ws/uart")
+    event_type = _normalize_uart_event_type(websocket.query_params.get("type"))
+    prefix = websocket.query_params.get("prefix")
+
+    if event_type == "invalid":
+        await websocket.close(code=1008, reason="Invalid UART event type filter.")
+        return
+
+    last_sequence = uart_manager.get_event_sequence()
+    LOGGER.info("Client connected to /ws/uart/events")
     try:
         while True:
-            payload = uart_manager.latest_received_data
-            if payload and payload.get("timestamp") != last_timestamp:
-                await websocket.send_json(payload["payload"])
-                last_timestamp = payload.get("timestamp")
-            
+            events = uart_manager.get_events_after(last_sequence)
+            for event in events:
+                last_sequence = event["sequence"]
+                if _matches_uart_event_filter(event, event_type, prefix):
+                    await websocket.send_json(event)
+
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
-        LOGGER.info("Client disconnected from /ws/uart")
+        LOGGER.info("Client disconnected from /ws/uart/events")
 
 # ────────────────────────────────────────────────────────────────
 # Gửi trạng thái runtime lên web config/dashboard
@@ -89,3 +97,27 @@ def _runtime_status_interval_from_websocket(websocket: WebSocket) -> float:
         max(interval_seconds, MIN_RUNTIME_STATUS_INTERVAL_SECONDS),
         MAX_RUNTIME_STATUS_INTERVAL_SECONDS,
     )
+
+
+def _normalize_uart_event_type(raw_event_type: str | None) -> str | None:
+    if raw_event_type is None or raw_event_type == "" or raw_event_type == "all":
+        return None
+
+    if raw_event_type in {"json", "string"}:
+        return raw_event_type
+
+    return "invalid"
+
+
+def _matches_uart_event_filter(
+    event: dict,
+    event_type: str | None,
+    prefix: str | None,
+) -> bool:
+    if event_type is not None and event.get("type") != event_type:
+        return False
+
+    if prefix is not None and not str(event.get("raw", "")).startswith(prefix):
+        return False
+
+    return True

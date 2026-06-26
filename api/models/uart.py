@@ -12,3 +12,6 @@ class UartConfigUpdate(BaseModel):
     port: Optional[str] = None
     baudrate: Optional[int] = Field(None, ge=1)
 
+
+class UartSendStringRequest(BaseModel):
+    command: str = Field(..., min_length=1)

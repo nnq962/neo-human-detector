@@ -73,23 +73,41 @@ function generateSdpFragment(offer: OfferData, candidates: RTCIceCandidate[]) {
 
 // ── Detection drawing constants ───────────────────────────────────────────────
 
-const DETECTION_COLORS = [
-  "#ef4444", "#f97316", "#eab308", "#22c55e",
-  "#06b6d4", "#a855f7", "#ec4899", "#14b8a6",
-]
+const DEFAULT_BBOX_COLOR = "#7c7c7c"
+const GLOBAL_ID_BBOX_COLOR = "#3784ff"
 
-// COCO 17-keypoint skeleton connections
-const COCO_SKELETON: [number, number][] = [
-  [15, 13], [13, 11], [16, 14], [14, 12],
-  [11, 12], [5, 11], [6, 12], [5, 6],
-  [5, 7], [6, 8], [7, 9], [8, 10],
-  [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6],
+// COCO 17-keypoint skeleton connections, matching src/visualization/pose.py.
+const COCO_SKELETON: [number, number, "left" | "right" | "center"][] = [
+  [0,  1,  "right"],
+  [0,  2,  "left"],
+  [1,  3,  "right"],
+  [2,  4,  "left"],
+  [5,  6,  "center"],
+  [5,  7,  "right"],
+  [7,  9,  "right"],
+  [6,  8,  "left"],
+  [8,  10, "left"],
+  [5,  11, "right"],
+  [6,  12, "left"],
+  [11, 12, "center"],
+  [11, 13, "right"],
+  [13, 15, "right"],
+  [12, 14, "left"],
+  [14, 16, "left"],
 ]
 
 // nose, left/right eye, left/right ear
 const FACE_KEYPOINT_INDICES = new Set([0, 1, 2, 3, 4])
 
 const POSE_CONF_THRESHOLD = 0.3
+const POSE_SIDE_COLORS = {
+  left: "#32c800",
+  right: "#0050ff",
+  center: "#dcdc00",
+}
+const POSE_KP_COLOR = "#ffffff"
+const POSE_KP_BORDER = "#1e1e1e"
+const POSE_HIP_CENTER_COLOR = "#ff0000"
 
 // ── Fabric helpers ────────────────────────────────────────────────────────────
 
@@ -126,6 +144,58 @@ function getZoneColor(zone: Zone, index: number, zoneStates?: Record<string, Run
   const state = getZoneRuntimeState(zone, zoneStates)
   if (state && zoneStateColors[state]) return zoneStateColors[state]
   return zoneColors[index % zoneColors.length]
+}
+
+function getDetectionColor(det: DetectionPayload) {
+  return det.global_id != null ? GLOBAL_ID_BBOX_COLOR : DEFAULT_BBOX_COLOR
+}
+
+function addPoseDot(canvas: Canvas, x: number, y: number, color = POSE_KP_COLOR) {
+  canvas.add(new Circle({
+    left: x,
+    top: y,
+    radius: 5,
+    fill: color,
+    stroke: POSE_KP_BORDER,
+    strokeWidth: 2,
+    originX: "center",
+    originY: "center",
+    selectable: false,
+    evented: false,
+  }))
+}
+
+function addPoseHipCenter(
+  canvas: Canvas,
+  kps: [number, number, number][],
+  opts: { offsetX: number; offsetY: number; scale: number },
+) {
+  const leftHip = kps[11]
+  const rightHip = kps[12]
+  const leftOk = Boolean(leftHip && leftHip[2] >= POSE_CONF_THRESHOLD)
+  const rightOk = Boolean(rightHip && rightHip[2] >= POSE_CONF_THRESHOLD)
+
+  if (!leftOk && !rightOk) return
+
+  let x = 0
+  let y = 0
+  if (leftOk && rightOk && leftHip && rightHip) {
+    x = (leftHip[0] + rightHip[0]) / 2
+    y = (leftHip[1] + rightHip[1]) / 2
+  } else if (leftOk && leftHip) {
+    x = leftHip[0]
+    y = leftHip[1]
+  } else if (rightHip) {
+    x = rightHip[0]
+    y = rightHip[1]
+  }
+
+  addPoseDot(
+    canvas,
+    opts.offsetX + x * opts.scale,
+    opts.offsetY + y * opts.scale,
+    POSE_HIP_CENTER_COLOR,
+  )
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -324,7 +394,7 @@ export function CameraPreview({
 
     // ── Draw detections (bbox + optional pose) ────────────────────────────
     detections.forEach((det) => {
-      const color = DETECTION_COLORS[0]
+      const color = getDetectionColor(det)
       const [x1, y1, x2, y2] = det.bbox.xyxy
       const cx1 = offsetX + x1 * scale
       const cy1 = offsetY + y1 * scale
@@ -366,17 +436,25 @@ export function CameraPreview({
       if (det.pose) {
         const kps = det.pose.keypoints
 
-        COCO_SKELETON.forEach(([i, j]) => {
+        COCO_SKELETON.forEach(([i, j, side]) => {
           if (hideFaceKeypoints && (FACE_KEYPOINT_INDICES.has(i) || FACE_KEYPOINT_INDICES.has(j))) return
           const ki = kps[i], kj = kps[j]
           if (!ki || !kj || ki[2] < POSE_CONF_THRESHOLD || kj[2] < POSE_CONF_THRESHOLD) return
           canvas.add(new Line(
             [offsetX + ki[0] * scale, offsetY + ki[1] * scale,
              offsetX + kj[0] * scale, offsetY + kj[1] * scale],
-            { stroke: color, strokeWidth: 1.5, opacity: 0.8, selectable: false, evented: false },
+            { stroke: POSE_SIDE_COLORS[side], strokeWidth: 3, opacity: 0.9, selectable: false, evented: false },
           ))
         })
 
+        // ── Draw dot ─────────────────────────────────────────
+        // kps.forEach(([x, y, conf], index) => {
+        //   if (hideFaceKeypoints && FACE_KEYPOINT_INDICES.has(index)) return
+        //   if (conf < POSE_CONF_THRESHOLD) return
+        //   addPoseDot(canvas, offsetX + x * scale, offsetY + y * scale)
+        // })
+
+        addPoseHipCenter(canvas, kps, { offsetX, offsetY, scale })
       }
     })
 
