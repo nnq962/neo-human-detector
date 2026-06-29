@@ -78,17 +78,17 @@ const GLOBAL_ID_BBOX_COLOR = "#3784ff"
 
 // COCO 17-keypoint skeleton connections, matching src/visualization/pose.py.
 const COCO_SKELETON: [number, number, "left" | "right" | "center"][] = [
-  [0,  1,  "right"],
-  [0,  2,  "left"],
-  [1,  3,  "right"],
-  [2,  4,  "left"],
-  [5,  6,  "center"],
-  [5,  7,  "right"],
-  [7,  9,  "right"],
-  [6,  8,  "left"],
-  [8,  10, "left"],
-  [5,  11, "right"],
-  [6,  12, "left"],
+  [0, 1, "right"],
+  [0, 2, "left"],
+  [1, 3, "right"],
+  [2, 4, "left"],
+  [5, 6, "center"],
+  [5, 7, "right"],
+  [7, 9, "right"],
+  [6, 8, "left"],
+  [8, 10, "left"],
+  [5, 11, "right"],
+  [6, 12, "left"],
   [11, 12, "center"],
   [11, 13, "right"],
   [13, 15, "right"],
@@ -115,16 +115,16 @@ const zoneColors = [
   { fill: "rgba(14, 165, 233, 0.22)", stroke: "#0ea5e9" },
   { fill: "rgba(16, 185, 129, 0.22)", stroke: "#10b981" },
   { fill: "rgba(245, 158, 11, 0.24)", stroke: "#f59e0b" },
-  { fill: "rgba(244, 63, 94, 0.22)",  stroke: "#f43f5e" },
+  { fill: "rgba(244, 63, 94, 0.22)", stroke: "#f43f5e" },
   { fill: "rgba(139, 92, 246, 0.22)", stroke: "#8b5cf6" },
   { fill: "rgba(236, 72, 153, 0.22)", stroke: "#ec4899" },
 ]
 
 const zoneStateColors: Record<string, { fill: string; stroke: string }> = {
-  EMPTY:         { fill: "rgba(239, 68, 68, 0.18)",   stroke: "#ef4444" },
-  PENDING_ENTER: { fill: "rgba(245, 158, 11, 0.22)",  stroke: "#f59e0b" },
-  OCCUPIED:      { fill: "rgba(34, 197, 94, 0.22)",   stroke: "#22c55e" },
-  PENDING_EXIT:  { fill: "rgba(234, 179, 8, 0.22)",    stroke: "#eab308" },
+  EMPTY: { fill: "rgba(239, 68, 68, 0.18)", stroke: "#ef4444" },
+  PENDING_ENTER: { fill: "rgba(245, 158, 11, 0.22)", stroke: "#f59e0b" },
+  OCCUPIED: { fill: "rgba(34, 197, 94, 0.22)", stroke: "#22c55e" },
+  PENDING_EXIT: { fill: "rgba(234, 179, 8, 0.22)", stroke: "#eab308" },
 }
 
 function getAbsolutePolygonPoints(polygon: Polygon) {
@@ -231,19 +231,19 @@ export function CameraPreview({
   zoneStates,
   hideFaceKeypoints = false,
 }: CameraPreviewProps) {
-  const containerRef    = useRef<HTMLDivElement>(null)
-  const videoRef        = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
-  const fabricCanvasRef  = useRef<Canvas | null>(null)
+  const fabricCanvasRef = useRef<Canvas | null>(null)
   const isFinishingDraftRef = useRef(false)
-  const draftPointsRef      = useRef<number[][]>([])
-  const lastDraftTapRef     = useRef<{ time: number; x: number; y: number } | null>(null)
+  const draftPointsRef = useRef<number[][]>([])
+  const lastDraftTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
 
-  const [status, setStatus]         = useState<StreamStatus>("connecting")
-  const [errorMessage, setError]    = useState("")
+  const [status, setStatus] = useState<StreamStatus>("connecting")
+  const [errorMessage, setError] = useState("")
   const [resolution, setResolution] = useState("Detecting...")
   const [previewSize, setPreviewSize] = useState<PreviewSize>({ width: 0, height: 0 })
-  const [videoSize, setVideoSize]     = useState<VideoSize>({ width: 0, height: 0 })
+  const [videoSize, setVideoSize] = useState<VideoSize>({ width: 0, height: 0 })
   const [draftPoints, setDraftPoints] = useState<number[][]>([])
 
   // ── Fabric canvas init ───────────────────────────────────────────────────
@@ -253,13 +253,13 @@ export function CameraPreview({
 
     const canvas = new Canvas(el, { selection: false, renderOnAddRemove: false })
     canvas.defaultCursor = "default"
-    canvas.hoverCursor   = "default"
+    canvas.hoverCursor = "default"
     Object.assign(canvas.wrapperEl.style, {
       position: "absolute", inset: "0", width: "100%", height: "100%", zIndex: "1",
       pointerEvents: "none",
     })
     canvas.upperCanvasEl.style.pointerEvents = "none"
-    canvas.upperCanvasEl.style.touchAction   = "none"
+    canvas.upperCanvasEl.style.touchAction = "none"
     fabricCanvasRef.current = canvas
 
     return () => { fabricCanvasRef.current = null; canvas.dispose() }
@@ -288,10 +288,10 @@ export function CameraPreview({
     canvas.setDimensions({ width: previewSize.width, height: previewSize.height })
 
     const isInteractive = isEditingVertices || isAddingZone
-    canvas.wrapperEl.style.pointerEvents     = isInteractive ? "auto" : "none"
+    canvas.wrapperEl.style.pointerEvents = isInteractive ? "auto" : "none"
     canvas.upperCanvasEl.style.pointerEvents = isInteractive ? "auto" : "none"
     canvas.defaultCursor = isAddingZone ? "crosshair" : "default"
-    canvas.hoverCursor   = isAddingZone ? "crosshair" : isEditingVertices ? "move" : "default"
+    canvas.hoverCursor = isAddingZone ? "crosshair" : isEditingVertices ? "move" : "default"
     canvas.clear()
 
     if (!videoSize.width || !videoSize.height) { canvas.requestRenderAll(); return }
@@ -299,13 +299,13 @@ export function CameraPreview({
     const scale = Math.min(previewSize.width / videoSize.width, previewSize.height / videoSize.height)
     const renderedW = videoSize.width * scale
     const renderedH = videoSize.height * scale
-    const offsetX = (previewSize.width  - renderedW) / 2
+    const offsetX = (previewSize.width - renderedW) / 2
     const offsetY = (previewSize.height - renderedH) / 2
 
     zones.forEach((zone, index) => {
-      const color     = getZoneColor(zone, index, zoneStates)
+      const color = getZoneColor(zone, index, zoneStates)
       const isSelected = index === selectedZoneIndex
-      const points    = zone.points.map(([x, y]) => ({ x: offsetX + x * scale, y: offsetY + y * scale }))
+      const points = zone.points.map(([x, y]) => ({ x: offsetX + x * scale, y: offsetY + y * scale }))
       if (points.length < 3) return
 
       const polygon = new Polygon(points, {
@@ -407,16 +407,13 @@ export function CameraPreview({
         { fill: "transparent", stroke: color, strokeWidth: 2, selectable: false, evented: false },
       ))
 
-      const idParts: string[] = []
-      if (det.track_id != null) idParts.push(`#${det.track_id}`)
-      if (det.global_id != null) idParts.push(`ID:${det.global_id}`)
-
-      const scoreParts = [`${(det.confidence * 100).toFixed(0)}%`]
-      if (det.similarity != null) scoreParts.push(`sim:${det.similarity.toFixed(2)}`)
-
       const lines: string[] = []
-      if (idParts.length > 0) lines.push(idParts.join("  "))
-      lines.push(scoreParts.join("  "))
+      if (det.track_id != null)
+        lines.push(`#${det.track_id % 100} ${(det.confidence * 100).toFixed(0)}%`)
+      if (det.global_id != null) {
+        const simStr = det.similarity != null ? ` ${(det.similarity * 100).toFixed(0)}%` : ""
+        lines.push(`#${det.global_id}${simStr}`)
+      }
       if (det.status) lines.push(det.status)
 
       canvas.add(new FabricText(lines.join("\n"), {
@@ -442,7 +439,7 @@ export function CameraPreview({
           if (!ki || !kj || ki[2] < POSE_CONF_THRESHOLD || kj[2] < POSE_CONF_THRESHOLD) return
           canvas.add(new Line(
             [offsetX + ki[0] * scale, offsetY + ki[1] * scale,
-             offsetX + kj[0] * scale, offsetY + kj[1] * scale],
+            offsetX + kj[0] * scale, offsetY + kj[1] * scale],
             { stroke: POSE_SIDE_COLORS[side], strokeWidth: 3, opacity: 0.9, selectable: false, evented: false },
           ))
         })
@@ -469,7 +466,7 @@ export function CameraPreview({
     const scale = Math.min(previewSize.width / videoSize.width, previewSize.height / videoSize.height)
     const renderedW = videoSize.width * scale
     const renderedH = videoSize.height * scale
-    const offsetX = (previewSize.width  - renderedW) / 2
+    const offsetX = (previewSize.width - renderedW) / 2
     const offsetY = (previewSize.height - renderedH) / 2
 
     const toImagePoint = (p: Point) => [
@@ -481,7 +478,7 @@ export function CameraPreview({
       const now = e.timeStamp || Date.now()
       const last = lastDraftTapRef.current
       if (!last) { lastDraftTapRef.current = { time: now, x: p.x, y: p.y }; return false }
-      const elapsed  = now - last.time
+      const elapsed = now - last.time
       const distance = Math.hypot(p.x - last.x, p.y - last.y)
       lastDraftTapRef.current = { time: now, x: p.x, y: p.y }
       return elapsed <= DOUBLE_TAP_MAX_DELAY_MS && distance <= DOUBLE_TAP_MAX_DISTANCE_PX
@@ -705,7 +702,7 @@ export function CameraPreview({
           <span className={cn("relative inline-flex size-2 rounded-full", {
             "bg-green-400": status === "live",
             "bg-amber-400": status === "connecting",
-            "bg-red-400":   status === "error",
+            "bg-red-400": status === "error",
           })} />
         </span>
         {status === "live" ? "Live" : status === "connecting" ? "Connecting" : "Error"}

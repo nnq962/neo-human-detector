@@ -1,4 +1,4 @@
-auto_start: false
+auto_start: true
 detection:
   task: pose
   model_size: medium
@@ -36,6 +36,11 @@ reid:
     ema_alpha: 0.75
     max_samples: 5
     ttl_minutes: 2.0
+robot_dispatch:
+  enabled: true
+  emit_occupied: true
+  emit_cleared: true
+  raise_on_transport_error: false
 uart:
   port: /dev/ttyUSB0
   baudrate: 115200
@@ -50,9 +55,9 @@ cameras:
   - id: 8xcdb
     name: nnq
     goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
+      x: 7.583642482757568
+      y: -3.5112080574035645
+      theta: 0.05025026202201843
     points:
     - [418, 802]
     - [763, 757]
@@ -61,14 +66,25 @@ cameras:
   - id: sfats
     name: Khách
     goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
+      x: 6.4105024337768555
+      y: -1.1569770574569702
+      theta: -0.006146135274320841
     points:
-    - [1483, 354]
-    - [1584, 443]
-    - [1485, 529]
-    - [1373, 419]
+    - [1495, 349]
+    - [1695, 517]
+    - [1546, 585]
+    - [1382, 445]
+  - id: 5cha9
+    name: Thư
+    goal_pose:
+      x: 6.801219463348389
+      y: -3.835308313369751
+      theta: -1.6147271394729614
+    points:
+    - [427, 386]
+    - [634, 326]
+    - [675, 468]
+    - [460, 517]
   id: gcphg
 - name: Android Center
   stream:
@@ -80,12 +96,12 @@ cameras:
   - id: l5t3k
     name: Khải
     goal_pose:
-      x: 0.0
-      y: 0.0
-      theta: 0.0
+      x: 7.345981121063232
+      y: -4.749000072479248
+      theta: -1.5499231815338135
     points:
-    - [1131, 490]
-    - [1578, 432]
-    - [1552, 812]
-    - [1126, 845]
+    - [1144, 644]
+    - [1574, 560]
+    - [1581, 711]
+    - [1198, 796]
   id: rtdll

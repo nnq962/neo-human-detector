@@ -165,7 +165,7 @@ class UartManager:
 
             try:
                 conn.write(text_str.encode("utf-8"))
-                LOGGER.info(f"Send: {text_str.strip()}")
+                # LOGGER.info(f"Send: {text_str.strip()}")
                 return True
             except Exception as e:
                 self.last_error = str(e)
@@ -204,14 +204,14 @@ class UartManager:
 
         try:
             parsed_data = json.loads(raw_data)
-            LOGGER.info(f"Recv: {parsed_data}")
+            # LOGGER.info(f"Recv: {parsed_data}")
             return {
                 "type": "json",
                 "raw": raw_data,
                 "data": parsed_data,
             }
         except json.JSONDecodeError:
-            LOGGER.info(f"Recv: {raw_data}")
+            # LOGGER.info(f"Recv: {raw_data}")
             return {
                 "type": "string",
                 "raw": raw_data,
