@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.reid import ReIdConfig
+from src.robot_dispatch import RobotDispatchConfig
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,3 +53,4 @@ class RuntimeConfig:
     preview           : PreviewConfig          = field(default_factory=PreviewConfig)
     zone_state_machine: ZoneStateMachineConfig = field(default_factory=ZoneStateMachineConfig)
     reid              : ReIdConfig             = field(default_factory=ReIdConfig)
+    robot_dispatch    : RobotDispatchConfig    = field(default_factory=RobotDispatchConfig)

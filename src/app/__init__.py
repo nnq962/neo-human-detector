@@ -13,6 +13,7 @@ from src.app.utils import (
     build_detection_config,
     build_preview_config,
     build_reid_config,
+    build_robot_dispatch_config,
     build_runtime_config,
     build_zone_state_machine_config,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "build_detection_config",
     "build_preview_config",
     "build_reid_config",
+    "build_robot_dispatch_config",
     "build_runtime_config",
     "build_zone_state_machine_config",
 ]

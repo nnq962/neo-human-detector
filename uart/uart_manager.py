@@ -6,7 +6,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import serial
 
@@ -48,6 +48,7 @@ class UartManager:
         self.last_received_at: Optional[float] = None
         self._events = deque(maxlen=event_buffer_size)
         self._event_sequence = 0
+        self._sync_handler: Optional[Callable[[Optional[dict]], None]] = None
 
         self._lock = threading.RLock()
 
@@ -266,6 +267,12 @@ class UartManager:
             }
 
     # ─────────────────────────────────────────────────────────────────────────
+    def set_sync_handler(self, handler: Optional[Callable[[Optional[dict]], None]]) -> None:
+        """Đăng ký callback xử lý khi robot gửi lệnh sync."""
+        with self._lock:
+            self._sync_handler = handler
+
+    # ─────────────────────────────────────────────────────────────────────────
     def is_connected(self) -> bool:
         with self._lock:
             return self._is_connected_unlocked()
@@ -332,7 +339,24 @@ class UartManager:
                 }
 
         if event["type"] == "string" and str(event["data"]).strip() == "sync":
-            LOGGER.info("Bỏ qua lệnh sync vì detector service đã được xoá.")
+            self._handle_sync_command()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _handle_sync_command(self) -> None:
+        """Gọi callback sync hiện tại nếu runtime đã đăng ký."""
+        with self._lock:
+            handler = self._sync_handler
+            latest_received_data = copy.deepcopy(self.latest_received_data)
+
+        if handler is None:
+            LOGGER.info("Nhận lệnh sync nhưng chưa có runtime đăng ký handler.")
+            return
+
+        try:
+            handler(latest_received_data)
+        except Exception as e:
+            self.last_error = str(e)
+            LOGGER.error(f"Lỗi khi xử lý lệnh sync: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     def _close_serial(self) -> None:

@@ -19,6 +19,7 @@ from src.detection.datatypes import InferenceFrame
 from src.detection.yolo_detector import YoloDetector, YoloDetectorConfig
 from src.media_sources import MediaSources
 from src.reid import ReIdPipeline
+from src.robot_dispatch import RobotDispatcher, UartRobotTransport
 from src.visualization import (
     draw_detections,
     draw_status_bar,
@@ -38,6 +39,7 @@ class Runtime:
         self.media_sources: Optional[MediaSources] = None
         self.zone_machines: Dict[str, ZoneStateMachine] = {}
         self.reid_pipeline: Optional[ReIdPipeline] = None
+        self.robot_dispatcher: Optional[RobotDispatcher] = None
         self.is_running = False
         self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
@@ -67,6 +69,7 @@ class Runtime:
                     if self._stop_requested.is_set() or not self.is_running:
                         break
 
+                    # Inference
                     detection_frames = predict_function(frames)
                     self._validate_batch_lengths(frames, metas, detection_frames)
                     batch_payload: dict[str, dict] = {}
@@ -88,6 +91,13 @@ class Runtime:
 
                             # Cập nhật state machine cho mỗi zone dựa trên số lượng detection bên trong.
                             self.zone_machines[camera.id].update(camera.zones, zone_counts)
+
+                            # Robot dispatcher
+                            if self.robot_dispatcher is not None:
+                                self.robot_dispatcher.process_zones(
+                                    camera.zones,
+                                    timestamp=meta.timestamp,
+                                )
 
                         # Chạy ReID nếu được bật.
                         detection_frame = self._run_reid(
@@ -149,6 +159,10 @@ class Runtime:
         if self.reid_pipeline is not None:
             self.reid_pipeline.close()
             self.reid_pipeline = None
+
+        if self.robot_dispatcher is not None:
+            self.robot_dispatcher.close()
+            self.robot_dispatcher = None
 
         try:
             cv2.destroyAllWindows()
@@ -214,6 +228,9 @@ class Runtime:
         if self.config.reid.enabled:
             self.reid_pipeline = ReIdPipeline.from_config(self.config.reid)
 
+        if self.config.robot_dispatch.enabled:
+            self.robot_dispatcher = self._build_robot_dispatcher(cfg)
+
         if self.config.preview.enabled:
             preview = self.config.preview
             for cam in self.cameras:
@@ -251,6 +268,12 @@ class Runtime:
             LOGGER.info("   → Buffer min    : %d", reid.buffer_min)
             LOGGER.info("   → Gallery TTL   : %.1f min", reid.gallery_ttl_minutes)
 
+        robot = self.config.robot_dispatch
+        LOGGER.info("ROBOT DISPATCH")
+        LOGGER.info("   → Enabled       : %s", robot.enabled)
+        LOGGER.info("   → Occupied      : %s", robot.emit_occupied)
+        LOGGER.info("   → Cleared       : %s", robot.emit_cleared)
+
         preview = self.config.preview
         LOGGER.info("PREVIEW")
         LOGGER.info("   → Show          : %s", preview.enabled)
@@ -284,6 +307,26 @@ class Runtime:
         cv2.imshow(unidecode(str(camera.name).strip()), canvas)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             self.is_running = False
+
+    def _build_robot_dispatcher(self, cfg: dict) -> RobotDispatcher:
+        """Tạo robot dispatcher dùng UART transport mặc định."""
+        from uart.uart_manager import uart_manager
+
+        uart_cfg = cfg.get("uart", {})
+        if isinstance(uart_cfg, dict):
+            uart_manager.reconfigure(
+                port=uart_cfg.get("port"),
+                baudrate=uart_cfg.get("baudrate"),
+            )
+        else:
+            uart_manager.connect()
+
+        dispatcher = RobotDispatcher(
+            self.config.robot_dispatch,
+            transport=UartRobotTransport(uart_manager),
+        )
+        uart_manager.set_sync_handler(dispatcher.send_sync)
+        return dispatcher
 
     def _update_fps(self, camera_id: str, timestamp: float) -> float:
         prev = self._fps_tracker.get(camera_id)

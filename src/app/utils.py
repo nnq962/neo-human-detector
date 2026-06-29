@@ -13,6 +13,7 @@ from src.app.datatypes import (
     ZoneStateMachineConfig,
 )
 from src.reid import ReIdConfig
+from src.robot_dispatch import RobotDispatchConfig
 from utils import load_config
 
 
@@ -79,6 +80,17 @@ def build_reid_config(raw: dict) -> ReIdConfig:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def build_robot_dispatch_config(raw: dict) -> RobotDispatchConfig:
+    """Đọc section robot_dispatch và tạo config cho dispatcher."""
+    return RobotDispatchConfig(
+        enabled                  = bool(raw.get("enabled", False)),
+        emit_occupied            = bool(raw.get("emit_occupied", True)),
+        emit_cleared             = bool(raw.get("emit_cleared", False)),
+        raise_on_transport_error = bool(raw.get("raise_on_transport_error", False)),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def build_runtime_config(
     config_path: str = "configs/test.yaml",
     *,
@@ -92,4 +104,5 @@ def build_runtime_config(
         preview            = build_preview_config(cfg.get("preview", {}), show=show),
         zone_state_machine = build_zone_state_machine_config(cfg.get("zone_state_machine", {})),
         reid               = build_reid_config(cfg.get("reid", {})),
+        robot_dispatch     = build_robot_dispatch_config(cfg.get("robot_dispatch", {})),
     )

@@ -51,6 +51,13 @@ reid:
     max_samples: 5
     ttl_minutes: 2.0
 
+# ─── Robot dispatch ──────────────────────────────────────────────────────────
+robot_dispatch:
+  enabled: false              # true để log request robot khi zone chuyển OCCUPIED
+  emit_occupied: true
+  emit_cleared: false
+  raise_on_transport_error: false
+
 # ─── UART ─────────────────────────────────────────────────────────────────────
 uart:
   port: /dev/ttyS4
