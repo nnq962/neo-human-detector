@@ -1,16 +1,7 @@
 import { useEffect, useState } from "react"
-import { LogIn, LogOut, Play, RotateCcw, Square } from "lucide-react"
+import { BellRing, CheckCircle2, CircleOff, LogIn, Play, RotateCcw, Square } from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,42 +17,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { CameraPreview } from "@/components/camera-preview"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
+import type { RobotDispatchEvent } from "@/api/robot-dispatch.api"
 import { useAutoStartConfig, useUpdateAutoStartConfig } from "@/hooks/use-auto-start"
 import { useBboxes, type CameraDetectionPayload } from "@/hooks/use-bboxes"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
+import { useRobotDispatchEvents, type RobotDispatchEventsStatus } from "@/hooks/use-robot-dispatch-events"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { cn } from "@/lib/utils"
-
-// ── Mock data ─────────────────────────────────────────────────────────────────
-
-
-const mockEvents = [
-  { id: 1,  ts: "14:32:11", camera: "AI Center",      zone: "hi 2", type: "enter" as const, pid: "P-042" },
-  { id: 2,  ts: "14:28:44", camera: "AI Center",      zone: "hi 2", type: "exit"  as const, pid: "P-039" },
-  { id: 3,  ts: "14:21:03", camera: "Android Center", zone: "hi 2", type: "enter" as const, pid: "P-017" },
-  { id: 4,  ts: "14:18:59", camera: "Android Center", zone: "hi 2", type: "exit"  as const, pid: "P-017" },
-  { id: 5,  ts: "14:11:22", camera: "AI Center",      zone: "hi 2", type: "enter" as const, pid: "P-031" },
-  { id: 6,  ts: "13:58:07", camera: "AI Center",      zone: "hi 2", type: "exit"  as const, pid: "P-031" },
-  { id: 7,  ts: "13:47:30", camera: "Android Center", zone: "hi 2", type: "enter" as const, pid: "P-008" },
-  { id: 8,  ts: "13:41:15", camera: "AI Center",      zone: "hi 2", type: "enter" as const, pid: "P-042" },
-  { id: 9,  ts: "13:33:52", camera: "Android Center", zone: "hi 2", type: "exit"  as const, pid: "P-008" },
-  { id: 10, ts: "13:20:01", camera: "AI Center",      zone: "hi 2", type: "enter" as const, pid: "P-055" },
-]
-
-const mockHourlyData = [
-  { hour: "00:00", count: 0  },
-  { hour: "02:00", count: 0  },
-  { hour: "04:00", count: 1  },
-  { hour: "06:00", count: 3  },
-  { hour: "08:00", count: 12 },
-  { hour: "10:00", count: 18 },
-  { hour: "12:00", count: 15 },
-  { hour: "14:00", count: 20 },
-  { hour: "16:00", count: 14 },
-  { hour: "18:00", count: 8  },
-  { hour: "20:00", count: 4  },
-  { hour: "22:00", count: 1  },
-]
 
 // ── Runtime card ─────────────────────────────────────────────────────────────
 
@@ -283,42 +245,141 @@ function CameraCell({ camera, cameraDetections }: { camera: Camera; cameraDetect
   )
 }
 
-// ── Event item ────────────────────────────────────────────────────────────────
+// ── Event feed ────────────────────────────────────────────────────────────────
 
-function EventItem({ event }: { event: (typeof mockEvents)[number] }) {
-  const isEnter = event.type === "enter"
+function formatEventTime(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+}
+
+function personLabel(person: RobotDispatchEvent["person"]): string {
+  return person ? `#${person.global_id}` : "Không có ID"
+}
+
+function EventItem({ event }: { event: RobotDispatchEvent }) {
+  const isInvite = event.action === "invite"
+  const isClear = event.action === "clear"
+  const isSkipped = event.type === "skipped"
+  const Icon = isSkipped ? CircleOff : isClear ? CheckCircle2 : LogIn
+  const title = isSkipped
+    ? "Bỏ qua lệnh mời"
+    : isClear
+      ? "Đã clear zone"
+      : "Đã gửi lệnh mời"
+
   return (
-    <div className="flex items-start gap-3 py-2.5">
+    <div className="flex items-start gap-3 px-1 py-3">
       <div
         className={cn(
-          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
-          isEnter
-            ? "bg-green-500/15 text-green-600 dark:text-green-400"
-            : "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+          "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full",
+          isSkipped
+            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+            : isClear
+              ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+              : "bg-green-500/15 text-green-600 dark:text-green-400",
         )}
       >
-        {isEnter ? <LogIn className="size-3" /> : <LogOut className="size-3" />}
+        <Icon className="size-4" />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium">{event.pid}</span>
-          <span
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{title}</span>
+          <Badge
+            variant={isSkipped ? "secondary" : "outline"}
             className={cn(
-              "text-[11px]",
-              isEnter
-                ? "text-green-600 dark:text-green-400"
-                : "text-amber-600 dark:text-amber-400",
+              "h-5 text-[11px]",
+              isSkipped && "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400",
+              !isSkipped && isInvite && "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400",
+              !isSkipped && isClear && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
             )}
           >
-            {isEnter ? "vào" : "ra"}
-          </span>
-          <span className="truncate text-xs text-muted-foreground">{event.zone}</span>
+            {isSkipped ? "Skipped" : isClear ? "Clear" : "Invite"}
+          </Badge>
+          <Badge
+            variant="outline"
+            className={cn(
+              "h-5 text-[11px]",
+              event.person
+                ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                : "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+            )}
+          >
+            {personLabel(event.person)}
+          </Badge>
         </div>
-        <span className="text-[11px] text-muted-foreground">
-          {event.camera} · {event.ts}
-        </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="truncate font-medium text-foreground">{event.zone.zone_name}</span>
+          <span className="text-border">/</span>
+          <span className="truncate">{event.zone.camera_name}</span>
+          <span className="text-border">/</span>
+          <span>{formatEventTime(event.timestamp)}</span>
+          {event.reason && (
+            <>
+              <span className="text-border">/</span>
+              <span>
+                Lý do: {event.reason === "already_requested" ? "global id đã được gửi lệnh trước đó" : event.reason}
+              </span>
+            </>
+          )}
+        </div>
       </div>
     </div>
+  )
+}
+
+const ROBOT_DISPATCH_STATUS_LABEL: Record<RobotDispatchEventsStatus, string> = {
+  connecting: "Đang kết nối",
+  connected: "Đã kết nối",
+  disconnected: "Mất kết nối",
+}
+
+function RecentEventsCard({
+  events,
+  status,
+}: {
+  events: RobotDispatchEvent[]
+  status: RobotDispatchEventsStatus
+}) {
+  return (
+    <Card className="flex flex-col overflow-hidden">
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>Sự kiện gần đây</CardTitle>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                status === "connected" && "bg-green-500",
+                status === "connecting" && "bg-amber-500",
+                status === "disconnected" && "bg-red-500",
+              )}
+            />
+            <span>{ROBOT_DISPATCH_STATUS_LABEL[status]}</span>
+            <span className="text-border">/</span>
+            <BellRing className="size-3.5" />
+            <span>{events.length} sự kiện</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">
+        {events.length === 0 ? (
+          <div className="flex h-48 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+            Chưa có sự kiện nào.
+          </div>
+        ) : (
+          <ScrollArea className={events.length > 10 ? "h-[640px]" : "max-h-[640px]"}>
+            <div className="divide-y px-4">
+              {events.map((event) => (
+                <EventItem key={event.sequence} event={event} />
+              ))}
+            </div>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -327,6 +388,7 @@ function EventItem({ event }: { event: (typeof mockEvents)[number] }) {
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
   const bboxes = useBboxes()
+  const { events: robotDispatchEvents, status: robotDispatchEventsStatus } = useRobotDispatchEvents({ maxEvents: 100 })
   const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
@@ -358,86 +420,8 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Chart + Events */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-
-        {/* Hourly detection chart */}
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>Lượt phát hiện theo giờ</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart
-                data={mockHourlyData}
-                margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
-              >
-                <defs>
-                  <linearGradient id="detectionGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}   />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(128,128,128,0.15)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  separator=": "
-                  contentStyle={{
-                    backgroundColor: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: "var(--foreground)" }}
-                  itemStyle={{ color: "#3b82f6" }}
-                  formatter={(value) => [value, "Lượt phát hiện"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  fill="url(#detectionGrad)"
-                  dot={false}
-                  activeDot={{ r: 4, fill: "#3b82f6" }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Recent events */}
-        <Card className="flex flex-col">
-          <CardHeader>
-            <CardTitle>Sự kiện gần đây</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[260px]">
-              <div className="flex flex-col divide-y px-4">
-                {mockEvents.map((event) => (
-                  <EventItem key={event.id} event={event} />
-                ))}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-      </div>
+      {/* Recent events */}
+      <RecentEventsCard events={robotDispatchEvents} status={robotDispatchEventsStatus} />
     </div>
   )
 }

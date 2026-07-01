@@ -4,6 +4,7 @@ from fastapi.encoders import jsonable_encoder
 from api.routes.responses import ok
 from api.services import runtime as runtime_service
 from src.app.runtime_state import runtime_state
+from src.robot_dispatch.event_store import robot_dispatch_events
 from uart.uart_manager import uart_manager
 from utils import LOGGER
 
@@ -61,6 +62,24 @@ async def uart_events_websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         LOGGER.info("Client disconnected from /ws/uart/events")
+
+# ────────────────────────────────────────────────────────────────
+# Chuyển event robot dispatch lên web dashboard/debug.
+@router.websocket("/ws/robot-dispatch/events")
+async def robot_dispatch_events_websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    last_sequence = robot_dispatch_events.get_event_sequence()
+    LOGGER.info("Client connected to /ws/robot-dispatch/events")
+    try:
+        while True:
+            events = robot_dispatch_events.get_events_after(last_sequence)
+            for event in events:
+                last_sequence = event["sequence"]
+                await websocket.send_json(event)
+
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        LOGGER.info("Client disconnected from /ws/robot-dispatch/events")
 
 # ────────────────────────────────────────────────────────────────
 # Gửi trạng thái runtime lên web config/dashboard

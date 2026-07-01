@@ -11,6 +11,7 @@ from src.robot_dispatch.datatypes import (
     build_zone_dispatch_request,
 )
 from src.robot_dispatch.dispatcher import RobotDispatcher
+from src.robot_dispatch.event_store import RobotDispatchEventStore, robot_dispatch_events
 from src.robot_dispatch.transport import (
     InMemoryRobotTransport,
     LoggingRobotTransport,
@@ -25,10 +26,12 @@ __all__ = [
     "PersonServiceState",
     "RobotDispatchConfig",
     "RobotDispatchEvent",
+    "RobotDispatchEventStore",
     "RobotDispatchRequest",
     "RobotDispatcher",
     "RobotTransport",
     "UartRobotTransport",
     "build_uart_dispatch_payload",
     "build_zone_dispatch_request",
+    "robot_dispatch_events",
 ]

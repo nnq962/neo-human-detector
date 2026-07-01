@@ -17,6 +17,7 @@ from src.robot_dispatch.datatypes import (
     RobotDispatchRequest,
     build_zone_dispatch_request,
 )
+from src.robot_dispatch.event_store import robot_dispatch_events
 from src.robot_dispatch.transport import LoggingRobotTransport, RobotTransport
 from src.zones_management import Zone, ZoneState
 from utils import LOGGER
@@ -46,7 +47,9 @@ class RobotDispatcher:
         self._previous_states: Dict[str, ZoneState] = {}
         self._latest_zone_items: Dict[str, dict] = {}
         self._person_service_states: Dict[int, PersonServiceRecord] = {}
+        self._last_zone_people: Dict[str, dict] = {}
         self._zone_fallback_requests: Set[str] = set()
+        self._zones_cleared_after_request: Set[str] = set()
         self._logged_requested_skips: Set[tuple[int, str]] = set()
 
     def process_zones(
@@ -69,6 +72,8 @@ class RobotDispatcher:
             self._latest_zone_items[zone.key] = _build_zone_snapshot(zone)
             if zone.state == ZoneState.EMPTY:
                 self._zone_fallback_requests.discard(zone.key)
+                if self._has_requested_person_for_zone(zone.key):
+                    self._zones_cleared_after_request.add(zone.key)
                 self._clear_logged_skips_for_zone(zone.key)
 
             request = self._build_request(
@@ -86,6 +91,7 @@ class RobotDispatcher:
             requests.append(request)
 
         if requests and self._send_batch(requests):
+            self._publish_sent_events(requests)
             self._mark_requested_people(requests)
 
         return requests
@@ -134,7 +140,9 @@ class RobotDispatcher:
         self._previous_states.clear()
         self._latest_zone_items.clear()
         self._person_service_states.clear()
+        self._last_zone_people.clear()
         self._zone_fallback_requests.clear()
+        self._zones_cleared_after_request.clear()
         self._logged_requested_skips.clear()
         if zones is None:
             return
@@ -151,7 +159,9 @@ class RobotDispatcher:
             self._previous_states.clear()
             self._latest_zone_items.clear()
             self._person_service_states.clear()
+            self._last_zone_people.clear()
             self._zone_fallback_requests.clear()
+            self._zones_cleared_after_request.clear()
             self._logged_requested_skips.clear()
 
     def _build_request(
@@ -209,7 +219,8 @@ class RobotDispatcher:
             return None
 
         if self._is_person_requested(person.global_id, timestamp=timestamp):
-            self._log_requested_skip_once(person.global_id, zone)
+            if self._should_log_requested_skip(person.global_id, zone):
+                self._log_requested_skip_once(person.global_id, zone)
             return None
 
         return build_zone_dispatch_request(
@@ -331,12 +342,48 @@ class RobotDispatcher:
                 request_id=request.request_id,
                 zone_key=request.zone_key,
             )
+            self._zones_cleared_after_request.discard(request.zone_key)
+
+    def _has_requested_person_for_zone(self, zone_key: str) -> bool:
+        """Kiểm tra zone từng gửi request người nào đó trong phiên hiện tại."""
+        return any(
+            record.zone_key == zone_key and record.state == PersonServiceState.REQUESTED
+            for record in self._person_service_states.values()
+        )
 
     def _mark_zone_fallback_request(self, request: RobotDispatchRequest) -> None:
         """Ghi nhớ zone đã gửi request không có định danh người."""
         if request.event != RobotDispatchEvent.ZONE_OCCUPIED:
             return
         self._zone_fallback_requests.add(request.zone_key)
+
+    def _should_log_requested_skip(self, global_id: int, zone: Zone) -> bool:
+        """Chỉ log skip khi có lượt occupied mới hoặc người đã request xuất hiện ở zone khác."""
+        service = self._person_service_states.get(global_id)
+        if service is None:
+            return True
+        if service.zone_key != zone.key:
+            return True
+        if zone.key in self._zones_cleared_after_request:
+            return True
+
+        previous_state = self._previous_states.get(zone.key)
+        return previous_state in {None, ZoneState.EMPTY, ZoneState.PENDING_ENTER}
+
+    def _publish_sent_events(self, requests: Sequence[RobotDispatchRequest]) -> None:
+        """Publish one websocket event per successfully sent robot request."""
+        for request in requests:
+            person = _build_request_person(request)
+
+            if request.event == RobotDispatchEvent.ZONE_OCCUPIED:
+                if person is not None:
+                    self._last_zone_people[request.zone_key] = person
+                else:
+                    self._last_zone_people.pop(request.zone_key, None)
+            elif request.event == RobotDispatchEvent.ZONE_CLEARED:
+                person = person or self._last_zone_people.pop(request.zone_key, None)
+
+            robot_dispatch_events.publish_sent(request, person=person)
 
     def _log_requested_skip_once(self, global_id: int, zone: Zone) -> None:
         """Log skip REQUESTED một lần cho mỗi cặp người-zone trong một lượt occupied."""
@@ -349,6 +396,13 @@ class RobotDispatcher:
             "Skip robot request: global_id=%s already requested | zone=%s",
             global_id,
             zone.key,
+        )
+        robot_dispatch_events.publish_skipped_already_requested(
+            global_id=global_id,
+            zone=zone,
+            existing_request=_build_existing_request_snapshot(
+                self._person_service_states.get(global_id)
+            ),
         )
 
     def _clear_logged_skips_for_zone(self, zone_key: str) -> None:
@@ -383,6 +437,42 @@ def _build_uart_zone_item(item: dict) -> dict:
         "zone_key": item["zone_key"],
         "zone_name": item["zone_name"],
         "goal_pose": dict(item["goal_pose"]),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_request_person(request: RobotDispatchRequest) -> Optional[dict]:
+    """Tạo person payload tối thiểu cho robot dispatch websocket."""
+    if request.person_global_id is None:
+        return None
+
+    person = {
+        "global_id": request.person_global_id,
+        "track_id": request.metadata.get("track_id"),
+        "similarity": request.similarity,
+        "reid_status": request.metadata.get("reid_status"),
+    }
+
+    return {
+        key: value
+        for key, value in person.items()
+        if value is not None
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_existing_request_snapshot(
+    record: Optional[PersonServiceRecord],
+) -> Optional[dict]:
+    """Serialize request state that caused an already-requested skip."""
+    if record is None:
+        return None
+
+    return {
+        "request_id": record.request_id,
+        "state": record.state.value,
+        "zone_key": record.zone_key,
+        "updated_at": record.updated_at,
     }
 
 
