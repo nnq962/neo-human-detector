@@ -20,6 +20,31 @@ class RobotDispatchEvent(Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+class PersonServiceState(Enum):
+    """Trạng thái phục vụ của một người trong phiên runtime hiện tại."""
+
+    NEW       = "NEW"
+    REQUESTED = "REQUESTED"
+    SERVING   = "SERVING"
+    SERVED    = "SERVED"
+    SKIPPED   = "SKIPPED"
+    EXPIRED   = "EXPIRED"
+    CANCELLED = "CANCELLED"
+    FAILED    = "FAILED"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class PersonServiceRecord:
+    """Thông tin request phục vụ mới nhất của một người."""
+
+    state     : PersonServiceState
+    updated_at: float
+    request_id: str
+    zone_key  : str
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class RobotDispatchConfig:
     """Cấu hình điều khiển việc sinh request cho robot từ runtime."""
@@ -28,6 +53,9 @@ class RobotDispatchConfig:
     emit_occupied           : bool = True
     emit_cleared            : bool = False
     raise_on_transport_error: bool = False
+    require_reid            : bool = True
+    fallback_without_reid   : bool = False
+    service_ttl_minutes     : Optional[float] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,7 +108,8 @@ def build_zone_dispatch_request(
 ) -> RobotDispatchRequest:
     """Tạo request robot từ dữ liệu zone hiện tại."""
     request_ts = zone.enter_time if zone.enter_time > 0 else timestamp
-    request_id = f"{zone.key}:{event.value}:{int(request_ts * 1000)}"
+    identity_part = f":person:{person_global_id}" if person_global_id is not None else ""
+    request_id = f"{zone.key}:{event.value}{identity_part}:{int(request_ts * 1000)}"
 
     return RobotDispatchRequest(
         request_id=request_id,

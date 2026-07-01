@@ -4,6 +4,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from api.routes import auto_start, camera, detection, mediamtx, reid, runtime, uart, websocket, zone_state_machine
 from api.routes.responses import error_response
 
@@ -25,6 +27,25 @@ def _uses_standard_api_response(path: str) -> bool:
         path == prefix or path.startswith(f"{prefix}/")
         for prefix in STANDARD_RESPONSE_PREFIXES
     )
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+
+            method = scope.get("method")
+            headers = Headers(scope=scope)
+            accept = headers.get("accept", "")
+            wants_html = "text/html" in accept or "*/*" in accept
+
+            if method not in ("GET", "HEAD") or not wants_html:
+                raise
+
+            return await super().get_response("index.html", scope)
 
 
 def run_startup_tasks() -> None:
@@ -133,11 +154,7 @@ app.include_router(auto_start.router, prefix="/api/auto-start", tags=["Auto Star
 app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
 app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
 app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
-app.include_router(
-    zone_state_machine.router,
-    prefix="/api/zone-state-machine",
-    tags=["Zone State Machine"],
-)
+app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine", tags=["Zone State Machine"],)
 app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])
 app.include_router(runtime.router, prefix="/api/runtime", tags=["Runtime"])
 app.include_router(uart.router, prefix="/api/uart", tags=["UART"])
@@ -145,4 +162,4 @@ app.include_router(websocket.router)
 
 # ────────────────────────────────────────────────────────────────
 # Mount frontend build
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+app.mount("/", SPAStaticFiles(directory="frontend/dist", html=True), name="frontend")

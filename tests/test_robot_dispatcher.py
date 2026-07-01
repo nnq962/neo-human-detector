@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 
+from src.detection.datatypes import Detection, InferenceFrame
 from src.robot_dispatch import (
     InMemoryRobotTransport,
     RobotDispatchConfig,
@@ -16,7 +17,7 @@ class RobotDispatcherTest(unittest.TestCase):
         """Dispatcher chỉ phát một request khi zone vừa chuyển OCCUPIED."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True),
+            config=RobotDispatchConfig(enabled=True, require_reid=False),
             transport=transport,
         )
         zone = self._make_zone()
@@ -39,7 +40,7 @@ class RobotDispatcherTest(unittest.TestCase):
         """Dispatcher chỉ phát event cleared khi cấu hình cho phép."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True, emit_cleared=True),
+            config=RobotDispatchConfig(enabled=True, emit_cleared=True, require_reid=False),
             transport=transport,
         )
         zone = self._make_zone()
@@ -59,7 +60,7 @@ class RobotDispatcherTest(unittest.TestCase):
         """Nhiều zone cùng chuyển OCCUPIED được gửi trong một batch."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True),
+            config=RobotDispatchConfig(enabled=True, require_reid=False),
             transport=transport,
         )
         zones = [
@@ -82,7 +83,7 @@ class RobotDispatcherTest(unittest.TestCase):
         """Zone mất detection tạm rồi quay lại OCCUPIED không tạo request mới."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True),
+            config=RobotDispatchConfig(enabled=True, require_reid=False),
             transport=transport,
         )
         zone = self._make_zone()
@@ -99,11 +100,254 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(len(transport.requests), 1)
         self.assertEqual(len(transport.batches), 1)
 
+    def test_identity_required_waits_for_global_id(self):
+        """Khi cần ReID, zone OCCUPIED chưa có global_id thì chưa gửi request."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                )
+            ]
+        )
+
+        emitted = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(emitted, [])
+        self.assertEqual(transport.requests, [])
+
+    def test_identity_required_emits_once_and_marks_requested(self):
+        """Người có global_id trong zone OCCUPIED chỉ được request một lần."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                    similarity=0.88,
+                    track_id=12,
+                    status="matched",
+                )
+            ]
+        )
+
+        first = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        second = dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0].person_global_id, 7)
+        self.assertEqual(first[0].similarity, 0.88)
+        self.assertEqual(second, [])
+        self.assertEqual(dispatcher.get_person_service_states()[7], "REQUESTED")
+
+    def test_requested_person_is_skipped_in_another_zone(self):
+        """Cùng global_id sang zone khác vẫn bị skip nếu đã REQUESTED."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone_a = self._make_zone(name="zone_a", zone_id="z1")
+        zone_b = self._make_zone(name="zone_b", zone_id="z2")
+        zone_a.state = ZoneState.OCCUPIED
+        zone_b.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        first = dispatcher.process_zones(
+            [zone_a],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone_a.name],
+            reid_enabled=True,
+        )
+        second = dispatcher.process_zones(
+            [zone_b],
+            timestamp=101.0,
+            detection_frame=frame,
+            zone_names=[zone_b.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+        self.assertEqual(len(transport.requests), 1)
+
+    def test_fallback_without_reid_allows_zone_request(self):
+        """Fallback cho phép gửi zone-only khi chưa có global_id."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(
+                enabled=True,
+                fallback_without_reid=True,
+            ),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                )
+            ]
+        )
+
+        emitted = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(emitted), 1)
+        self.assertIsNone(emitted[0].person_global_id)
+
+    def test_fallback_zone_request_prevents_late_identity_duplicate(self):
+        """Zone đã fallback request thì không gửi thêm khi global_id xuất hiện muộn."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(
+                enabled=True,
+                fallback_without_reid=True,
+            ),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        pending_frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                )
+            ]
+        )
+        identified_frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        first = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=pending_frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        second = dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=identified_frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertIsNone(first[0].person_global_id)
+        self.assertEqual(second, [])
+        self.assertEqual(len(transport.requests), 1)
+
+    def test_service_ttl_allows_requesting_person_again(self):
+        """Hết TTL thì cùng global_id có thể được request lại."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(
+                enabled=True,
+                service_ttl_minutes=0.01,
+            ),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        first = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        second = dispatcher.process_zones(
+            [zone],
+            timestamp=100.5,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        third = dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+        self.assertEqual(len(third), 1)
+        self.assertEqual(len(transport.requests), 2)
+
     def test_send_sync_uses_latest_confirmed_zone_snapshot(self):
         """Sync gửi lại trạng thái xác nhận mới nhất của các zone."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True),
+            config=RobotDispatchConfig(enabled=True, require_reid=False),
             transport=transport,
         )
         occupied = self._make_zone(name="occupied", zone_id="z1")
@@ -126,7 +370,7 @@ class RobotDispatcherTest(unittest.TestCase):
         """Sync không gửi zone OCCUPIED nếu robot đang đứng tại goal_pose."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
-            config=RobotDispatchConfig(enabled=True),
+            config=RobotDispatchConfig(enabled=True, require_reid=False),
             transport=transport,
         )
         zone = self._make_zone()

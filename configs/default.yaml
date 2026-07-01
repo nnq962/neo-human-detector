@@ -3,7 +3,7 @@ detection:
   task: pose
   model_size: medium
   batch_size: 2
-  conf: 0.47
+  conf: 0.5
   verbose: false
 zone_state_machine:
   confirm_enter_time: 6.0
@@ -18,9 +18,9 @@ reid:
   embedding:
     batch_size: 1
   track:
-    buffer_min: 30
+    buffer_min: 70
     grace_period: 90
-    update_interval: 120
+    update_interval: 100
     max_buffer_size: 1
     gallery_cleanup_interval: 1800
     max_reverify_misses: 5
@@ -35,14 +35,17 @@ reid:
     sim_threshold_match: 0.75
     ema_alpha: 0.75
     max_samples: 5
-    ttl_minutes: 2.0
+    ttl_minutes: 10.0
 robot_dispatch:
   enabled: true
   emit_occupied: true
   emit_cleared: true
   raise_on_transport_error: false
+  require_reid: true
+  fallback_without_reid: false
+  service_ttl_minutes: 10
 uart:
-  port: /dev/ttyUSB0
+  port: /dev/ttyUSB1
   baudrate: 115200
 cameras:
 - name: AI Center
@@ -55,53 +58,68 @@ cameras:
   - id: 8xcdb
     name: nnq
     goal_pose:
-      x: 7.583642482757568
-      y: -3.5112080574035645
-      theta: 0.05025026202201843
+      x: 7.33074951171875
+      y: -3.6641297340393066
+      theta: -1.536806583404541
     points:
     - [418, 802]
     - [763, 757]
     - [819, 1080]
     - [439, 1080]
-  - id: sfats
+  - id: ecdz2
     name: Khách
     goal_pose:
-      x: 6.4105024337768555
-      y: -1.1569770574569702
-      theta: -0.006146135274320841
+      x: 6.459995746612549
+      y: -0.946757972240448
+      theta: -1.4464954137802124
     points:
-    - [1495, 349]
-    - [1695, 517]
-    - [1546, 585]
-    - [1382, 445]
-  - id: 5cha9
+    - [1309, 348]
+    - [1444, 326]
+    - [1695, 492]
+    - [1555, 569]
+  - id: bv5vn
     name: Thư
     goal_pose:
-      x: 6.801219463348389
-      y: -3.835308313369751
-      theta: -1.6147271394729614
+      x: 6.387284278869629
+      y: -4.164921760559082
+      theta: -3.134329319000244
     points:
-    - [427, 386]
-    - [634, 326]
-    - [675, 468]
-    - [460, 517]
+    - [401, 341]
+    - [556, 285]
+    - [627, 456]
+    - [516, 517]
+    - [515, 516]
+  - id: s31gu
+    name: Khách2
+    goal_pose:
+      x: 6.849225997924805
+      y: -2.1095666885375977
+      theta: -1.527213454246521
+    points:
+    - [1169, 539]
+    - [984, 599]
+    - [1180, 861]
+    - [1218, 721]
+    - [1299, 679]
+    - [1183, 557]
+    - [1158, 541]
   id: gcphg
-- name: Android Center
+- name: Camera 2
   stream:
     source: rtsp://admin:061223%40bC@192.168.0.15:554/Streaming/Channels/101
     protocol: tcp
     on_demand: true
   enabled: true
   zones:
-  - id: l5t3k
-    name: Khải
+  - id: h44wo
+    name: Khai
     goal_pose:
-      x: 7.345981121063232
-      y: -4.749000072479248
-      theta: -1.5499231815338135
+      x: 7.428926944732666
+      y: -5.026613712310791
+      theta: 1.621917724609375
     points:
-    - [1144, 644]
-    - [1574, 560]
-    - [1581, 711]
-    - [1198, 796]
-  id: rtdll
+    - [1150, 579]
+    - [1524, 515]
+    - [1618, 669]
+    - [1127, 767]
+  id: lx6ug

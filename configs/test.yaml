@@ -57,6 +57,9 @@ robot_dispatch:
   emit_occupied: true
   emit_cleared: false
   raise_on_transport_error: false
+  require_reid: true
+  fallback_without_reid: false
+  service_ttl_minutes: 120
 
 # ─── UART ─────────────────────────────────────────────────────────────────────
 uart:

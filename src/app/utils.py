@@ -87,6 +87,13 @@ def build_robot_dispatch_config(raw: dict) -> RobotDispatchConfig:
         emit_occupied            = bool(raw.get("emit_occupied", True)),
         emit_cleared             = bool(raw.get("emit_cleared", False)),
         raise_on_transport_error = bool(raw.get("raise_on_transport_error", False)),
+        require_reid             = bool(raw.get("require_reid", True)),
+        fallback_without_reid    = bool(raw.get("fallback_without_reid", False)),
+        service_ttl_minutes      = (
+            None
+            if raw.get("service_ttl_minutes") is None
+            else float(raw.get("service_ttl_minutes"))
+        ),
     )
 
 

@@ -3,6 +3,8 @@ Module sinh request robot từ dữ liệu runtime.
 """
 
 from src.robot_dispatch.datatypes import (
+    PersonServiceRecord,
+    PersonServiceState,
     RobotDispatchConfig,
     RobotDispatchEvent,
     RobotDispatchRequest,
@@ -19,6 +21,8 @@ from src.robot_dispatch.uart_transport import UartRobotTransport, build_uart_dis
 __all__ = [
     "InMemoryRobotTransport",
     "LoggingRobotTransport",
+    "PersonServiceRecord",
+    "PersonServiceState",
     "RobotDispatchConfig",
     "RobotDispatchEvent",
     "RobotDispatchRequest",

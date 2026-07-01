@@ -92,13 +92,6 @@ class Runtime:
                             # Cập nhật state machine cho mỗi zone dựa trên số lượng detection bên trong.
                             self.zone_machines[camera.id].update(camera.zones, zone_counts)
 
-                            # Robot dispatcher
-                            if self.robot_dispatcher is not None:
-                                self.robot_dispatcher.process_zones(
-                                    camera.zones,
-                                    timestamp=meta.timestamp,
-                                )
-
                         # Chạy ReID nếu được bật.
                         detection_frame = self._run_reid(
                             frame=frame,
@@ -106,6 +99,16 @@ class Runtime:
                             detection_frame=detection_frame,
                             zone_names=zone_names,
                         )
+
+                        # Robot dispatcher
+                        if camera.zones and self.robot_dispatcher is not None:
+                            self.robot_dispatcher.process_zones(
+                                camera.zones,
+                                timestamp=meta.timestamp,
+                                detection_frame=detection_frame,
+                                zone_names=zone_names,
+                                reid_enabled=self.reid_pipeline is not None,
+                            )
 
                         # ws/runtime/bboxes
                         batch_payload[camera.id] = build_camera_detection_payload(
@@ -273,6 +276,9 @@ class Runtime:
         LOGGER.info("   → Enabled       : %s", robot.enabled)
         LOGGER.info("   → Occupied      : %s", robot.emit_occupied)
         LOGGER.info("   → Cleared       : %s", robot.emit_cleared)
+        LOGGER.info("   → Require ReID  : %s", robot.require_reid)
+        LOGGER.info("   → Fallback      : %s", robot.fallback_without_reid)
+        LOGGER.info("   → Service TTL   : %s min", robot.service_ttl_minutes)
 
         preview = self.config.preview
         LOGGER.info("PREVIEW")

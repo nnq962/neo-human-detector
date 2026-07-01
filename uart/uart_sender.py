@@ -4,7 +4,7 @@ import time
 
 MAX_UART_BYTES = 250
 UART_SEND_REPEAT_COUNT = 3
-UART_REPEAT_DELAY_SECONDS = 0.3
+UART_REPEAT_DELAY_SECONDS = 0.5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
