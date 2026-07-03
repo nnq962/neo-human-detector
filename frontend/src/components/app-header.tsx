@@ -51,7 +51,7 @@ export function AppHeader() {
   const breadcrumbs = useBreadcrumbs()
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b px-4">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background px-4">
       <SidebarTrigger />
 
       <div className="h-4 w-px shrink-0 bg-border" />

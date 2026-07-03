@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from "react"
-import { Canvas, Circle, FabricText, Line, Point, Polygon, Polyline, controlsUtils } from "fabric"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Canvas, Circle, FabricText, Point, Polygon, Polyline, controlsUtils } from "fabric"
 import { cn } from "@/lib/utils"
 import type { Zone } from "@/api/cameras.api"
-import type { DetectionPayload, RuntimeZonePayload } from "@/hooks/use-bboxes"
+import {
+  subscribeBboxes,
+  type CameraDetectionPayload,
+  type DetectionPayload,
+  type RuntimeZonePayload,
+} from "@/lib/bbox-stream"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,25 +155,38 @@ function getDetectionColor(det: DetectionPayload) {
   return det.global_id != null ? GLOBAL_ID_BBOX_COLOR : DEFAULT_BBOX_COLOR
 }
 
-function addPoseDot(canvas: Canvas, x: number, y: number, color = POSE_KP_COLOR) {
-  canvas.add(new Circle({
-    left: x,
-    top: y,
-    radius: 5,
-    fill: color,
-    stroke: POSE_KP_BORDER,
-    strokeWidth: 2,
-    originX: "center",
-    originY: "center",
-    selectable: false,
-    evented: false,
-  }))
+// ── Detection overlay (canvas 2D thường, vẽ ngoài React render loop) ─────────
+
+type OverlayLayout = { scale: number; offsetX: number; offsetY: number }
+
+function computeLayout(preview: PreviewSize, video: VideoSize): OverlayLayout | null {
+  if (!preview.width || !preview.height || !video.width || !video.height) return null
+  const scale = Math.min(preview.width / video.width, preview.height / video.height)
+  return {
+    scale,
+    offsetX: (preview.width - video.width * scale) / 2,
+    offsetY: (preview.height - video.height * scale) / 2,
+  }
 }
 
-function addPoseHipCenter(
-  canvas: Canvas,
+// Khớp font mặc định của FabricText để giữ nguyên giao diện label
+const DETECTION_LABEL_FONT = '11px "Times New Roman", serif'
+const DETECTION_LABEL_LINE_HEIGHT = 15
+
+function drawPoseDot(ctx: CanvasRenderingContext2D, x: number, y: number, color = POSE_KP_COLOR) {
+  ctx.beginPath()
+  ctx.arc(x, y, 5, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = POSE_KP_BORDER
+  ctx.stroke()
+}
+
+function drawPoseHipCenter(
+  ctx: CanvasRenderingContext2D,
   kps: [number, number, number][],
-  opts: { offsetX: number; offsetY: number; scale: number },
+  layout: OverlayLayout,
 ) {
   const leftHip = kps[11]
   const rightHip = kps[12]
@@ -190,12 +208,97 @@ function addPoseHipCenter(
     y = rightHip[1]
   }
 
-  addPoseDot(
-    canvas,
-    opts.offsetX + x * opts.scale,
-    opts.offsetY + y * opts.scale,
+  drawPoseDot(
+    ctx,
+    layout.offsetX + x * layout.scale,
+    layout.offsetY + y * layout.scale,
     POSE_HIP_CENTER_COLOR,
   )
+}
+
+function drawDetections(
+  ctx: CanvasRenderingContext2D,
+  detections: DetectionPayload[],
+  layout: OverlayLayout,
+  hideFaceKeypoints: boolean,
+) {
+  const { scale, offsetX, offsetY } = layout
+
+  detections.forEach((det) => {
+    const color = getDetectionColor(det)
+    const [x1, y1, x2, y2] = det.bbox.xyxy
+    const cx1 = offsetX + x1 * scale
+    const cy1 = offsetY + y1 * scale
+    const cx2 = offsetX + x2 * scale
+    const cy2 = offsetY + y2 * scale
+
+    ctx.lineWidth = 2
+    ctx.strokeStyle = color
+    ctx.strokeRect(cx1, cy1, cx2 - cx1, cy2 - cy1)
+
+    const lines: string[] = []
+    if (det.track_id != null)
+      lines.push(`#${det.track_id % 100} ${(det.confidence * 100).toFixed(0)}%`)
+    if (det.global_id != null) {
+      const simStr = det.similarity != null ? ` ${(det.similarity * 100).toFixed(0)}%` : ""
+      lines.push(`#${det.global_id}${simStr}`)
+    }
+    if (det.status) lines.push(det.status)
+
+    if (lines.length > 0) {
+      ctx.font = DETECTION_LABEL_FONT
+      ctx.textBaseline = "top"
+      lines.forEach((line, i) => {
+        const top = cy1 + 3 + i * DETECTION_LABEL_LINE_HEIGHT
+        const width = ctx.measureText(line).width
+        ctx.fillStyle = `${color}bb`
+        ctx.fillRect(cx1 + 3, top, width + 4, DETECTION_LABEL_LINE_HEIGHT)
+        ctx.fillStyle = "#ffffff"
+        ctx.fillText(line, cx1 + 5, top + 2)
+      })
+    }
+
+    if (det.pose) {
+      const kps = det.pose.keypoints
+
+      ctx.lineWidth = 3
+      ctx.globalAlpha = 0.9
+      COCO_SKELETON.forEach(([i, j, side]) => {
+        if (hideFaceKeypoints && (FACE_KEYPOINT_INDICES.has(i) || FACE_KEYPOINT_INDICES.has(j))) return
+        const ki = kps[i], kj = kps[j]
+        if (!ki || !kj || ki[2] < POSE_CONF_THRESHOLD || kj[2] < POSE_CONF_THRESHOLD) return
+        ctx.beginPath()
+        ctx.moveTo(offsetX + ki[0] * scale, offsetY + ki[1] * scale)
+        ctx.lineTo(offsetX + kj[0] * scale, offsetY + kj[1] * scale)
+        ctx.strokeStyle = POSE_SIDE_COLORS[side]
+        ctx.stroke()
+      })
+      ctx.globalAlpha = 1
+
+      // ── Draw dot ─────────────────────────────────────────
+      // kps.forEach(([x, y, conf], index) => {
+      //   if (hideFaceKeypoints && FACE_KEYPOINT_INDICES.has(index)) return
+      //   if (conf < POSE_CONF_THRESHOLD) return
+      //   drawPoseDot(ctx, offsetX + x * scale, offsetY + y * scale)
+      // })
+
+      drawPoseHipCenter(ctx, kps, layout)
+    }
+  })
+}
+
+function zoneStatesEqual(
+  a: Record<string, RuntimeZonePayload> | undefined,
+  b: Record<string, RuntimeZonePayload> | undefined,
+) {
+  if (a === b) return true
+  if (!a || !b) return false
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every((key) => {
+    const other = b[key]
+    return other != null && other.state === a[key].state && other.name === a[key].name
+  })
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -210,34 +313,42 @@ export interface CameraPreviewProps {
   onZoneAdd?: (points: number[][]) => void
   onZonePointsChange?: (index: number, points: number[][]) => void
   onZoneSelect?: (index: number) => void
-  detections?: DetectionPayload[]
-  zoneStates?: Record<string, RuntimeZonePayload>
+  /** Bật overlay detection realtime cho camera này (subscribe WS dùng chung). */
+  bboxCameraId?: string | null
   hideFaceKeypoints?: boolean
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const EMPTY_ZONES: Zone[] = []
+
 export function CameraPreview({
   src,
   reconnectKey = 0,
-  zones = [],
+  zones = EMPTY_ZONES,
   isAddingZone = false,
   isEditingVertices = false,
   selectedZoneIndex = null,
   onZoneAdd,
   onZonePointsChange,
   onZoneSelect,
-  detections = [],
-  zoneStates,
+  bboxCameraId = null,
   hideFaceKeypoints = false,
 }: CameraPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
+  const detectionCanvasRef = useRef<HTMLCanvasElement>(null)
   const fabricCanvasRef = useRef<Canvas | null>(null)
   const isFinishingDraftRef = useRef(false)
   const draftPointsRef = useRef<number[][]>([])
   const lastDraftTapRef = useRef<{ time: number; x: number; y: number } | null>(null)
+
+  // Dữ liệu detection tần suất cao đi qua ref + rAF, không qua setState.
+  const lastDetectionsRef = useRef<DetectionPayload[] | null>(null)
+  const layoutRef = useRef<OverlayLayout | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const hideFaceKeypointsRef = useRef(hideFaceKeypoints)
 
   const [status, setStatus] = useState<StreamStatus>("connecting")
   const [errorMessage, setError] = useState("")
@@ -245,6 +356,76 @@ export function CameraPreview({
   const [previewSize, setPreviewSize] = useState<PreviewSize>({ width: 0, height: 0 })
   const [videoSize, setVideoSize] = useState<VideoSize>({ width: 0, height: 0 })
   const [draftPoints, setDraftPoints] = useState<number[][]>([])
+  const [zoneStates, setZoneStates] = useState<Record<string, RuntimeZonePayload> | undefined>(undefined)
+
+  const drawDetectionFrame = useCallback(() => {
+    const canvas = detectionCanvasRef.current
+    const ctx = canvas?.getContext("2d")
+    if (!canvas || !ctx) return
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const detections = lastDetectionsRef.current
+    const layout = layoutRef.current
+    if (!detections?.length || !layout) return
+    const dpr = window.devicePixelRatio || 1
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    drawDetections(ctx, detections, layout, hideFaceKeypointsRef.current)
+  }, [])
+
+  const scheduleDetectionDraw = useCallback(() => {
+    if (rafRef.current != null) return
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null
+      drawDetectionFrame()
+    })
+  }, [drawDetectionFrame])
+
+  useEffect(() => () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current)
+      // Phải reset về null: StrictMode unmount/remount giữ nguyên ref,
+      // nếu còn giữ id cũ thì mọi lần schedule sau sẽ bị bỏ qua vĩnh viễn.
+      rafRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    hideFaceKeypointsRef.current = hideFaceKeypoints
+    scheduleDetectionDraw()
+  }, [hideFaceKeypoints, scheduleDetectionDraw])
+
+  // ── Layout + kích thước canvas detection theo preview/video size ──────────
+  useEffect(() => {
+    layoutRef.current = computeLayout(previewSize, videoSize)
+    const canvas = detectionCanvasRef.current
+    if (canvas) {
+      const dpr = window.devicePixelRatio || 1
+      canvas.width = Math.max(1, Math.round(previewSize.width * dpr))
+      canvas.height = Math.max(1, Math.round(previewSize.height * dpr))
+    }
+    scheduleDetectionDraw()
+  }, [previewSize, videoSize, scheduleDetectionDraw])
+
+  // ── Subscribe luồng bbox dùng chung (chỉ khi được bật) ─────────────────────
+  useEffect(() => {
+    if (!bboxCameraId) return
+
+    const applyPayload = (payload: CameraDetectionPayload | null) => {
+      lastDetectionsRef.current = payload?.detections ?? null
+      scheduleDetectionDraw()
+      const nextZoneStates = payload?.zones
+      setZoneStates((prev) => (zoneStatesEqual(prev, nextZoneStates) ? prev : nextZoneStates))
+    }
+
+    const unsubscribe = subscribeBboxes((batch) => {
+      applyPayload(batch?.cameras[bboxCameraId] ?? null)
+    })
+
+    return () => {
+      unsubscribe()
+      applyPayload(null)
+    }
+  }, [bboxCameraId, scheduleDetectionDraw])
 
   // ── Fabric canvas init ───────────────────────────────────────────────────
   useEffect(() => {
@@ -392,71 +573,8 @@ export function CameraPreview({
       })
     }
 
-    // ── Draw detections (bbox + optional pose) ────────────────────────────
-    detections.forEach((det) => {
-      const color = getDetectionColor(det)
-      const [x1, y1, x2, y2] = det.bbox.xyxy
-      const cx1 = offsetX + x1 * scale
-      const cy1 = offsetY + y1 * scale
-      const cx2 = offsetX + x2 * scale
-      const cy2 = offsetY + y2 * scale
-
-      // Polyline draws from absolute canvas points — same pattern as draft zones
-      canvas.add(new Polyline(
-        [{ x: cx1, y: cy1 }, { x: cx2, y: cy1 }, { x: cx2, y: cy2 }, { x: cx1, y: cy2 }, { x: cx1, y: cy1 }],
-        { fill: "transparent", stroke: color, strokeWidth: 2, selectable: false, evented: false },
-      ))
-
-      const lines: string[] = []
-      if (det.track_id != null)
-        lines.push(`#${det.track_id % 100} ${(det.confidence * 100).toFixed(0)}%`)
-      if (det.global_id != null) {
-        const simStr = det.similarity != null ? ` ${(det.similarity * 100).toFixed(0)}%` : ""
-        lines.push(`#${det.global_id}${simStr}`)
-      }
-      if (det.status) lines.push(det.status)
-
-      canvas.add(new FabricText(lines.join("\n"), {
-        left: cx1 + 3,
-        top: cy1 + 3,
-        fontSize: 11,
-        lineHeight: 1.35,
-        fill: "#ffffff",
-        backgroundColor: `${color}bb`,
-        padding: 3,
-        originX: "left",
-        originY: "top",
-        selectable: false,
-        evented: false,
-      }))
-
-      if (det.pose) {
-        const kps = det.pose.keypoints
-
-        COCO_SKELETON.forEach(([i, j, side]) => {
-          if (hideFaceKeypoints && (FACE_KEYPOINT_INDICES.has(i) || FACE_KEYPOINT_INDICES.has(j))) return
-          const ki = kps[i], kj = kps[j]
-          if (!ki || !kj || ki[2] < POSE_CONF_THRESHOLD || kj[2] < POSE_CONF_THRESHOLD) return
-          canvas.add(new Line(
-            [offsetX + ki[0] * scale, offsetY + ki[1] * scale,
-            offsetX + kj[0] * scale, offsetY + kj[1] * scale],
-            { stroke: POSE_SIDE_COLORS[side], strokeWidth: 3, opacity: 0.9, selectable: false, evented: false },
-          ))
-        })
-
-        // ── Draw dot ─────────────────────────────────────────
-        // kps.forEach(([x, y, conf], index) => {
-        //   if (hideFaceKeypoints && FACE_KEYPOINT_INDICES.has(index)) return
-        //   if (conf < POSE_CONF_THRESHOLD) return
-        //   addPoseDot(canvas, offsetX + x * scale, offsetY + y * scale)
-        // })
-
-        addPoseHipCenter(canvas, kps, { offsetX, offsetY, scale })
-      }
-    })
-
     canvas.requestRenderAll()
-  }, [previewSize, videoSize, zones, zoneStates, selectedZoneIndex, isEditingVertices, isAddingZone, draftPoints, detections, hideFaceKeypoints, onZoneSelect, onZonePointsChange])
+  }, [previewSize, videoSize, zones, zoneStates, selectedZoneIndex, isEditingVertices, isAddingZone, draftPoints, onZoneSelect, onZonePointsChange])
 
   // ── Add zone — mouse interaction ─────────────────────────────────────────
   useEffect(() => {
@@ -673,6 +791,11 @@ export function CameraPreview({
 
       <canvas
         ref={overlayCanvasRef}
+        className="pointer-events-none absolute inset-0 z-[2] h-full w-full"
+      />
+
+      <canvas
+        ref={detectionCanvasRef}
         className="pointer-events-none absolute inset-0 z-[2] h-full w-full"
       />
 

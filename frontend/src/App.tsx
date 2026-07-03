@@ -1,12 +1,26 @@
+import { lazy } from "react"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { DashboardLayout } from "@/layouts/DashboardLayout"
-import { DashboardPage } from "@/pages/DashboardPage"
-import { CameraPage } from "@/pages/CameraPage"
-import { UartPage } from "@/pages/UartPage"
-import { ReidPage } from "@/pages/ReidPage"
-import { ZoneStateMachinePage } from "@/pages/ZoneStateMachinePage"
-import { DetectionPage } from "@/pages/DetectionPage"
+
+const DashboardPage = lazy(() =>
+  import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
+)
+const CameraPage = lazy(() =>
+  import("@/pages/CameraPage").then((m) => ({ default: m.CameraPage })),
+)
+const UartPage = lazy(() =>
+  import("@/pages/UartPage").then((m) => ({ default: m.UartPage })),
+)
+const ReidPage = lazy(() =>
+  import("@/pages/ReidPage").then((m) => ({ default: m.ReidPage })),
+)
+const ZoneStateMachinePage = lazy(() =>
+  import("@/pages/ZoneStateMachinePage").then((m) => ({ default: m.ZoneStateMachinePage })),
+)
+const DetectionPage = lazy(() =>
+  import("@/pages/DetectionPage").then((m) => ({ default: m.DetectionPage })),
+)
 
 function App() {
   return (

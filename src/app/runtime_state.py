@@ -4,7 +4,7 @@ Realtime runtime state shared between the detection runtime and API websocket la
 
 from __future__ import annotations
 
-import copy
+import json
 import threading
 import time
 from typing import Optional, Sequence
@@ -18,14 +18,18 @@ from src.zones_management import Zone
 
 # ─────────────────────────────────────────────────────────────────────────────
 class RuntimeStateStore:
-    """Thread-safe in-memory store for the latest runtime realtime payload."""
+    """Thread-safe in-memory store for the latest runtime realtime payload.
+
+    The payload is serialized to JSON once at publish time so websocket
+    handlers can fan it out to every client without re-encoding or copying.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._sequence = 0
-        self._latest_payload: Optional[dict] = None
+        self._latest_json: Optional[str] = None
 
-    def publish_detection_batch(self, cameras: dict[str, dict]) -> dict:
+    def publish_detection_batch(self, cameras: dict[str, dict]) -> None:
         """Publish one batch snapshot containing all camera detection payloads."""
         with self._lock:
             self._sequence += 1
@@ -34,23 +38,25 @@ class RuntimeStateStore:
                 "sequence": self._sequence,
                 "cameras": cameras,
             }
-            self._latest_payload = payload
-            return copy.deepcopy(payload)
+            self._latest_json = json.dumps(payload, separators=(",", ":"))
 
-    def get_latest_payload(self) -> Optional[dict]:
-        """Return a defensive copy of the latest published payload."""
+    def get_latest_payload_json(self) -> Optional[tuple[int, str]]:
+        """Return (sequence, pre-serialized JSON) of the latest payload."""
         with self._lock:
-            return copy.deepcopy(self._latest_payload)
+            if self._latest_json is None:
+                return None
+            return self._sequence, self._latest_json
 
     def clear(self) -> None:
         """Clear realtime payload when runtime stops."""
         with self._lock:
             self._sequence += 1
-            self._latest_payload = {
+            payload = {
                 "timestamp": time.time(),
                 "sequence": self._sequence,
                 "cameras": {},
             }
+            self._latest_json = json.dumps(payload, separators=(",", ":"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,8 +96,6 @@ def build_camera_detection_payload(
             _serialize_detection(
                 detection,
                 index=index,
-                width=width,
-                height=height,
                 zone_name=zone_names[index] if index < len(zone_names) else None,
             )
             for index, detection in enumerate(detection_frame.detections)
@@ -104,8 +108,6 @@ def _serialize_detection(
     detection: Detection,
     *,
     index: int,
-    width: int,
-    height: int,
     zone_name: Optional[str],
 ) -> dict:
     """Serialize one Detection into the websocket payload format."""
@@ -120,9 +122,8 @@ def _serialize_detection(
         "zone": zone_name,
         "bbox": {
             "xyxy": [float(value) for value in detection.bbox],
-            "xywh_norm": detection.bbox_normalized(width, height),
         },
-        "pose": _serialize_pose(detection, width=width, height=height),
+        "pose": _serialize_pose(detection),
     }
 
 
@@ -133,8 +134,8 @@ def _zone_payload_key(zone: Zone) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _serialize_pose(detection: Detection, *, width: int, height: int) -> Optional[dict]:
-    """Serialize pose keypoints in both pixel and normalized coordinates."""
+def _serialize_pose(detection: Detection) -> Optional[dict]:
+    """Serialize pose keypoints in pixel coordinates."""
     if detection.keypoints is None:
         return None
 
@@ -148,14 +149,6 @@ def _serialize_pose(detection: Detection, *, width: int, height: int) -> Optiona
     return {
         "keypoints": [
             [float(x), float(y), float(confidences[index])]
-            for index, (x, y) in enumerate(keypoints[:, :2])
-        ],
-        "keypoints_norm": [
-            [
-                float(x / width) if width > 0 else 0.0,
-                float(y / height) if height > 0 else 0.0,
-                float(confidences[index]),
-            ]
             for index, (x, y) in enumerate(keypoints[:, :2])
         ],
     }

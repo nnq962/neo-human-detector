@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -223,7 +223,7 @@ export function CameraPage() {
     setRealtimeGoalPose(false)
   }
 
-  function handleZoneSelect(index: number) {
+  const handleZoneSelect = useCallback((index: number) => {
     if (index === selectedZoneIndex) return
 
     setSelectedZoneIndex(index)
@@ -235,7 +235,7 @@ export function CameraPage() {
     setZoneNameError("")
     setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
     setRealtimeGoalPose(false)
-  }
+  }, [selectedZoneIndex, isEditingVertices, draftZones])
 
   function handleCancel() {
     setIsAddingZone(false)
@@ -287,18 +287,18 @@ export function CameraPage() {
     }
   }
 
-  function handleZoneAdd(points: number[][]) {
+  const handleZoneAdd = useCallback((points: number[][]) => {
     setIsAddingZone(false)
     setPendingPoints(points)
     setPendingZoneName("")
     setZoneNameDialogOpen(true)
-  }
+  }, [])
 
-  function handleZonePointsChange(index: number, points: number[][]) {
+  const handleZonePointsChange = useCallback((index: number, points: number[][]) => {
     setDraftZones((prev) =>
       prev.map((z, i) => (i === index ? { ...z, points: points as [number, number][] } : z)),
     )
-  }
+  }, [])
 
   async function handleSaveNewZone() {
     if (!pendingPoints || !camera) return

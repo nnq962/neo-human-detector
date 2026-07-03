@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { memo, useEffect, useState } from "react"
 import { BellRing, CheckCircle2, CircleOff, Eraser, Loader, Play, RotateCcw, Square, Trash2, XCircle, SendHorizontal} from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
@@ -19,7 +19,6 @@ import { CameraPreview } from "@/components/camera-preview"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
 import type { RobotDispatchEvent } from "@/api/robot-dispatch.api"
 import { useAutoStartConfig, useUpdateAutoStartConfig } from "@/hooks/use-auto-start"
-import { useBboxes, type CameraDetectionPayload } from "@/hooks/use-bboxes"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
 import { useRobotDispatchEvents, type RobotDispatchEventsStatus } from "@/hooks/use-robot-dispatch-events"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
@@ -225,7 +224,7 @@ function RuntimeCard() {
 
 // ── Camera cell ───────────────────────────────────────────────────────────────
 
-function CameraCell({ camera, cameraDetections }: { camera: Camera; cameraDetections?: CameraDetectionPayload }) {
+const CameraCell = memo(function CameraCell({ camera }: { camera: Camera }) {
   return (
     <Link
       to={`/cameras/${camera.id}`}
@@ -234,8 +233,7 @@ function CameraCell({ camera, cameraDetections }: { camera: Camera; cameraDetect
       <CameraPreview
         src={camera.webrtc_address ?? ""}
         zones={camera.zones}
-        zoneStates={cameraDetections?.zones}
-        detections={cameraDetections?.detections}
+        bboxCameraId={camera.id}
         hideFaceKeypoints={true}
       />
       <div className="pointer-events-none absolute bottom-3 left-3 z-30 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
@@ -243,7 +241,7 @@ function CameraCell({ camera, cameraDetections }: { camera: Camera; cameraDetect
       </div>
     </Link>
   )
-}
+})
 
 // ── Event feed ────────────────────────────────────────────────────────────────
 
@@ -265,7 +263,7 @@ function reasonLabel(reason: string): string {
   return reason
 }
 
-function EventItem({ event }: { event: RobotDispatchEvent }) {
+const EventItem = memo(function EventItem({ event }: { event: RobotDispatchEvent }) {
   const isInvite = event.action === "invite"
   const isClear = event.action === "clear"
   const isServing = event.action === "serving"
@@ -371,7 +369,7 @@ function EventItem({ event }: { event: RobotDispatchEvent }) {
       </div>
     </div>
   )
-}
+})
 
 const ROBOT_DISPATCH_STATUS_LABEL: Record<RobotDispatchEventsStatus, string> = {
   connecting: "Đang kết nối",
@@ -379,7 +377,7 @@ const ROBOT_DISPATCH_STATUS_LABEL: Record<RobotDispatchEventsStatus, string> = {
   disconnected: "Mất kết nối",
 }
 
-function RecentEventsCard({
+const RecentEventsCard = memo(function RecentEventsCard({
   events,
   status,
   onClear,
@@ -437,13 +435,12 @@ function RecentEventsCard({
       </CardContent>
     </Card>
   )
-}
+})
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
-  const bboxes = useBboxes()
   const {
     events: robotDispatchEvents,
     status: robotDispatchEventsStatus,
@@ -473,7 +470,7 @@ export function DashboardPage() {
           ) : (
             <div className={cn("grid gap-4", gridCols)}>
               {cameras.map((cam) => (
-                <CameraCell key={cam.id} camera={cam} cameraDetections={bboxes[cam.id]} />
+                <CameraCell key={cam.id} camera={cam} />
               ))}
             </div>
           )}

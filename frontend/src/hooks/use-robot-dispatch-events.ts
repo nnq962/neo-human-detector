@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   getRobotDispatchEventsWsUrl,
   type RobotDispatchEvent,
@@ -103,5 +103,7 @@ export function useRobotDispatchEvents(options: UseRobotDispatchEventsOptions = 
     }
   }, [maxEvents])
 
-  return { events, status, clearEvents: () => setEvents([]) }
+  const clearEvents = useCallback(() => setEvents([]), [])
+
+  return { events, status, clearEvents }
 }

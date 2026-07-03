@@ -13,11 +13,10 @@ MIN_RUNTIME_STATUS_INTERVAL_SECONDS = 0.2
 MAX_RUNTIME_STATUS_INTERVAL_SECONDS = 10.0
 
 
-def get_latest_bbox_payload():
-    return runtime_state.get_latest_payload()
-
 # ────────────────────────────────────────────────────────────────
-# Gửi dữ liệu bbox/pose runtime lên web preview
+# Gửi dữ liệu bbox/pose runtime lên web preview.
+# Payload đã được serialize sẵn một lần lúc publish — mỗi client chỉ send_text,
+# không deepcopy/re-encode.
 @router.websocket("/ws/runtime/bboxes")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -25,13 +24,14 @@ async def websocket_endpoint(websocket: WebSocket):
     last_sequence = None
     try:
         while True:
-            payload = get_latest_bbox_payload()
-            sequence = payload.get("sequence") if payload else None
+            latest = runtime_state.get_latest_payload_json()
 
-            if payload and sequence != last_sequence:
-                await websocket.send_json(payload)
-                last_sequence = sequence
-            
+            if latest is not None:
+                sequence, payload_json = latest
+                if sequence != last_sequence:
+                    await websocket.send_text(payload_json)
+                    last_sequence = sequence
+
             # Quét dữ liệu 20 lần mỗi giây (50ms)
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
