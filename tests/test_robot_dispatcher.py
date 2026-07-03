@@ -105,6 +105,35 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(len(transport.requests), 1)
         self.assertEqual(len(transport.batches), 1)
 
+    def test_require_reid_falls_back_to_transition_when_reid_disabled(self):
+        """ReID tắt toàn cục thì require_reid coi như false: vẫn gửi OCCUPIED/EMPTY theo transition."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(
+                enabled=True,
+                emit_cleared=True,
+                require_reid=True,
+                fallback_without_reid=False,
+            ),
+            transport=transport,
+        )
+        zone = self._make_zone()
+
+        self.assertEqual(dispatcher.process_zones([zone], timestamp=100.0, reid_enabled=False), [])
+
+        zone.state = ZoneState.OCCUPIED
+        emitted = dispatcher.process_zones([zone], timestamp=101.0, reid_enabled=False)
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0].event, RobotDispatchEvent.ZONE_OCCUPIED)
+        self.assertIsNone(emitted[0].person_global_id)
+
+        self.assertEqual(dispatcher.process_zones([zone], timestamp=102.0, reid_enabled=False), [])
+
+        zone.state = ZoneState.EMPTY
+        emitted = dispatcher.process_zones([zone], timestamp=103.0, reid_enabled=False)
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(emitted[0].event, RobotDispatchEvent.ZONE_CLEARED)
+
     def test_identity_required_waits_for_global_id(self):
         """Khi cần ReID, zone OCCUPIED chưa có global_id thì chưa gửi request."""
         transport = InMemoryRobotTransport()

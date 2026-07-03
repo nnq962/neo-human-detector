@@ -261,20 +261,19 @@ class RobotDispatcher:
         reid_enabled: bool,
     ) -> Optional[RobotDispatchRequest]:
         """Tạo request theo policy zone-only hoặc ReID-aware."""
-        if not self.config.require_reid:
+        # ReID tắt toàn cục thì coi như require_reid=False: gửi OCCUPIED/EMPTY
+        # theo transition thay vì chờ định danh không bao giờ có.
+        if not self.config.require_reid or not reid_enabled:
             return self._build_transition_request(zone, timestamp=timestamp)
 
-        if reid_enabled:
-            request = self._build_identity_request(
-                zone,
-                detection_frame=detection_frame,
-                zone_names=zone_names,
-                timestamp=timestamp,
-            )
-            if request is not None:
-                return request
-            if zone.state == ZoneState.OCCUPIED and not self.config.fallback_without_reid:
-                return None
+        request = self._build_identity_request(
+            zone,
+            detection_frame=detection_frame,
+            zone_names=zone_names,
+            timestamp=timestamp,
+        )
+        if request is not None:
+            return request
 
         if zone.state == ZoneState.OCCUPIED and not self.config.fallback_without_reid:
             return None
