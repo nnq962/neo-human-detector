@@ -10,7 +10,7 @@ UART_REPEAT_DELAY_SECONDS = 0.5
 # ─────────────────────────────────────────────────────────────────────────────
 def _get_uart_zone_id(item: dict) -> str:
     """Lấy định danh zone dùng trong chuỗi UART."""
-    return item.get("zone_key") or item.get("zone_name", "")
+    return item.get("zone_id") or item.get("zone_name", "")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

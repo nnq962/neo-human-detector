@@ -49,6 +49,7 @@ class UartManager:
         self._events = deque(maxlen=event_buffer_size)
         self._event_sequence = 0
         self._sync_handler: Optional[Callable[[Optional[dict]], None]] = None
+        self._robot_service_handler: Optional[Callable[[dict], None]] = None
 
         self._lock = threading.RLock()
 
@@ -273,6 +274,12 @@ class UartManager:
             self._sync_handler = handler
 
     # ─────────────────────────────────────────────────────────────────────────
+    def set_robot_service_handler(self, handler: Optional[Callable[[dict], None]]) -> None:
+        """Đăng ký callback xử lý feedback trạng thái phục vụ từ robot."""
+        with self._lock:
+            self._robot_service_handler = handler
+
+    # ─────────────────────────────────────────────────────────────────────────
     def is_connected(self) -> bool:
         with self._lock:
             return self._is_connected_unlocked()
@@ -340,6 +347,8 @@ class UartManager:
 
         if event["type"] == "string" and str(event["data"]).strip() == "sync":
             self._handle_sync_command()
+        elif event["type"] == "json" and _is_robot_service_payload(event["data"]):
+            self._handle_robot_service_feedback(event["data"])
 
     # ─────────────────────────────────────────────────────────────────────────
     def _handle_sync_command(self) -> None:
@@ -357,6 +366,23 @@ class UartManager:
         except Exception as e:
             self.last_error = str(e)
             LOGGER.error(f"Lỗi khi xử lý lệnh sync: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _handle_robot_service_feedback(self, payload: dict) -> None:
+        """Gọi callback feedback trạng thái phục vụ từ robot nếu runtime đã đăng ký."""
+        with self._lock:
+            handler = self._robot_service_handler
+            payload_copy = copy.deepcopy(payload)
+
+        if handler is None:
+            LOGGER.info("Nhận robot_service feedback nhưng chưa có runtime đăng ký handler.")
+            return
+
+        try:
+            handler(payload_copy)
+        except Exception as e:
+            self.last_error = str(e)
+            LOGGER.error(f"Lỗi khi xử lý robot_service feedback: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     def _close_serial(self) -> None:
@@ -426,6 +452,11 @@ def create_uart_manager_from_config(*, connect: bool = False) -> UartManager:
         manager.connect()
 
     return manager
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _is_robot_service_payload(data: Any) -> bool:
+    return isinstance(data, dict) and data.get("type") == "robot_service"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

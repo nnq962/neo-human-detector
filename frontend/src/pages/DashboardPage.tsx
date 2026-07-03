@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { BellRing, CheckCircle2, CircleOff, LogIn, Play, RotateCcw, Square } from "lucide-react"
+import { BellRing, CheckCircle2, CircleOff, Eraser, Loader, Play, RotateCcw, Square, Trash2, XCircle, SendHorizontal} from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
@@ -259,16 +259,52 @@ function personLabel(person: RobotDispatchEvent["person"]): string {
   return person ? `#${person.global_id}` : "Không có ID"
 }
 
+function reasonLabel(reason: string): string {
+  if (reason === "already_requested") return "đã được phục vụ trước đó"
+  if (reason === "already_served") return "đã được phục vụ trước đó"
+  return reason
+}
+
 function EventItem({ event }: { event: RobotDispatchEvent }) {
   const isInvite = event.action === "invite"
   const isClear = event.action === "clear"
+  const isServing = event.action === "serving"
+  const isServed = event.action === "served"
+  const isFailed = event.action === "failed"
   const isSkipped = event.type === "skipped"
-  const Icon = isSkipped ? CircleOff : isClear ? CheckCircle2 : LogIn
+  const Icon = isSkipped
+    ? CircleOff
+    : isClear
+      ? Eraser
+      : isServing
+        ? Loader
+      : isServed
+      ? CheckCircle2
+      : isFailed
+        ? XCircle
+        : SendHorizontal
   const title = isSkipped
     ? "Bỏ qua lệnh mời"
     : isClear
       ? "Đã clear zone"
-      : "Đã gửi lệnh mời"
+      : isServing
+        ? "Robot đang phục vụ"
+        : isServed
+          ? "Đã phục vụ xong"
+          : isFailed
+            ? "Phục vụ thất bại"
+            : "Đã gửi lệnh mời"
+  const actionLabel = isSkipped
+    ? "Skipped"
+    : isClear
+      ? "Clear"
+      : isServing
+        ? "Serving"
+        : isServed
+          ? "Served"
+          : isFailed
+            ? "Failed"
+            : "Invite"
 
   return (
     <div className="flex items-start gap-3 px-1 py-3">
@@ -278,11 +314,17 @@ function EventItem({ event }: { event: RobotDispatchEvent }) {
           isSkipped
             ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
             : isClear
-              ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-              : "bg-green-500/15 text-green-600 dark:text-green-400",
+              ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400"
+              : isServed
+                ? "bg-violet-500/15 text-violet-700 dark:text-violet-400"
+              : isFailed
+                ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                : isServing
+                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-400"
+                  : "bg-green-500/15 text-green-600 dark:text-green-400",
         )}
       >
-        <Icon className="size-4" />
+        <Icon className={cn("size-4", isServing && "animate-spin")} />
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -293,10 +335,13 @@ function EventItem({ event }: { event: RobotDispatchEvent }) {
               "h-5 text-[11px]",
               isSkipped && "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400",
               !isSkipped && isInvite && "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400",
-              !isSkipped && isClear && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+              !isSkipped && isClear && "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
+              !isSkipped && isServed && "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400",
+              !isSkipped && isServing && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+              !isSkipped && isFailed && "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
             )}
           >
-            {isSkipped ? "Skipped" : isClear ? "Clear" : "Invite"}
+            {actionLabel}
           </Badge>
           <Badge
             variant="outline"
@@ -319,9 +364,7 @@ function EventItem({ event }: { event: RobotDispatchEvent }) {
           {event.reason && (
             <>
               <span className="text-border">/</span>
-              <span>
-                Lý do: {event.reason === "already_requested" ? "global id đã được gửi lệnh trước đó" : event.reason}
-              </span>
+              <span>Lý do: {reasonLabel(event.reason)}</span>
             </>
           )}
         </div>
@@ -339,9 +382,11 @@ const ROBOT_DISPATCH_STATUS_LABEL: Record<RobotDispatchEventsStatus, string> = {
 function RecentEventsCard({
   events,
   status,
+  onClear,
 }: {
   events: RobotDispatchEvent[]
   status: RobotDispatchEventsStatus
+  onClear: () => void
 }) {
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -361,16 +406,27 @@ function RecentEventsCard({
             <span className="text-border">/</span>
             <BellRing className="size-3.5" />
             <span>{events.length} sự kiện</span>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="ml-1 size-7"
+              disabled={events.length === 0}
+              onClick={onClear}
+              title="Xóa sự kiện"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
         {events.length === 0 ? (
-          <div className="flex h-48 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          <div className="flex h-[320px] items-center justify-center px-6 text-center text-sm text-muted-foreground">
             Chưa có sự kiện nào.
           </div>
         ) : (
-          <ScrollArea className={events.length > 10 ? "h-[640px]" : "max-h-[640px]"}>
+          <ScrollArea className="h-[320px]">
             <div className="divide-y px-4">
               {events.map((event) => (
                 <EventItem key={event.sequence} event={event} />
@@ -388,7 +444,11 @@ function RecentEventsCard({
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
   const bboxes = useBboxes()
-  const { events: robotDispatchEvents, status: robotDispatchEventsStatus } = useRobotDispatchEvents({ maxEvents: 100 })
+  const {
+    events: robotDispatchEvents,
+    status: robotDispatchEventsStatus,
+    clearEvents: clearRobotDispatchEvents,
+  } = useRobotDispatchEvents({ maxEvents: 100 })
   const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
@@ -421,7 +481,11 @@ export function DashboardPage() {
       </Card>
 
       {/* Recent events */}
-      <RecentEventsCard events={robotDispatchEvents} status={robotDispatchEventsStatus} />
+      <RecentEventsCard
+        events={robotDispatchEvents}
+        status={robotDispatchEventsStatus}
+        onClear={clearRobotDispatchEvents}
+      />
     </div>
   )
 }

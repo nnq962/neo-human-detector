@@ -1,13 +1,12 @@
-export type RobotDispatchEventType = "sent" | "skipped"
-export type RobotDispatchAction = "invite" | "clear"
-export type RobotDispatchSkipReason = "already_requested"
+export type RobotDispatchEventType = "sent" | "skipped" | "service_update"
+export type RobotDispatchAction = "invite" | "clear" | "serving" | "served" | "failed"
+export type RobotDispatchReason = "already_requested" | "already_served" | string
 
 export interface RobotDispatchZone {
   camera_id: string
   camera_name: string
   zone_id: string | null
   zone_name: string
-  zone_key: string
   state: string
 }
 
@@ -24,7 +23,7 @@ export interface RobotDispatchEvent {
   type: RobotDispatchEventType
   action: RobotDispatchAction
   request_id?: string
-  reason?: RobotDispatchSkipReason
+  reason?: RobotDispatchReason
   zone: RobotDispatchZone
   person: RobotDispatchPerson | null
 }

@@ -41,7 +41,7 @@ class PersonServiceRecord:
     state     : PersonServiceState
     updated_at: float
     request_id: str
-    zone_key  : str
+    zone_id   : str
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,7 +69,6 @@ class RobotDispatchRequest:
     camera_name     : str
     zone_id         : Optional[str]
     zone_name       : str
-    zone_key        : str
     state           : ZoneState
     goal_pose       : Dict[str, Any]
     timestamp       : float
@@ -86,7 +85,6 @@ class RobotDispatchRequest:
             "camera_name": self.camera_name,
             "zone_id": self.zone_id,
             "zone_name": self.zone_name,
-            "zone_key": self.zone_key,
             "state": self.state.value,
             "goal_pose": dict(self.goal_pose),
             "timestamp": float(self.timestamp),
@@ -109,7 +107,8 @@ def build_zone_dispatch_request(
     """Tạo request robot từ dữ liệu zone hiện tại."""
     request_ts = zone.enter_time if zone.enter_time > 0 else timestamp
     identity_part = f":person:{person_global_id}" if person_global_id is not None else ""
-    request_id = f"{zone.key}:{event.value}{identity_part}:{int(request_ts * 1000)}"
+    zone_identity = zone.id or f"{zone.camera_id}:{zone.name}"
+    request_id = f"{zone_identity}:{event.value}{identity_part}:{int(request_ts * 1000)}"
 
     return RobotDispatchRequest(
         request_id=request_id,
@@ -118,7 +117,6 @@ def build_zone_dispatch_request(
         camera_name=zone.camera_name,
         zone_id=zone.id,
         zone_name=zone.name,
-        zone_key=zone.key,
         state=zone.state,
         goal_pose=dict(zone.goal_pose),
         timestamp=float(timestamp),

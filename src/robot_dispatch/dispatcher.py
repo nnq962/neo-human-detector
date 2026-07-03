@@ -1,5 +1,6 @@
 """
 Dispatcher sinh request robot từ trạng thái zone trong runtime.
+NOTE: Hoạt động với 1 zone 1 người.
 """
 
 from __future__ import annotations
@@ -24,6 +25,17 @@ from utils import LOGGER
 
 
 ROBOT_AT_ZONE_DISTANCE_THRESHOLD = 0.1
+ROBOT_SERVICE_STATUS_TO_STATE = {
+    "serving": PersonServiceState.SERVING,
+    "served": PersonServiceState.SERVED,
+    "failed": PersonServiceState.FAILED,
+}
+BLOCKING_PERSON_SERVICE_STATES = {
+    PersonServiceState.REQUESTED,
+    PersonServiceState.SERVING,
+    PersonServiceState.SERVED,
+    PersonServiceState.FAILED,
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -32,7 +44,7 @@ class RobotDispatcher:
     Theo dõi transition zone và phát request robot đúng một lần cho mỗi event.
 
     Runtime gọi dispatcher sau khi `ZoneStateMachine.update(...)` đã cập nhật
-    `zone.state`. Dispatcher giữ state cũ theo `zone.key` để tránh gửi trùng
+    `zone.state`. Dispatcher giữ state cũ theo zone id để tránh gửi trùng
     request ở mọi frame khi zone vẫn đang OCCUPIED.
     """
 
@@ -69,12 +81,13 @@ class RobotDispatcher:
         requests: List[RobotDispatchRequest] = []
 
         for zone in zones:
-            self._latest_zone_items[zone.key] = _build_zone_snapshot(zone)
+            zone_identity = _zone_identity(zone)
+            self._latest_zone_items[zone_identity] = _build_zone_snapshot(zone)
             if zone.state == ZoneState.EMPTY:
-                self._zone_fallback_requests.discard(zone.key)
-                if self._has_requested_person_for_zone(zone.key):
-                    self._zones_cleared_after_request.add(zone.key)
-                self._clear_logged_skips_for_zone(zone.key)
+                self._zone_fallback_requests.discard(zone_identity)
+                if self._has_requested_person_for_zone(zone_identity):
+                    self._zones_cleared_after_request.add(zone_identity)
+                self._clear_logged_skips_for_zone(zone_identity)
 
             request = self._build_request(
                 zone,
@@ -83,15 +96,17 @@ class RobotDispatcher:
                 timestamp=current_timestamp,
                 reid_enabled=reid_enabled,
             )
-            self._previous_states[zone.key] = zone.state
+            self._previous_states[zone_identity] = zone.state
 
             if request is None:
                 continue
 
             requests.append(request)
 
-        if requests and self._send_batch(requests):
+        if requests:
             self._publish_sent_events(requests)
+
+        if requests and self._send_batch(requests):
             self._mark_requested_people(requests)
 
         return requests
@@ -114,7 +129,7 @@ class RobotDispatcher:
             if _is_robot_at_zone(item, robot_x=robot_x, robot_y=robot_y):
                 LOGGER.info(
                     "Lược bỏ zone %s khỏi lệnh sync vì robot đang đứng tại đây.",
-                    item["zone_key"],
+                    item["zone_id"],
                 )
                 continue
 
@@ -135,6 +150,77 @@ class RobotDispatcher:
             for global_id, record in self._person_service_states.items()
         }
 
+    def handle_robot_service_feedback(self, payload: dict) -> Optional[PersonServiceRecord]:
+        """Cập nhật trạng thái phục vụ từ JSON feedback robot gửi qua UART."""
+        if not isinstance(payload, dict):
+            LOGGER.warning("Bỏ qua robot_service feedback không hợp lệ: %s", payload)
+            return None
+
+        status = payload.get("status")
+        zone_id = payload.get("zone_id")
+        next_state = ROBOT_SERVICE_STATUS_TO_STATE.get(str(status))
+
+        has_zone_id = isinstance(zone_id, str) and bool(zone_id)
+        if next_state is None or not has_zone_id:
+            LOGGER.warning("Bỏ qua robot_service feedback không hợp lệ: %s", payload)
+            return None
+
+        global_id = _feedback_global_id(payload)
+        if global_id is None:
+            global_id = self._latest_service_global_id_for_zone_id(zone_id)
+
+        if global_id is None:
+            LOGGER.warning(
+                "Không tìm thấy person service record cho robot_service feedback: %s",
+                payload,
+            )
+            return None
+
+        current = self._person_service_states.get(global_id)
+        if current is None:
+            LOGGER.warning(
+                "Không tìm thấy global_id=%s cho robot_service feedback: %s",
+                global_id,
+                payload,
+            )
+            return None
+
+        if current.zone_id != zone_id:
+            LOGGER.warning(
+                "Bỏ qua robot_service feedback lệch zone_id: global_id=%s expected=%s actual=%s",
+                global_id,
+                current.zone_id,
+                zone_id,
+            )
+            return None
+
+        updated = PersonServiceRecord(
+            state=next_state,
+            updated_at=time.time(),
+            request_id=current.request_id,
+            zone_id=current.zone_id,
+        )
+        self._person_service_states[global_id] = updated
+        event_zone_item = self._zone_item_for_zone_id(zone_id)
+        robot_dispatch_events.publish_service_update(
+            status=str(status),
+            zone=_build_event_zone_from_item(
+                event_zone_item or self._latest_zone_items.get(current.zone_id),
+                fallback_zone_id=current.zone_id,
+                fallback_zone_name=current.zone_id or "",
+            ),
+            person={"global_id": global_id},
+            request_id=current.request_id,
+            reason=_optional_string(payload.get("reason")),
+        )
+        LOGGER.info(
+            "Robot service feedback: global_id=%s zone_id=%s status=%s",
+            global_id,
+            zone_id,
+            next_state.value,
+        )
+        return updated
+
     def reset(self, zones: Optional[Sequence[Zone]] = None) -> None:
         """Reset state đã ghi nhớ, hoặc seed lại từ danh sách zone hiện tại."""
         self._previous_states.clear()
@@ -148,8 +234,9 @@ class RobotDispatcher:
             return
 
         for zone in zones:
-            self._previous_states[zone.key] = zone.state
-            self._latest_zone_items[zone.key] = _build_zone_snapshot(zone)
+            zone_identity = _zone_identity(zone)
+            self._previous_states[zone_identity] = zone.state
+            self._latest_zone_items[zone_identity] = _build_zone_snapshot(zone)
 
     def close(self) -> None:
         """Đóng transport và xóa state nội bộ."""
@@ -207,7 +294,8 @@ class RobotDispatcher:
             if zone.state == ZoneState.EMPTY:
                 return self._build_transition_request(zone, timestamp=timestamp)
             return None
-        if zone.key in self._zone_fallback_requests:
+        zone_identity = _zone_identity(zone)
+        if zone_identity in self._zone_fallback_requests:
             return None
 
         person = _select_zone_person(
@@ -218,8 +306,8 @@ class RobotDispatcher:
         if person is None or person.global_id is None:
             return None
 
-        if self._is_person_requested(person.global_id, timestamp=timestamp):
-            if self._should_log_requested_skip(person.global_id, zone):
+        if self._should_block_person_request(person.global_id, zone, timestamp=timestamp):
+            if self._is_person_served(person.global_id) and self._should_log_requested_skip(person.global_id, zone):
                 self._log_requested_skip_once(person.global_id, zone)
             return None
 
@@ -236,19 +324,44 @@ class RobotDispatcher:
             },
         )
 
-    def _is_person_requested(self, global_id: int, *, timestamp: float) -> bool:
-        """Kiểm tra người đã được request và chưa hết TTL hay chưa."""
+    def _should_block_person_request(
+        self,
+        global_id: int,
+        zone: Zone,
+        *,
+        timestamp: float,
+    ) -> bool:
+        """Kiểm tra service state hiện tại có chặn request mới hay không."""
         service = self._person_service_states.get(global_id)
         if service is None:
             return False
+        if service.state not in BLOCKING_PERSON_SERVICE_STATES:
+            return False
+        if service.state == PersonServiceState.SERVED:
+            return not self._is_service_expired(service, timestamp=timestamp)
+        if service.state == PersonServiceState.SERVING:
+            return not self._is_new_service_attempt(service, zone)
+        if service.state == PersonServiceState.FAILED:
+            return not self._is_new_service_attempt(service, zone)
         if service.state != PersonServiceState.REQUESTED:
             return False
 
-        ttl_seconds = self._service_ttl_seconds()
-        if ttl_seconds is None:
-            return True
+        if self._is_new_service_attempt(service, zone):
+            return False
 
-        return timestamp - service.updated_at < ttl_seconds
+        return not self._is_service_expired(service, timestamp=timestamp)
+
+    def _is_new_service_attempt(self, service: PersonServiceRecord, zone: Zone) -> bool:
+        """Người đã rời lượt cũ hoặc chuyển zone thì được tạo request mới nếu chưa SERVED."""
+        zone_identity = _zone_identity(zone)
+        if service.zone_id != zone_identity:
+            return True
+        return zone_identity in self._zones_cleared_after_request
+
+    def _is_person_served(self, global_id: int) -> bool:
+        """Kiểm tra người đã được robot phục vụ xong hay chưa."""
+        service = self._person_service_states.get(global_id)
+        return service is not None and service.state == PersonServiceState.SERVED
 
     def _service_ttl_seconds(self) -> Optional[float]:
         """Lấy TTL trạng thái phục vụ theo giây nếu được cấu hình."""
@@ -258,6 +371,18 @@ class RobotDispatcher:
             return 0.0
         return self.config.service_ttl_minutes * 60.0
 
+    def _is_service_expired(
+        self,
+        service: PersonServiceRecord,
+        *,
+        timestamp: float,
+    ) -> bool:
+        """Kiểm tra service state đã hết TTL để có thể tạo request mới."""
+        ttl_seconds = self._service_ttl_seconds()
+        if ttl_seconds is None:
+            return False
+        return timestamp - service.updated_at >= ttl_seconds
+
     def _build_transition_request(
         self,
         zone: Zone,
@@ -265,7 +390,7 @@ class RobotDispatcher:
         timestamp: float,
     ) -> Optional[RobotDispatchRequest]:
         """Tạo request nếu zone vừa chuyển sang trạng thái cần gửi robot."""
-        previous_state = self._previous_states.get(zone.key)
+        previous_state = self._previous_states.get(_zone_identity(zone))
 
         if self._should_emit_occupied(previous_state, zone.state):
             return build_zone_dispatch_request(
@@ -340,34 +465,55 @@ class RobotDispatcher:
                 state=PersonServiceState.REQUESTED,
                 updated_at=request.timestamp,
                 request_id=request.request_id,
-                zone_key=request.zone_key,
+                zone_id=_request_zone_identity(request),
             )
-            self._zones_cleared_after_request.discard(request.zone_key)
+            self._zones_cleared_after_request.discard(_request_zone_identity(request))
 
-    def _has_requested_person_for_zone(self, zone_key: str) -> bool:
+    def _has_requested_person_for_zone(self, zone_id: str) -> bool:
         """Kiểm tra zone từng gửi request người nào đó trong phiên hiện tại."""
         return any(
-            record.zone_key == zone_key and record.state == PersonServiceState.REQUESTED
+            record.zone_id == zone_id and record.state in BLOCKING_PERSON_SERVICE_STATES
             for record in self._person_service_states.values()
         )
+
+    def _latest_service_global_id_for_zone_id(self, zone_id: str) -> Optional[int]:
+        """Tìm person service record mới nhất của zone_id khi robot không gửi global_id."""
+        candidates = [
+            (global_id, record)
+            for global_id, record in self._person_service_states.items()
+            if record.zone_id == zone_id
+            and record.state in BLOCKING_PERSON_SERVICE_STATES
+        ]
+        if not candidates:
+            return None
+
+        return max(candidates, key=lambda item: item[1].updated_at)[0]
+
+    def _zone_item_for_zone_id(self, zone_id: str) -> Optional[dict]:
+        """Lấy snapshot zone mới nhất theo zone_id."""
+        for item in self._latest_zone_items.values():
+            if item.get("zone_id") == zone_id:
+                return item
+        return None
 
     def _mark_zone_fallback_request(self, request: RobotDispatchRequest) -> None:
         """Ghi nhớ zone đã gửi request không có định danh người."""
         if request.event != RobotDispatchEvent.ZONE_OCCUPIED:
             return
-        self._zone_fallback_requests.add(request.zone_key)
+        self._zone_fallback_requests.add(_request_zone_identity(request))
 
     def _should_log_requested_skip(self, global_id: int, zone: Zone) -> bool:
-        """Chỉ log skip khi có lượt occupied mới hoặc người đã request xuất hiện ở zone khác."""
+        """Chỉ log skip khi người đã SERVED có lượt occupied mới hoặc xuất hiện ở zone khác."""
         service = self._person_service_states.get(global_id)
         if service is None:
             return True
-        if service.zone_key != zone.key:
+        zone_identity = _zone_identity(zone)
+        if service.zone_id != zone_identity:
             return True
-        if zone.key in self._zones_cleared_after_request:
+        if zone_identity in self._zones_cleared_after_request:
             return True
 
-        previous_state = self._previous_states.get(zone.key)
+        previous_state = self._previous_states.get(zone_identity)
         return previous_state in {None, ZoneState.EMPTY, ZoneState.PENDING_ENTER}
 
     def _publish_sent_events(self, requests: Sequence[RobotDispatchRequest]) -> None:
@@ -377,27 +523,28 @@ class RobotDispatcher:
 
             if request.event == RobotDispatchEvent.ZONE_OCCUPIED:
                 if person is not None:
-                    self._last_zone_people[request.zone_key] = person
+                    self._last_zone_people[_request_zone_identity(request)] = person
                 else:
-                    self._last_zone_people.pop(request.zone_key, None)
+                    self._last_zone_people.pop(_request_zone_identity(request), None)
             elif request.event == RobotDispatchEvent.ZONE_CLEARED:
-                person = person or self._last_zone_people.pop(request.zone_key, None)
+                person = person or self._last_zone_people.pop(_request_zone_identity(request), None)
 
             robot_dispatch_events.publish_sent(request, person=person)
 
     def _log_requested_skip_once(self, global_id: int, zone: Zone) -> None:
-        """Log skip REQUESTED một lần cho mỗi cặp người-zone trong một lượt occupied."""
-        key = (global_id, zone.key)
+        """Log skip SERVED một lần cho mỗi cặp người-zone trong một lượt occupied."""
+        zone_identity = _zone_identity(zone)
+        key = (global_id, zone_identity)
         if key in self._logged_requested_skips:
             return
 
         self._logged_requested_skips.add(key)
         LOGGER.warning(
-            "Skip robot request: global_id=%s already requested | zone=%s",
+            "Skip robot request: global_id=%s already served | zone_id=%s",
             global_id,
-            zone.key,
+            zone_identity,
         )
-        robot_dispatch_events.publish_skipped_already_requested(
+        robot_dispatch_events.publish_skipped_already_served(
             global_id=global_id,
             zone=zone,
             existing_request=_build_existing_request_snapshot(
@@ -405,13 +552,25 @@ class RobotDispatcher:
             ),
         )
 
-    def _clear_logged_skips_for_zone(self, zone_key: str) -> None:
+    def _clear_logged_skips_for_zone(self, zone_id: str) -> None:
         """Xóa log guard khi zone đã EMPTY để lượt occupied sau có thể log lại."""
         self._logged_requested_skips = {
             key
             for key in self._logged_requested_skips
-            if key[1] != zone_key
+            if key[1] != zone_id
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _zone_identity(zone: Zone) -> str:
+    """Lấy định danh zone ổn định cho state nội bộ dispatcher."""
+    return str(zone.id or f"{zone.camera_id}:{zone.name}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _request_zone_identity(request: RobotDispatchRequest) -> str:
+    """Lấy định danh zone ổn định từ request nội bộ."""
+    return str(request.zone_id or request.zone_name)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -421,10 +580,35 @@ def _build_zone_snapshot(zone: Zone) -> dict:
         "camera_id": zone.camera_id,
         "camera_name": zone.camera_name,
         "zone_id": zone.id,
-        "zone_key": zone.key,
         "zone_name": zone.name,
         "state": zone.state.value,
         "goal_pose": dict(zone.goal_pose),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_event_zone_from_item(
+    item: Optional[dict],
+    *,
+    fallback_zone_id: Optional[str],
+    fallback_zone_name: str,
+) -> dict:
+    """Tạo zone payload cho websocket từ cache dispatcher."""
+    if item is None:
+        return {
+            "camera_id": "",
+            "camera_name": "",
+            "zone_id": fallback_zone_id,
+            "zone_name": fallback_zone_name,
+            "state": "",
+        }
+
+    return {
+        "camera_id": item["camera_id"],
+        "camera_name": item["camera_name"],
+        "zone_id": item["zone_id"],
+        "zone_name": item["zone_name"],
+        "state": item["state"],
     }
 
 
@@ -434,7 +618,7 @@ def _build_uart_zone_item(item: dict) -> dict:
     return {
         "camera_id": item["camera_id"],
         "camera_name": item["camera_name"],
-        "zone_key": item["zone_key"],
+        "zone_id": item["zone_id"],
         "zone_name": item["zone_name"],
         "goal_pose": dict(item["goal_pose"]),
     }
@@ -471,9 +655,32 @@ def _build_existing_request_snapshot(
     return {
         "request_id": record.request_id,
         "state": record.state.value,
-        "zone_key": record.zone_key,
+        "zone_id": record.zone_id,
         "updated_at": record.updated_at,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _feedback_global_id(payload: dict) -> Optional[int]:
+    """Parse global_id từ feedback robot nếu robot có gửi kèm."""
+    raw = payload.get("person_global_id")
+    if raw is None:
+        raw = payload.get("global_id")
+    if raw is None:
+        return None
+
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _optional_string(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

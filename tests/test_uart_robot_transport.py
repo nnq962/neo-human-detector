@@ -6,6 +6,8 @@ from src.robot_dispatch import (
     build_uart_dispatch_payload,
 )
 from src.zones_management import ZoneState
+from uart.uart_manager import UartManager
+from uart.uart_sender import _build_uart_string
 
 
 class UartRobotTransportTest(unittest.TestCase):
@@ -27,9 +29,41 @@ class UartRobotTransportTest(unittest.TestCase):
         self.assertEqual(set(payload.keys()), {"detected", "cleared"})
         self.assertEqual(len(payload["detected"]), 1)
         self.assertEqual(len(payload["cleared"]), 1)
+        self.assertEqual(payload["detected"][0]["zone_id"], "z1")
+        self.assertEqual(payload["cleared"][0]["zone_id"], "z1")
         self.assertEqual(payload["detected"][0]["zone_name"], "zone_1")
         self.assertEqual(payload["cleared"][0]["zone_name"], "zone_2")
         self.assertEqual(payload["detected"][0]["goal_pose"]["x"], 1.0)
+
+    def test_uart_manager_routes_robot_service_feedback(self):
+        """UART manager gọi handler khi nhận JSON robot_service."""
+        manager = UartManager()
+        received = []
+        payload = {
+            "type": "robot_service",
+            "status": "served",
+            "zone_id": "z1",
+        }
+
+        manager.set_robot_service_handler(received.append)
+        manager._handle_received_data(payload)
+
+        self.assertEqual(received, [payload])
+
+    def test_uart_string_uses_zone_id(self):
+        """Chuỗi UART dùng zone_id làm định danh zone."""
+        message = _build_uart_string(
+            [
+                {
+                    "zone_id": "abc123",
+                    "zone_name": "Tiếng Việt",
+                    "goal_pose": {"x": 1.0, "y": 2.0, "theta": 0.0},
+                }
+            ],
+            [],
+        )
+
+        self.assertEqual(message, "d:abc123,1.0,2.0,0.0")
 
     def _make_request(
         self,
@@ -46,7 +80,6 @@ class UartRobotTransportTest(unittest.TestCase):
             camera_name="Camera 1",
             zone_id="z1",
             zone_name=zone_name,
-            zone_key=f"cam1.{zone_name}",
             state=ZoneState.OCCUPIED,
             goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
             timestamp=100.0,

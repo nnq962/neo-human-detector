@@ -42,18 +42,18 @@ class RobotDispatchEventStore:
             },
         )
 
-    def publish_skipped_already_requested(
+    def publish_skipped_already_served(
         self,
         *,
         global_id: int,
         zone: Zone,
         existing_request: Optional[dict] = None,
     ) -> dict:
-        """Publish a skipped invite because the person was already requested."""
+        """Publish a skipped invite because the person was already served."""
         payload = {
             "type": "skipped",
             "action": "invite",
-            "reason": "already_requested",
+            "reason": "already_served",
             "zone": _zone_from_zone(zone),
             "person": {
                 "global_id": global_id,
@@ -61,6 +61,28 @@ class RobotDispatchEventStore:
         }
         if existing_request is not None:
             payload["existing_request"] = copy.deepcopy(existing_request)
+
+        return self._publish(payload)
+
+    def publish_service_update(
+        self,
+        *,
+        status: str,
+        zone: dict,
+        person: Optional[dict],
+        request_id: str,
+        reason: Optional[str] = None,
+    ) -> dict:
+        """Publish robot service lifecycle feedback for a zone/person."""
+        payload = {
+            "type": "service_update",
+            "action": status,
+            "request_id": request_id,
+            "zone": copy.deepcopy(zone),
+            "person": copy.deepcopy(person),
+        }
+        if reason:
+            payload["reason"] = reason
 
         return self._publish(payload)
 
@@ -115,7 +137,6 @@ def _zone_from_request(request: RobotDispatchRequest) -> dict:
         "camera_name": request.camera_name,
         "zone_id": request.zone_id,
         "zone_name": request.zone_name,
-        "zone_key": request.zone_key,
         "state": request.state.value,
     }
 
@@ -126,7 +147,6 @@ def _zone_from_zone(zone: Zone) -> dict:
         "camera_name": zone.camera_name,
         "zone_id": zone.id,
         "zone_name": zone.name,
-        "zone_key": zone.key,
         "state": zone.state.value,
     }
 

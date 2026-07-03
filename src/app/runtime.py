@@ -332,6 +332,7 @@ class Runtime:
             transport=UartRobotTransport(uart_manager),
         )
         uart_manager.set_sync_handler(dispatcher.send_sync)
+        uart_manager.set_robot_service_handler(dispatcher.handle_robot_service_feedback)
         return dispatcher
 
     def _update_fps(self, camera_id: str, timestamp: float) -> float:

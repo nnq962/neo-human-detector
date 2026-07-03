@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -210,7 +211,7 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["type"], "sent")
         self.assertEqual(events[0]["action"], "invite")
-        self.assertEqual(events[0]["zone"]["zone_key"], zone.key)
+        self.assertEqual(events[0]["zone"]["zone_id"], zone.id)
         self.assertEqual(events[0]["person"]["global_id"], 7)
         self.assertEqual(events[0]["person"]["track_id"], 12)
         self.assertEqual(events[0]["person"]["similarity"], 0.88)
@@ -256,8 +257,75 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(events[0]["type"], "sent")
         self.assertEqual(events[0]["action"], "invite")
 
-    def test_requested_person_reentering_same_cleared_zone_publishes_skip(self):
-        """Người đã request rời zone về EMPTY rồi vào lại cùng zone sẽ tạo skip."""
+    def test_served_person_reentering_same_cleared_zone_publishes_skip(self):
+        """Người đã SERVED rời zone về EMPTY rồi vào lại cùng zone sẽ tạo skip."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "served",
+            "zone_id": zone.id,
+        })
+        zone.state = ZoneState.EMPTY
+        dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=InferenceFrame(detections=[]),
+            zone_names=[],
+            reid_enabled=True,
+        )
+        zone.state = ZoneState.PENDING_ENTER
+        dispatcher.process_zones(
+            [zone],
+            timestamp=102.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        zone.state = ZoneState.OCCUPIED
+        dispatcher.process_zones(
+            [zone],
+            timestamp=103.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        events = robot_dispatch_events.get_events_after(0)
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[0]["type"], "sent")
+        self.assertEqual(events[1]["type"], "service_update")
+        self.assertEqual(events[1]["action"], "served")
+        self.assertEqual(events[2]["type"], "skipped")
+        self.assertEqual(events[2]["action"], "invite")
+        self.assertEqual(events[2]["reason"], "already_served")
+        self.assertEqual(events[2]["zone"]["zone_id"], zone.id)
+        self.assertEqual(events[2]["person"]["global_id"], 7)
+
+    def test_requested_person_reentering_same_cleared_zone_emits_again(self):
+        """Người mới REQUESTED rời zone về EMPTY rồi vào lại cùng global_id sẽ gửi invite lại."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
             config=RobotDispatchConfig(enabled=True),
@@ -299,7 +367,7 @@ class RobotDispatcherTest(unittest.TestCase):
             reid_enabled=True,
         )
         zone.state = ZoneState.OCCUPIED
-        dispatcher.process_zones(
+        emitted = dispatcher.process_zones(
             [zone],
             timestamp=103.0,
             detection_frame=frame,
@@ -308,16 +376,178 @@ class RobotDispatcherTest(unittest.TestCase):
         )
 
         events = robot_dispatch_events.get_events_after(0)
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(len(transport.requests), 2)
         self.assertEqual(len(events), 2)
         self.assertEqual(events[0]["type"], "sent")
-        self.assertEqual(events[1]["type"], "skipped")
-        self.assertEqual(events[1]["action"], "invite")
-        self.assertEqual(events[1]["reason"], "already_requested")
-        self.assertEqual(events[1]["zone"]["zone_key"], zone.key)
-        self.assertEqual(events[1]["person"]["global_id"], 7)
+        self.assertEqual(events[1]["type"], "sent")
 
-    def test_requested_person_is_skipped_in_another_zone(self):
-        """Cùng global_id sang zone khác vẫn bị skip nếu đã REQUESTED."""
+    def test_serving_person_reentering_same_cleared_zone_emits_again(self):
+        """Người đang SERVING rời zone rồi quay lại thì gửi invite lại."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "serving",
+            "zone_id": zone.id,
+        })
+        zone.state = ZoneState.EMPTY
+        dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=InferenceFrame(detections=[]),
+            zone_names=[],
+            reid_enabled=True,
+        )
+        zone.state = ZoneState.PENDING_ENTER
+        dispatcher.process_zones(
+            [zone],
+            timestamp=102.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        zone.state = ZoneState.OCCUPIED
+        emitted = dispatcher.process_zones(
+            [zone],
+            timestamp=103.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        events = robot_dispatch_events.get_events_after(0)
+        self.assertEqual(len(emitted), 1)
+        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(events[-1]["type"], "sent")
+        self.assertEqual(events[-1]["action"], "invite")
+
+    def test_robot_service_feedback_updates_state_by_zone_id(self):
+        """Feedback robot_service không có global_id vẫn update record mới nhất của zone_id."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "serving",
+            "zone_id": zone.id,
+        })
+        self.assertEqual(dispatcher.get_person_service_states()[7], "SERVING")
+
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "served",
+            "zone_id": zone.id,
+        })
+        self.assertEqual(dispatcher.get_person_service_states()[7], "SERVED")
+
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "failed",
+            "zone_id": zone.id,
+            "reason": "blocked_path",
+        })
+        self.assertEqual(dispatcher.get_person_service_states()[7], "FAILED")
+
+        events = robot_dispatch_events.get_events_after(0)
+        self.assertEqual(events[1]["type"], "service_update")
+        self.assertEqual(events[1]["action"], "serving")
+        self.assertEqual(events[1]["zone"]["zone_id"], zone.id)
+        self.assertEqual(events[1]["person"]["global_id"], 7)
+        self.assertEqual(events[2]["action"], "served")
+        self.assertEqual(events[3]["action"], "failed")
+        self.assertEqual(events[3]["reason"], "blocked_path")
+
+    def test_robot_service_feedback_state_blocks_duplicate_requests(self):
+        """SERVING/SERVED/FAILED không làm dispatcher gửi lại cùng global_id mỗi frame."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(enabled=True),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        for status in ["serving", "served", "failed"]:
+            dispatcher.handle_robot_service_feedback({
+                "type": "robot_service",
+                "status": status,
+                "zone_id": zone.id,
+            })
+            emitted = dispatcher.process_zones(
+                [zone],
+                timestamp=101.0,
+                detection_frame=frame,
+                zone_names=[zone.name],
+                reid_enabled=True,
+            )
+            self.assertEqual(emitted, [])
+
+        self.assertEqual(len(transport.requests), 1)
+
+    def test_requested_person_in_another_zone_emits_again(self):
+        """Cùng global_id sang zone khác vẫn gửi invite nếu chưa SERVED."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
             config=RobotDispatchConfig(enabled=True),
@@ -353,11 +583,12 @@ class RobotDispatcherTest(unittest.TestCase):
         )
 
         self.assertEqual(len(first), 1)
-        self.assertEqual(second, [])
-        self.assertEqual(len(transport.requests), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(robot_dispatch_events.get_events_after(0)), 2)
 
-    def test_robot_dispatch_event_for_already_requested_skip(self):
-        """Websocket event skip có zone và global_id đã request."""
+    def test_robot_dispatch_event_for_already_served_skip(self):
+        """Websocket event skip có zone và global_id đã SERVED."""
         transport = InMemoryRobotTransport()
         dispatcher = RobotDispatcher(
             config=RobotDispatchConfig(enabled=True),
@@ -384,6 +615,11 @@ class RobotDispatcherTest(unittest.TestCase):
             zone_names=[zone_a.name],
             reid_enabled=True,
         )
+        dispatcher.handle_robot_service_feedback({
+            "type": "robot_service",
+            "status": "served",
+            "zone_id": zone_a.id,
+        })
         dispatcher.process_zones(
             [zone_b],
             timestamp=101.0,
@@ -393,13 +629,13 @@ class RobotDispatcherTest(unittest.TestCase):
         )
 
         events = robot_dispatch_events.get_events_after(0)
-        self.assertEqual(len(events), 2)
-        self.assertEqual(events[1]["type"], "skipped")
-        self.assertEqual(events[1]["action"], "invite")
-        self.assertEqual(events[1]["reason"], "already_requested")
-        self.assertEqual(events[1]["zone"]["zone_key"], zone_b.key)
-        self.assertEqual(events[1]["person"]["global_id"], 7)
-        self.assertEqual(events[1]["existing_request"]["state"], "REQUESTED")
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[2]["type"], "skipped")
+        self.assertEqual(events[2]["action"], "invite")
+        self.assertEqual(events[2]["reason"], "already_served")
+        self.assertEqual(events[2]["zone"]["zone_id"], zone_b.id)
+        self.assertEqual(events[2]["person"]["global_id"], 7)
+        self.assertEqual(events[2]["existing_request"]["state"], "SERVED")
 
     def test_fallback_without_reid_allows_zone_request(self):
         """Fallback cho phép gửi zone-only khi chưa có global_id."""
@@ -532,6 +768,62 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(len(third), 1)
         self.assertEqual(len(transport.requests), 2)
 
+    def test_service_ttl_allows_served_person_again(self):
+        """Người đã SERVED hết TTL thì có thể được mời lại."""
+        transport = InMemoryRobotTransport()
+        dispatcher = RobotDispatcher(
+            config=RobotDispatchConfig(
+                enabled=True,
+                service_ttl_minutes=0.01,
+            ),
+            transport=transport,
+        )
+        zone = self._make_zone()
+        zone.state = ZoneState.OCCUPIED
+        frame = InferenceFrame(
+            detections=[
+                Detection(
+                    bbox=(0, 0, 10, 10),
+                    confidence=0.9,
+                    global_id=7,
+                )
+            ]
+        )
+
+        first = dispatcher.process_zones(
+            [zone],
+            timestamp=100.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        with patch("src.robot_dispatch.dispatcher.time.time", return_value=100.0):
+            dispatcher.handle_robot_service_feedback({
+                "type": "robot_service",
+                "status": "served",
+                "zone_id": zone.id,
+            })
+
+        blocked = dispatcher.process_zones(
+            [zone],
+            timestamp=100.5,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+        expired = dispatcher.process_zones(
+            [zone],
+            timestamp=101.0,
+            detection_frame=frame,
+            zone_names=[zone.name],
+            reid_enabled=True,
+        )
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(blocked, [])
+        self.assertEqual(len(expired), 1)
+        self.assertEqual(len(transport.requests), 2)
+
     def test_send_sync_uses_latest_confirmed_zone_snapshot(self):
         """Sync gửi lại trạng thái xác nhận mới nhất của các zone."""
         transport = InMemoryRobotTransport()
@@ -602,7 +894,7 @@ class RobotDispatcherTest(unittest.TestCase):
         self.assertEqual(len(events), 2)
         self.assertEqual(events[1]["type"], "sent")
         self.assertEqual(events[1]["action"], "clear")
-        self.assertEqual(events[1]["zone"]["zone_key"], zone.key)
+        self.assertEqual(events[1]["zone"]["zone_id"], zone.id)
         self.assertEqual(events[1]["zone"]["state"], "EMPTY")
         self.assertEqual(events[1]["person"]["global_id"], 7)
 

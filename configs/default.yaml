@@ -23,7 +23,7 @@ reid:
     update_interval: 100
     max_buffer_size: 1
     gallery_cleanup_interval: 1800
-    max_reverify_misses: 5
+    max_reverify_misses: 10
   quality:
     overlap_iou_threshold: 0.25
     overlap_ioa_threshold: 0.45
@@ -32,7 +32,7 @@ reid:
     stable_size_change_ratio: 0.25
     laplacian_var_threshold: 50.0
   gallery:
-    sim_threshold_match: 0.75
+    sim_threshold_match: 0.7
     ema_alpha: 0.75
     max_samples: 5
     ttl_minutes: 10.0
@@ -43,7 +43,7 @@ robot_dispatch:
   raise_on_transport_error: false
   require_reid: true
   fallback_without_reid: false
-  service_ttl_minutes: 10
+  service_ttl_minutes: 30
 uart:
   port: /dev/ttyUSB1
   baudrate: 115200
@@ -56,7 +56,7 @@ cameras:
   enabled: true
   zones:
   - id: 8xcdb
-    name: nnq
+    name: ước được log bug
     goal_pose:
       x: 7.33074951171875
       y: -3.6641297340393066
@@ -96,13 +96,13 @@ cameras:
       y: -2.1095666885375977
       theta: -1.527213454246521
     points:
-    - [1169, 539]
-    - [984, 599]
-    - [1180, 861]
-    - [1218, 721]
-    - [1299, 679]
-    - [1183, 557]
-    - [1158, 541]
+    - [1098, 554]
+    - [913, 614]
+    - [1109, 876]
+    - [1147, 736]
+    - [1228, 694]
+    - [1112, 572]
+    - [1087, 556]
   id: gcphg
 - name: Camera 2
   stream:
@@ -120,6 +120,6 @@ cameras:
     points:
     - [1150, 579]
     - [1524, 515]
-    - [1618, 669]
-    - [1127, 767]
+    - [1619, 747]
+    - [1174, 849]
   id: lx6ug

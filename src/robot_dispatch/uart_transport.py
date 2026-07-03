@@ -40,6 +40,8 @@ class UartRobotTransport:
         """Đóng transport UART, không đóng UART manager dùng chung."""
         if hasattr(self.uart, "set_sync_handler"):
             self.uart.set_sync_handler(None)
+        if hasattr(self.uart, "set_robot_service_handler"):
+            self.uart.set_robot_service_handler(None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ def _build_uart_zone_item(request: RobotDispatchRequest) -> dict:
     return {
         "camera_id": request.camera_id,
         "camera_name": request.camera_name,
-        "zone_key": request.zone_key,
+        "zone_id": request.zone_id,
         "zone_name": request.zone_name,
         "goal_pose": dict(request.goal_pose),
     }

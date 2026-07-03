@@ -6,8 +6,30 @@ import {
 
 export type RobotDispatchEventsStatus = "connecting" | "connected" | "disconnected"
 
+const DUPLICATE_EVENT_WINDOW_SECONDS = 5
+
 interface UseRobotDispatchEventsOptions {
   maxEvents?: number
+}
+
+function getEventDedupeKey(event: RobotDispatchEvent): string {
+  return [
+    event.type,
+    event.action,
+    event.zone?.zone_id ?? "",
+    event.person?.global_id ?? "",
+    event.request_id ?? "",
+    event.reason ?? "",
+  ].join("|")
+}
+
+function isDuplicateEvent(event: RobotDispatchEvent, current: RobotDispatchEvent[]): boolean {
+  const eventKey = getEventDedupeKey(event)
+
+  return current.some((item) => {
+    if (getEventDedupeKey(item) !== eventKey) return false
+    return Math.abs(event.timestamp - item.timestamp) <= DUPLICATE_EVENT_WINDOW_SECONDS
+  })
 }
 
 export function useRobotDispatchEvents(options: UseRobotDispatchEventsOptions = {}) {
@@ -40,6 +62,10 @@ export function useRobotDispatchEvents(options: UseRobotDispatchEventsOptions = 
         try {
           const event = JSON.parse(e.data) as RobotDispatchEvent
           setEvents((current) => {
+            if (isDuplicateEvent(event, current)) {
+              return current
+            }
+
             const bySequence = new Map<number, RobotDispatchEvent>()
 
             for (const item of current) {
@@ -77,5 +103,5 @@ export function useRobotDispatchEvents(options: UseRobotDispatchEventsOptions = 
     }
   }, [maxEvents])
 
-  return { events, status }
+  return { events, status, clearEvents: () => setEvents([]) }
 }
