@@ -55,12 +55,18 @@ frontend/.env.*
 /aid-examples/
 *.pt
 *.pth
+*.pth.tar
 *.onnx
+*.rknn
 *.engine
 *.mp4
 *.avi
 *.mov
 *.mkv
+
+# RKNN conversion artifacts
+/rknn-model-converter/downloads/
+/rknn-model-converter/output/
 
 # Local scratch paths kept for backward compatibility
 /test/
