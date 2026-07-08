@@ -178,9 +178,7 @@ function UartSendCard() {
     "PING",
     "STATUS",
     "RESET",
-    "MOVE:FORWARD",
-    "MOVE:STOP",
-    "GOTO:0.0,0.0,0.0",
+    "d:TEST_LOCATION,0.1,0.1,0",
   ]
 
   return (
