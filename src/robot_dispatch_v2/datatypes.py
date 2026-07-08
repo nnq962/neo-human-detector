@@ -4,7 +4,6 @@ Giao thức nhị phân cho robot giao tiếp qua LoRa.
 
 import struct
 import binascii
-import time
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -19,14 +18,16 @@ class MessageType(IntEnum):
         TASK_ASSIGN: Dispatcher giao một task cho robot.
         TASK_STATUS: Robot báo cáo tiến độ thực hiện task.
         TASK_CANCEL: Dispatcher hủy task đang giao cho robot.
+        ACK: Xác nhận message.
     """
     HEARTBEAT   = 0
     TASK_ASSIGN = 1
     TASK_STATUS = 2
     TASK_CANCEL = 3
+    ACK = 4
 
 # ─────────────────────────────────────────────────────────────────────────────
-class RobotState(IntEnum):
+class RobotStateCode(IntEnum):
     """
     Danh sách các trạng thái robot.
 
@@ -38,6 +39,21 @@ class RobotState(IntEnum):
     IDLE    = 0
     SERVING = 1
     ERROR   = 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+class TaskStatusCode(IntEnum):
+    """
+    Danh sách các trạng thái task.
+
+    Members:
+        IN_PROGRESS: Task đang được thực hiện.
+        COMPLETED: Task đã hoàn thành.
+        FAILED: Task thực hiện thất bại.
+    """
+    IN_PROGRESS = 0
+    COMPLETED   = 1
+    FAILED      = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,6 +134,40 @@ class MessageBase:
 
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass
+class Ack(MessageBase):
+    """
+    Xác nhận đã nhận thành công 1 message quan trọng.
+    Dùng CHUNG cho cả 3 trường hợp: TaskAssign, TaskCancel, TaskStatus -
+    chỉ khác nhau ở giá trị `acked_type`, không cần viết riêng 3 class ACK.
+
+    Cấu trúc payload (chưa gồm CRC), little-endian:
+        message_type : uint8 (1 byte) - cố định = MessageType.ACK
+        robot_id     : uint8 (1 byte) - robot nào gửi Ack này
+        acked_type   : uint8 (1 byte) - đang ACK cho loại message nào
+                                        (MessageType.TASK_ASSIGN / TASK_CANCEL / TASK_STATUS)
+        task_id      : uint8 (1 byte) - task cụ thể được ACK
+
+    Tổng payload = 4 byte, + 2 byte CRC16 = 6 byte/gói.
+    """
+
+    MESSAGE_TYPE = MessageType.ACK
+    FORMAT = '<BBBB'
+
+    robot_id: int
+    acked_type: int
+    task_id: int
+
+    def to_payload(self) -> bytes:
+        return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.acked_type, self.task_id)
+
+    @classmethod
+    def from_payload(cls, payload: bytes):
+        _, robot_id, acked_type, task_id = struct.unpack(cls.FORMAT, payload)
+        return cls(robot_id, acked_type, task_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
 class Heartbeat(MessageBase):
     """
     Message định kỳ robot gửi về báo cáo vị trí + trạng thái.
@@ -129,7 +179,7 @@ class Heartbeat(MessageBase):
         x            : int16   (2 byte)  - vị trí x, đơn vị gốc = mét, lưu dạng cm (x*100)
         y            : int16   (2 byte)  - vị trí y, đơn vị gốc = mét, lưu dạng cm (y*100)
         theta        : int16   (2 byte)  - góc hướng, đơn vị gốc = radian, lưu dạng milliradian (theta*1000)
-        state        : uint8   (1 byte)  - mã trạng thái robot
+        state_code   : uint8   (1 byte)  - mã trạng thái robot
 
     Tổng payload = 13 byte, + 2 byte CRC16 = 15 byte/gói.
     """
@@ -142,7 +192,7 @@ class Heartbeat(MessageBase):
     x: float       # mét (float, để code Python dùng tự nhiên)
     y: float       # mét
     theta: float   # radian
-    state: int
+    state_code: int
 
     def to_payload(self) -> bytes:
         return struct.pack(
@@ -153,19 +203,19 @@ class Heartbeat(MessageBase):
             round(self.x * 100),      # mét -> cm
             round(self.y * 100),      # mét -> cm
             round(self.theta * 1000), # radian -> milliradian
-            self.state,
+            self.state_code,
         )
 
     @classmethod
     def from_payload(cls, payload: bytes):
-        _, robot_id, timestamp, x_raw, y_raw, theta_raw, state = struct.unpack(cls.FORMAT, payload)
+        _, robot_id, timestamp, x_raw, y_raw, theta_raw, state_code = struct.unpack(cls.FORMAT, payload)
         return cls(
             robot_id=robot_id,
             timestamp=timestamp,
             x=x_raw / 100,
             y=y_raw / 100,
             theta=theta_raw / 1000,
-            state=state,
+            state_code=state_code,
         )
 
 
@@ -173,107 +223,98 @@ class Heartbeat(MessageBase):
 @dataclass
 class TaskAssign(MessageBase):
     """
-    Message Dispatcher gửi để giao một task phục vụ cho robot.
-
-    Message này dùng khi Dispatcher đã chọn được robot phù hợp và cần robot đi
-    tới vị trí phục vụ. Đây là lệnh quan trọng, phía Dispatcher nên chờ ACK từ
-    robot và retry nếu quá timeout, vì mất message này đồng nghĩa robot không
-    biết có task mới.
+    Dispatcher giao 1 task (1 điểm phục vụ) cho robot.
 
     Cấu trúc payload (chưa gồm CRC), little-endian:
-        message_type : uint8   (1 byte)  - cố định = 1
-        msg_id       : uint16  (2 byte)  - id message để khớp ACK/retry
-        robot_id     : uint8   (1 byte)  - id robot nhận task
-        task_id      : uint16  (2 byte)  - id task cần thực hiện
-        x            : int16   (2 byte)  - vị trí x, đơn vị gốc = mét, lưu dạng cm (x*100)
-        y            : int16   (2 byte)  - vị trí y, đơn vị gốc = mét, lưu dạng cm (y*100)
+        message_type : uint8  (1 byte)  - cố định = MessageType.TASK_ASSIGN
+        robot_id     : uint8  (1 byte)
+        task_id      : uint8  (1 byte)  - định danh riêng của task này
+        x            : int16  (2 byte)  - mét -> cm (x*100)
+        y            : int16  (2 byte)  - mét -> cm (y*100)
+        theta        : int16  (2 byte)  - radian -> milliradian (theta*1000)
 
-    Tổng payload = 10 byte, + 2 byte CRC16 = 12 byte/gói.
+    Tổng payload = 9 byte, + 2 byte CRC16 = 11 byte/gói.
+
+    Nguyên tắc: mỗi gói chỉ chứa ĐÚNG 1 điểm phục vụ. Cần nhiều điểm cho cùng
+    1 robot -> gửi nhiều gói TaskAssign liên tiếp, mỗi gói 1 task_id riêng.
     """
 
     MESSAGE_TYPE = MessageType.TASK_ASSIGN
-    FORMAT = '<BHBHhh'  # B=uint8, H=uint16, h=int16
+    FORMAT = '<BBBhhh'
 
-    msg_id: int
     robot_id: int
     task_id: int
-    x: float  # mét
-    y: float  # mét
+    x: float      # mét
+    y: float      # mét
+    theta: float  # radian
 
     def to_payload(self) -> bytes:
         return struct.pack(
-            self.FORMAT,
-            self.MESSAGE_TYPE,
-            self.msg_id,
-            self.robot_id,
-            self.task_id,
-            round(self.x * 100),  # mét -> cm
-            round(self.y * 100),  # mét -> cm
+            self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id,
+            round(self.x * 100), round(self.y * 100), round(self.theta * 1000),
         )
 
     @classmethod
     def from_payload(cls, payload: bytes):
-        _, msg_id, robot_id, task_id, x_raw, y_raw = struct.unpack(cls.FORMAT, payload)
-        return cls(
-            msg_id=msg_id,
-            robot_id=robot_id,
-            task_id=task_id,
-            x=x_raw / 100,
-            y=y_raw / 100,
-        )
+        _, robot_id, task_id, x_raw, y_raw, theta_raw = struct.unpack(cls.FORMAT, payload)
+        return cls(robot_id, task_id, x_raw / 100, y_raw / 100, theta_raw / 1000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class TaskStatus(MessageBase):
+    """
+    Robot báo cáo tiến độ 1 task cụ thể về dispatcher.
+
+    Cấu trúc payload:
+        message_type : uint8 (1 byte) - cố định = MessageType.TASK_STATUS
+        robot_id     : uint8 (1 byte)
+        task_id      : uint8 (1 byte) - khớp với task_id trong TaskAssign tương ứng
+        status_code  : uint8 (1 byte) - 0=đang làm, 1=hoàn thành, 2=thất bại
+
+    Tổng payload = 4 byte, + 2 byte CRC16 = 6 byte/gói.
+    """
+
+    MESSAGE_TYPE = MessageType.TASK_STATUS
+    FORMAT = '<BBBB'
+
+    robot_id: int
+    task_id: int
+    status_code: int
+
+    def to_payload(self) -> bytes:
+        return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id, self.status_code)
+
+    @classmethod
+    def from_payload(cls, payload: bytes):
+        _, robot_id, task_id, status_code = struct.unpack(cls.FORMAT, payload)
+        return cls(robot_id, task_id, status_code)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass
 class TaskCancel(MessageBase):
     """
-    Message Dispatcher gửi để hủy một task đã giao cho robot.
+    Dispatcher hủy 1 task cụ thể đang giao cho robot.
 
-    Message này dùng khi task không còn nên được thực hiện nữa, ví dụ zone đã
-    trống trước khi robot tới, Dispatcher phát hiện giao trùng, hoặc có thao tác
-    hủy thủ công. Đây cũng là lệnh quan trọng: nếu robot không nhận được lệnh
-    hủy, nó có thể tiếp tục đi phục vụ một vị trí không còn cần phục vụ. Vì vậy
-    phía Dispatcher nên chờ ACK từ robot và retry nếu quá timeout.
+    Cấu trúc payload:
+        message_type : uint8 (1 byte) - cố định = MessageType.TASK_CANCEL
+        robot_id     : uint8 (1 byte)
+        task_id      : uint8 (1 byte) - task cần hủy, khớp task_id trong TaskAssign
 
-    Cấu trúc payload (chưa gồm CRC), little-endian:
-        message_type : uint8   (1 byte)  - cố định = 3
-        msg_id       : uint16  (2 byte)  - id message để khớp ACK/retry
-        robot_id     : uint8   (1 byte)  - id robot đang giữ task
-        task_id      : uint16  (2 byte)  - id task cần hủy
-        reason_code  : uint8   (1 byte)  - lý do hủy task
-
-    Bảng reason_code dự kiến:
-        0: duplicate       - task bị trùng hoặc đã có robot khác xử lý
-        1: seat_empty      - vị trí/zone đã trống trước khi robot phục vụ
-        2: manual_override - người vận hành hủy thủ công
-
-    Tổng payload = 7 byte, + 2 byte CRC16 = 9 byte/gói.
+    Tổng payload = 3 byte, + 2 byte CRC16 = 5 byte/gói.
     """
 
     MESSAGE_TYPE = MessageType.TASK_CANCEL
-    FORMAT = '<BHBHB'  # B=uint8, H=uint16
+    FORMAT = '<BBB'
 
-    msg_id: int
     robot_id: int
     task_id: int
-    reason_code: int
 
     def to_payload(self) -> bytes:
-        return struct.pack(
-            self.FORMAT,
-            self.MESSAGE_TYPE,
-            self.msg_id,
-            self.robot_id,
-            self.task_id,
-            self.reason_code,
-        )
+        return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id)
 
     @classmethod
     def from_payload(cls, payload: bytes):
-        _, msg_id, robot_id, task_id, reason_code = struct.unpack(cls.FORMAT, payload)
-        return cls(
-            msg_id=msg_id,
-            robot_id=robot_id,
-            task_id=task_id,
-            reason_code=reason_code,
-        )
+        _, robot_id, task_id = struct.unpack(cls.FORMAT, payload)
+        return cls(robot_id, task_id)
