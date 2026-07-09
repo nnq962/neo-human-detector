@@ -7,6 +7,8 @@ import binascii
 from dataclasses import dataclass
 from enum import IntEnum
 
+from utils import LOGGER
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 class MessageType(IntEnum):
@@ -102,7 +104,7 @@ class MessageBase:
         raise NotImplementedError
 
     def encode(self) -> bytes:
-        """Đóng gói payload + CRC16, trả về bytes sẵn sàng gửi qua LoRa."""
+        """Đóng gói payload + checksum (crc32(payload) & 0xFFFF), trả về bytes sẵn sàng gửi qua LoRa."""
         payload = self.to_payload()
         crc = binascii.crc32(payload) & 0xFFFF
         return payload + struct.pack('<H', crc)
@@ -127,7 +129,7 @@ class MessageBase:
         message_type = packet[0]
         msg_class = MessageBase._registry.get(message_type)
         if msg_class is None:
-            print(f"[WARN] Không rõ message_type={message_type}, bỏ qua gói tin")
+            LOGGER.warning(f"Không rõ message_type={message_type}, bỏ qua gói tin")
             return None
         return msg_class.decode(packet)
 
@@ -147,7 +149,7 @@ class Ack(MessageBase):
                                         (MessageType.TASK_ASSIGN / TASK_CANCEL / TASK_STATUS)
         task_id      : uint8 (1 byte) - task cụ thể được ACK
 
-    Tổng payload = 4 byte, + 2 byte CRC16 = 6 byte/gói.
+    Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
     """
 
     MESSAGE_TYPE = MessageType.ACK
@@ -181,7 +183,7 @@ class Heartbeat(MessageBase):
         theta        : int16   (2 byte)  - góc hướng, đơn vị gốc = radian, lưu dạng milliradian (theta*1000)
         state_code   : uint8   (1 byte)  - mã trạng thái robot
 
-    Tổng payload = 13 byte, + 2 byte CRC16 = 15 byte/gói.
+    Tổng payload = 13 byte, + 2 byte checksum = 15 byte/gói.
     """
 
     MESSAGE_TYPE = MessageType.HEARTBEAT
@@ -233,7 +235,7 @@ class TaskAssign(MessageBase):
         y            : int16  (2 byte)  - mét -> cm (y*100)
         theta        : int16  (2 byte)  - radian -> milliradian (theta*1000)
 
-    Tổng payload = 9 byte, + 2 byte CRC16 = 11 byte/gói.
+    Tổng payload = 9 byte, + 2 byte checksum = 11 byte/gói.
 
     Nguyên tắc: mỗi gói chỉ chứa ĐÚNG 1 điểm phục vụ. Cần nhiều điểm cho cùng
     1 robot -> gửi nhiều gói TaskAssign liên tiếp, mỗi gói 1 task_id riêng.
@@ -272,7 +274,7 @@ class TaskStatus(MessageBase):
         task_id      : uint8 (1 byte) - khớp với task_id trong TaskAssign tương ứng
         status_code  : uint8 (1 byte) - 0=đang làm, 1=hoàn thành, 2=thất bại
 
-    Tổng payload = 4 byte, + 2 byte CRC16 = 6 byte/gói.
+    Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
     """
 
     MESSAGE_TYPE = MessageType.TASK_STATUS
@@ -302,7 +304,7 @@ class TaskCancel(MessageBase):
         robot_id     : uint8 (1 byte)
         task_id      : uint8 (1 byte) - task cần hủy, khớp task_id trong TaskAssign
 
-    Tổng payload = 3 byte, + 2 byte CRC16 = 5 byte/gói.
+    Tổng payload = 3 byte, + 2 byte checksum = 5 byte/gói.
     """
 
     MESSAGE_TYPE = MessageType.TASK_CANCEL
