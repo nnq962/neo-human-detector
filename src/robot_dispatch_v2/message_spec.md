@@ -301,6 +301,22 @@ Kích thước packet:
 | Checksum | 2 |
 | Tổng packet | 6 |
 
+#### Quy tắc gửi TaskStatus
+
+Với mỗi `(robot_id, task_id)`, robot chỉ được có tối đa một `TaskStatus` đang
+chờ ACK tại một thời điểm:
+
+```text
+Gửi TaskStatus
+→ chờ ACK có acked_type=TASK_STATUS
+→ nhận ACK thì mới gửi status tiếp theo
+→ hết timeout thì gửi lại đúng TaskStatus cũ
+```
+
+Quy tắc stop-and-wait này là bắt buộc vì ACK hiện chỉ chứa `robot_id`,
+`acked_type` và `task_id`; chưa có `sequence_id` để phân biệt ACK của
+`IN_PROGRESS`, `COMPLETED` hoặc `FAILED` cho cùng một task.
+
 ---
 
 ### 7.5. TaskCancel
@@ -357,3 +373,5 @@ Giá trị raw trước checksum:
 - `task_id` hiện tại là `uint8`, tối đa 255. Nếu cần chạy lâu với nhiều task hơn,
   cần đổi `TaskAssign`, `TaskStatus`, `TaskCancel`, và `Ack` sang `uint16`.
 - `Ack.acked_type` nên dùng đúng giá trị trong `MessageType`.
+- `TaskStatus` phải tuân theo stop-and-wait: chờ ACK trước khi gửi status tiếp
+  theo cho cùng task.

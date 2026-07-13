@@ -1,4 +1,6 @@
-"""Các kiểu dữ liệu dùng bởi tầng ra quyết định điều phối robot."""
+"""Các kiểu dữ liệu của tầng ra quyết định dispatch theo trạng thái zone."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
@@ -8,38 +10,42 @@ from src.zones_management import Zone, ZoneState
 
 # ─────────────────────────────────────────────────────────────────────────────
 class DispatchAction(Enum):
-    """Các loại quyết định mà tầng dispatcher cần xử lý."""
+    """Hành động mà tầng thực thi robot cần xử lý."""
 
     TASK_ASSIGN = "TASK_ASSIGN"
     TASK_CANCEL = "TASK_CANCEL"
 
-    # Tên tương thích với contract cũ của RobotDispatcherV2.
-    REQUEST_SERVICE = TASK_ASSIGN
-    ZONE_CLEARED = TASK_CANCEL
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 class ZoneServiceState(Enum):
-    """Trạng thái phục vụ độc lập với trạng thái vision của zone."""
+    """Trạng thái phục vụ hiện tại của một zone."""
 
-    NOT_REQUESTED = "NOT_REQUESTED"  # Zone chưa từng sinh yêu cầu giao task.
-    ACTIVE        = "ACTIVE"         # Zone đã sinh yêu cầu giao task và task đó chưa được báo hoàn tất.
-    COMPLETED     = "COMPLETED"      # Zone đã sinh yêu cầu giao task và task đó đã được báo hoàn tất.
+    # Occupancy hiện tại chưa sinh TASK_ASSIGN.
+    NOT_REQUESTED = "NOT_REQUESTED"
+
+    # Đã sinh TASK_ASSIGN cho occupancy hiện tại nhưng chưa được báo hoàn thành.
+    REQUESTED = "REQUESTED"
+
+    # Task đã hoàn thành; khi zone EMPTY thì không cần cancel.
+    COMPLETED = "COMPLETED"
+
+    # Robot báo task thất bại; không tự retry trong cùng lượt occupancy.
+    FAILED = "FAILED"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ZoneDecisionState:
-    """State gần nhất mà decision engine đang giữ cho một zone."""
+    """State mà decision engine đang lưu cho một zone."""
 
-    previous_zone_state: ZoneState
+    last_zone_state: ZoneState
     service_state: ZoneServiceState = ZoneServiceState.NOT_REQUESTED
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class DispatchDecision:
-    """Quyết định bất biến cùng transition đã tạo ra quyết định đó."""
+    """Quyết định được sinh ra từ một transition trạng thái zone."""
 
     action: DispatchAction
     zone_id: str

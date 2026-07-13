@@ -13,7 +13,7 @@ from src.app.datatypes import (
     ZoneStateMachineConfig,
 )
 from src.reid import ReIdConfig
-from src.robot_dispatch import RobotDispatchConfig
+from src.robot_dispatch_v2 import RobotDispatchV2Config
 from utils import load_config
 
 
@@ -80,20 +80,12 @@ def build_reid_config(raw: dict) -> ReIdConfig:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def build_robot_dispatch_config(raw: dict) -> RobotDispatchConfig:
-    """Đọc section robot_dispatch và tạo config cho dispatcher."""
-    return RobotDispatchConfig(
-        enabled                  = bool(raw.get("enabled", False)),
-        emit_occupied            = bool(raw.get("emit_occupied", True)),
-        emit_cleared             = bool(raw.get("emit_cleared", False)),
-        raise_on_transport_error = bool(raw.get("raise_on_transport_error", False)),
-        require_reid             = bool(raw.get("require_reid", True)),
-        fallback_without_reid    = bool(raw.get("fallback_without_reid", False)),
-        service_ttl_minutes      = (
-            None
-            if raw.get("service_ttl_minutes") is None
-            else float(raw.get("service_ttl_minutes"))
-        ),
+def build_robot_dispatch_config(raw: dict) -> RobotDispatchV2Config:
+    """Đọc section robot_dispatch và tạo config cho RobotDispatcherV2."""
+    return RobotDispatchV2Config(
+        enabled=bool(raw.get("enabled", False)),
+        ack_timeout_seconds=float(raw.get("ack_timeout_seconds", 1.0)),
+        max_retries=int(raw.get("max_retries", 5)),
     )
 
 

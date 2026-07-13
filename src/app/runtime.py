@@ -1,12 +1,10 @@
-"""
-Runtime: MediaSources → YOLO → Zone management → ReID → Visualization.
-"""
+"""Runtime: MediaSources → YOLO → Zone → ReID → Robot dispatch → Output."""
 
 from __future__ import annotations
 
 import numpy as np
 import threading
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import cv2
 from unidecode import unidecode
@@ -19,7 +17,7 @@ from src.detection.datatypes import InferenceFrame
 from src.detection.yolo_detector import YoloDetector, YoloDetectorConfig
 from src.media_sources import MediaSources
 from src.reid import ReIdPipeline
-from src.robot_dispatch import RobotDispatcher, UartRobotTransport
+from src.robot_dispatch_v2 import RobotDispatcherV2
 from src.visualization import (
     draw_detections,
     draw_status_bar,
@@ -27,6 +25,10 @@ from src.visualization import (
 )
 from src.zones_management import ZoneState, ZoneStateMachine, assign_detections_to_zones
 from utils import LOGGER, load_config, LINE_CHAR
+
+
+if TYPE_CHECKING:
+    from uart_v2.uart_manager import UartManagerV2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +41,8 @@ class Runtime:
         self.media_sources: Optional[MediaSources] = None
         self.zone_machines: Dict[str, ZoneStateMachine] = {}
         self.reid_pipeline: Optional[ReIdPipeline] = None
-        self.robot_dispatcher: Optional[RobotDispatcher] = None
+        self.robot_dispatcher: Optional[RobotDispatcherV2] = None
+        self._robot_uart: Optional["UartManagerV2"] = None
         self.is_running = False
         self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
@@ -48,9 +51,15 @@ class Runtime:
     def run(self) -> None:
         """Chạy vòng lặp detect cho đến khi hết stream hoặc Ctrl+C."""
         self._stop_requested.clear()
-        self._prepare()
+        try:
+            self._prepare()
+        except Exception:
+            # _prepare() có thể đã mở media, model hoặc UART trước khi lỗi.
+            self.stop()
+            raise
 
         if self._stop_requested.is_set():
+            self.stop()
             return
 
         self.is_running = True
@@ -73,6 +82,11 @@ class Runtime:
                     detection_frames = predict_function(frames)
                     self._validate_batch_lengths(frames, metas, detection_frames)
                     batch_payload: dict[str, dict] = {}
+
+                    # Chỉ retry decision tồn đọng từ các batch trước. Decision mới
+                    # của batch hiện tại sẽ được thử ngay trong process_zones().
+                    if self.robot_dispatcher is not None:
+                        self.robot_dispatcher.tick()
 
                     for frame, meta, detection_frame, camera in zip(
                         frames, metas, detection_frames, self.cameras
@@ -102,13 +116,7 @@ class Runtime:
 
                         # Robot dispatcher
                         if camera.zones and self.robot_dispatcher is not None:
-                            self.robot_dispatcher.process_zones(
-                                camera.zones,
-                                timestamp=meta.timestamp,
-                                detection_frame=detection_frame,
-                                zone_names=zone_names,
-                                reid_enabled=self.reid_pipeline is not None,
-                            )
+                            self.robot_dispatcher.process_zones(camera.zones)
 
                         # ws/runtime/bboxes
                         batch_payload[camera.id] = build_camera_detection_payload(
@@ -166,6 +174,10 @@ class Runtime:
         if self.robot_dispatcher is not None:
             self.robot_dispatcher.close()
             self.robot_dispatcher = None
+
+        if self._robot_uart is not None:
+            self._robot_uart.close()
+            self._robot_uart = None
 
         try:
             cv2.destroyAllWindows()
@@ -274,11 +286,8 @@ class Runtime:
         robot = self.config.robot_dispatch
         LOGGER.info("ROBOT DISPATCH")
         LOGGER.info("   → Enabled       : %s", robot.enabled)
-        LOGGER.info("   → Occupied      : %s", robot.emit_occupied)
-        LOGGER.info("   → Cleared       : %s", robot.emit_cleared)
-        LOGGER.info("   → Require ReID  : %s", robot.require_reid)
-        LOGGER.info("   → Fallback      : %s", robot.fallback_without_reid)
-        LOGGER.info("   → Service TTL   : %s min", robot.service_ttl_minutes)
+        LOGGER.info("   → ACK timeout   : %.2fs", robot.ack_timeout_seconds)
+        LOGGER.info("   → Max retries   : %d", robot.max_retries)
 
         preview = self.config.preview
         LOGGER.info("PREVIEW")
@@ -314,26 +323,30 @@ class Runtime:
         if cv2.waitKey(1) & 0xFF == ord("q"):
             self.is_running = False
 
-    def _build_robot_dispatcher(self, cfg: dict) -> RobotDispatcher:
-        """Tạo robot dispatcher dùng UART transport mặc định."""
-        from uart.uart_manager import uart_manager
+    def _build_robot_dispatcher(self, cfg: dict) -> RobotDispatcherV2:
+        """Kết nối UART nhị phân và tạo RobotDispatcherV2."""
+        from uart_v2.uart_manager import uart_manager_v2
 
         uart_cfg = cfg.get("uart", {})
         if isinstance(uart_cfg, dict):
-            uart_manager.reconfigure(
+            connected = uart_manager_v2.reconfigure(
                 port=uart_cfg.get("port"),
                 baudrate=uart_cfg.get("baudrate"),
             )
         else:
-            uart_manager.connect()
+            connected = uart_manager_v2.connect()
 
-        dispatcher = RobotDispatcher(
-            self.config.robot_dispatch,
-            transport=UartRobotTransport(uart_manager),
+        if not connected:
+            uart_manager_v2.close()
+            raise RuntimeError("Không thể kết nối UART V2 cho robot dispatcher.")
+
+        self._robot_uart = uart_manager_v2
+        robot_config = self.config.robot_dispatch
+        return RobotDispatcherV2(
+            uart_manager_v2,
+            ack_timeout_seconds=robot_config.ack_timeout_seconds,
+            max_retries=robot_config.max_retries,
         )
-        uart_manager.set_sync_handler(dispatcher.send_sync)
-        uart_manager.set_robot_service_handler(dispatcher.handle_robot_service_feedback)
-        return dispatcher
 
     def _update_fps(self, camera_id: str, timestamp: float) -> float:
         prev = self._fps_tracker.get(camera_id)

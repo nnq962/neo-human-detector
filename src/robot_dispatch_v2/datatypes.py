@@ -152,6 +152,7 @@ class Ack(MessageBase):
         task_id      : uint8 (1 byte) - task cụ thể được ACK
 
     Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
+
     """
 
     MESSAGE_TYPE = MessageType.ACK
@@ -283,6 +284,9 @@ class TaskStatus(MessageBase):
         status_code  : uint8 (1 byte) - 0=đang làm, 1=hoàn thành, 2=thất bại
 
     Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
+
+    Robot phải chờ ACK của mỗi TaskStatus trước khi gửi status tiếp theo cho
+    cùng task. ACK hiện không có sequence_id nên chỉ hỗ trợ stop-and-wait.
     """
 
     MESSAGE_TYPE = MessageType.TASK_STATUS

@@ -1,4 +1,6 @@
-"""Policy ánh xạ transition zone thành action điều phối robot."""
+"""Policy ánh xạ transition của zone thành hành động dispatch."""
+
+from __future__ import annotations
 
 from typing import Optional
 
@@ -8,7 +10,7 @@ from src.zones_management import ZoneState
 
 # ─────────────────────────────────────────────────────────────────────────────
 class ZoneOnlyDecisionPolicy:
-    """Chỉ sinh action từ hai transition đã được xác nhận bởi vision."""
+    """Sinh action dựa trên trạng thái zone, chưa xét danh tính người."""
 
     def decide(
         self,
@@ -16,7 +18,14 @@ class ZoneOnlyDecisionPolicy:
         current_state: ZoneState,
         service_state: ZoneServiceState,
     ) -> Optional[DispatchAction]:
-        """Trả action hợp lệ cho transition, hoặc ``None`` nếu không cần lệnh."""
+        """
+        Trả action tương ứng với transition, hoặc None nếu không cần xử lý.
+
+        Rule hiện tại:
+        - PENDING_ENTER → OCCUPIED và chưa yêu cầu phục vụ: TASK_ASSIGN.
+        - PENDING_EXIT → EMPTY và service đã được yêu cầu: TASK_CANCEL.
+        - Các trường hợp còn lại: không sinh action.
+        """
         if (
             previous_state is ZoneState.PENDING_ENTER
             and current_state is ZoneState.OCCUPIED
@@ -27,7 +36,7 @@ class ZoneOnlyDecisionPolicy:
         if (
             previous_state is ZoneState.PENDING_EXIT
             and current_state is ZoneState.EMPTY
-            and service_state is ZoneServiceState.ACTIVE
+            and service_state is ZoneServiceState.REQUESTED
         ):
             return DispatchAction.TASK_CANCEL
 

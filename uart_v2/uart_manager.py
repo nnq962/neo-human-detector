@@ -61,6 +61,9 @@ class UartManagerV2:
 
         # Handler riêng cho từng loại message, đăng ký qua set_handler(MessageType.X, callback)
         self._handlers: dict[int, Callable[[MessageBase], None]] = {}
+        # Subscriber bổ sung cho từng loại message. Khác set_handler(), add_handler()
+        # không ghi đè handler chính đã được module khác đăng ký.
+        self._additional_handlers: dict[int, list[Callable[[MessageBase], None]]] = {}
         # Handler chung, được gọi cho MỌI message nhận được (nếu có đăng ký)
         self._generic_handler: Optional[Callable[[MessageBase], None]] = None
 
@@ -273,6 +276,28 @@ class UartManagerV2:
                 self._handlers[message_type] = handler
 
     # ─────────────────────────────────────────────────────────────────────────
+    def add_handler(self, message_type: int, handler: Callable[[MessageBase], None]) -> None:
+        """Thêm subscriber mà không ghi đè handler chính của message type."""
+        with self._lock:
+            handlers = self._additional_handlers.setdefault(int(message_type), [])
+            if handler not in handlers:
+                handlers.append(handler)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def remove_handler(self, message_type: int, handler: Callable[[MessageBase], None]) -> None:
+        """Gỡ một subscriber đã thêm bằng add_handler()."""
+        with self._lock:
+            handlers = self._additional_handlers.get(int(message_type))
+            if handlers is None:
+                return
+            try:
+                handlers.remove(handler)
+            except ValueError:
+                return
+            if not handlers:
+                self._additional_handlers.pop(int(message_type), None)
+
+    # ─────────────────────────────────────────────────────────────────────────
     def set_generic_handler(self, handler: Optional[Callable[[MessageBase], None]]) -> None:
         """Đăng ký callback được gọi cho MỌI message nhận được, bất kể loại gì
         (hữu ích cho việc log/monitor chung)."""
@@ -376,6 +401,9 @@ class UartManagerV2:
                 self._prune_stale_acks_unlocked(now)
 
             specific_handler = self._handlers.get(int(message.MESSAGE_TYPE))
+            additional_handlers = tuple(
+                self._additional_handlers.get(int(message.MESSAGE_TYPE), ())
+            )
             generic_handler = self._generic_handler
 
         if specific_handler is not None:
@@ -384,6 +412,15 @@ class UartManagerV2:
             except Exception as e:
                 self.last_error = str(e)
                 LOGGER.error(f"Lỗi khi xử lý handler cho {type(message).__name__}: {e}")
+
+        for handler in additional_handlers:
+            try:
+                handler(message)
+            except Exception as e:
+                self.last_error = str(e)
+                LOGGER.error(
+                    f"Lỗi khi xử lý subscriber cho {type(message).__name__}: {e}"
+                )
 
         if generic_handler is not None:
             try:

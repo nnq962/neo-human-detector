@@ -38,12 +38,8 @@ reid:
     ttl_minutes: 10.0
 robot_dispatch:
   enabled: true
-  emit_occupied: true
-  emit_cleared: true
-  raise_on_transport_error: false
-  require_reid: true
-  fallback_without_reid: false
-  service_ttl_minutes: 30
+  ack_timeout_seconds: 1.0
+  max_retries: 5
 uart:
   port: /dev/ttyUSB1
   baudrate: 115200

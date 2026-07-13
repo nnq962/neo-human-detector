@@ -24,7 +24,7 @@ def _zone(state: ZoneState = ZoneState.EMPTY) -> Zone:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _open_service(engine: DispatchDecisionEngine, zone: Zone) -> None:
-    """Đưa zone qua transition xác nhận vào và tạo service active."""
+    """Đưa zone qua transition xác nhận vào và tạo yêu cầu phục vụ."""
     engine.process_zones([zone])
     zone.state = ZoneState.OCCUPIED
     decisions = engine.process_zones([zone])
@@ -44,7 +44,7 @@ def test_assign_only_on_pending_enter_to_occupied() -> None:
     decisions = engine.process_zones([zone])
 
     assert [decision.action for decision in decisions] == [DispatchAction.TASK_ASSIGN]
-    assert engine.has_active_service(zone.id)
+    assert engine.has_requested_service(zone.id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ def test_does_not_assign_twice_during_same_occupancy() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_empty_cancels_active_service() -> None:
+def test_empty_cancels_requested_service() -> None:
     zone = _zone(ZoneState.PENDING_ENTER)
     engine = DispatchDecisionEngine()
     _open_service(engine, zone)
@@ -126,3 +126,30 @@ def test_other_transitions_do_not_emit_decisions() -> None:
     ):
         zone.state = state
         assert engine.process_zones([zone]) == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_failed_service_is_terminal_until_zone_becomes_empty() -> None:
+    zone = _zone(ZoneState.PENDING_ENTER)
+    engine = DispatchDecisionEngine()
+    _open_service(engine, zone)
+
+    assert engine.on_service_failed(zone.id)
+    assert engine.get_service_state(zone.id) is ZoneServiceState.FAILED
+    assert engine.process_zones([zone]) == []
+
+    zone.state = ZoneState.PENDING_EXIT
+    assert engine.process_zones([zone]) == []
+    zone.state = ZoneState.EMPTY
+    assert engine.process_zones([zone]) == []
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_request_failure_rolls_back_requested_state() -> None:
+    zone = _zone(ZoneState.PENDING_ENTER)
+    engine = DispatchDecisionEngine()
+    _open_service(engine, zone)
+
+    assert engine.on_service_request_failed(zone.id)
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED

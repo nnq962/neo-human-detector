@@ -53,13 +53,9 @@ reid:
 
 # ─── Robot dispatch ──────────────────────────────────────────────────────────
 robot_dispatch:
-  enabled: false              # true để log request robot khi zone chuyển OCCUPIED
-  emit_occupied: true
-  emit_cleared: false
-  raise_on_transport_error: false
-  require_reid: true
-  fallback_without_reid: false
-  service_ttl_minutes: 120
+  enabled: false              # true để bật decision engine và UART robot V2
+  ack_timeout_seconds: 1.0
+  max_retries: 5
 
 # ─── UART ─────────────────────────────────────────────────────────────────────
 uart:

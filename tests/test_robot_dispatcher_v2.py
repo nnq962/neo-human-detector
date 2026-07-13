@@ -2,11 +2,17 @@ import time
 
 import numpy as np
 
-from src.dispatch_decision import DispatchAction, DispatchDecision
-from src.robot_dispatch_v2 import RobotDispatcherV2, TaskRegistry, TaskRegistryFull
+from src.dispatch_decision import (
+    DispatchAction,
+    DispatchDecision,
+    DispatchDecisionEngine,
+    ZoneServiceState,
+)
+from src.robot_dispatch_v2 import RobotDispatcherV2, TaskRegistry
 from src.robot_dispatch_v2.datatypes import (
     Ack,
     Heartbeat,
+    MessageType,
     RobotStateCode,
     TaskAssign,
     TaskCancel,
@@ -18,268 +24,298 @@ from src.zones_management import Zone, ZoneState
 
 # ─────────────────────────────────────────────────────────────────────────────
 class FakeUart:
-    """UART giả cho phép cấu hình kết quả gửi theo loại message."""
+    """UART giả có handler, subscriber và kết quả gửi cấu hình được."""
 
     def __init__(self) -> None:
+        self.handlers = {}
+        self.additional_handlers = {}
         self.sent = []
         self.outcomes = {}
 
     def set_outcomes(self, message_class, *outcomes: bool) -> None:
         self.outcomes[message_class] = list(outcomes)
 
-    def send_with_retry(self, message, task_id: int) -> bool:
-        self.sent.append(message)
-        outcomes = self.outcomes.get(type(message), [])
-        return outcomes.pop(0) if outcomes else True
+    def set_handler(self, message_type, handler) -> None:
+        self.handlers[int(message_type)] = handler
+
+    def add_handler(self, message_type, handler) -> None:
+        handlers = self.additional_handlers.setdefault(int(message_type), [])
+        if handler not in handlers:
+            handlers.append(handler)
+
+    def remove_handler(self, message_type, handler) -> None:
+        handlers = self.additional_handlers.get(int(message_type), [])
+        if handler in handlers:
+            handlers.remove(handler)
 
     def send_message(self, message) -> bool:
         self.sent.append(message)
         return True
 
+    def send_with_retry(
+        self,
+        message,
+        task_id: int,
+        timeout: float = 1.0,
+        max_retries: int = 5,
+    ) -> bool:
+        self.sent.append(message)
+        outcomes = self.outcomes.get(type(message), [])
+        return outcomes.pop(0) if outcomes else True
 
-# ─────────────────────────────────────────────────────────────────────────────
-class FakeLifecycleSink:
-    """Ghi lại feedback lifecycle do dispatcher phát."""
-
-    def __init__(self) -> None:
-        self.events = []
-
-    def on_service_started(self, zone_id, person_id, *, timestamp=None) -> None:
-        self.events.append(("started", zone_id, person_id))
-
-    def on_service_completed(self, zone_id, person_id, *, timestamp=None) -> None:
-        self.events.append(("completed", zone_id, person_id))
-
-    def on_service_cancelled(self, zone_id, person_id, *, timestamp=None) -> None:
-        self.events.append(("cancelled", zone_id, person_id))
-
-    def on_service_failed(self, zone_id, person_id, *, timestamp=None) -> None:
-        self.events.append(("failed", zone_id, person_id))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-class FlakyTaskRegistry(TaskRegistry):
-    """Registry giả hết task_id ở lần allocate đầu tiên."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.fail_next_allocate = True
-
-    def allocate(self, robot_id: int, zone_id: str, person_global_id=None) -> int:
-        if self.fail_next_allocate:
-            self.fail_next_allocate = False
-            raise TaskRegistryFull(robot_id)
-        return super().allocate(robot_id, zone_id, person_global_id)
+    def emit(self, message) -> None:
+        handler = self.handlers.get(int(message.MESSAGE_TYPE))
+        if handler is not None:
+            handler(message)
+        for subscriber in self.additional_handlers.get(
+            int(message.MESSAGE_TYPE),
+            (),
+        ):
+            subscriber(message)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _zone(zone_id: str, x: float = 1.0) -> Zone:
+def _zone(
+    zone_id: str,
+    *,
+    state: ZoneState = ZoneState.OCCUPIED,
+    goal_pose=None,
+) -> Zone:
     return Zone(
         camera_id="camera-1",
         camera_name="Camera 1",
         id=zone_id,
         name=zone_id,
         pts=np.empty((0, 2), dtype=np.int32),
-        goal_pose={"x": x, "y": 2.0, "theta": 0.0},
-        state=ZoneState.OCCUPIED,
+        goal_pose=goal_pose or {"x": 1.0, "y": 2.0, "theta": 0.0},
+        state=state,
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _decision(
-    action: DispatchAction,
-    zone: Zone,
-    person_id=None,
-    previous_person_id=None,
-) -> DispatchDecision:
+def _decision(action: DispatchAction, zone: Zone) -> DispatchDecision:
     return DispatchDecision(
         action=action,
         zone_id=str(zone.id or zone.key),
         zone=zone,
         previous_state=ZoneState.PENDING_ENTER,
         current_state=zone.state,
-        person_id=person_id,
-        previous_person_id=previous_person_id,
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _dispatcher(
+def _heartbeat(
+    robot_id: int = 1,
     *,
-    uart=None,
-    registry=None,
-    sink=None,
-) -> RobotDispatcherV2:
-    dispatcher = RobotDispatcherV2(
-        uart or FakeUart(),
-        task_registry=registry,
-        service_lifecycle_sink=sink,
+    state: RobotStateCode = RobotStateCode.IDLE,
+    timestamp: int | None = None,
+) -> Heartbeat:
+    return Heartbeat(
+        robot_id=robot_id,
+        timestamp=timestamp or int(time.time()),
+        x=0.0,
+        y=0.0,
+        theta=0.0,
+        state_code=state,
     )
-    dispatcher.on_heartbeat(
-        Heartbeat(
-            robot_id=1,
-            timestamp=int(time.time()),
-            x=0.0,
-            y=0.0,
-            theta=0.0,
-            state_code=RobotStateCode.IDLE,
-        )
-    )
-    return dispatcher
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_robot_reservation_prevents_double_assign_until_terminal_status() -> None:
+def test_lost_assign_ack_retries_same_robot_and_task() -> None:
     uart = FakeUart()
-    dispatcher = _dispatcher(uart=uart)
-    zone_a = _zone("zone-a")
-    zone_b = _zone("zone-b")
-
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone_a, 7))
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone_b, 9))
-
-    task_a = dispatcher.get_assigned_task("zone-a")
-    assert task_a is not None
-    assert dispatcher.get_assigned_task("zone-b") is None
-
-    dispatcher.on_task_status(
-        TaskStatus(task_a.robot_id, task_a.task_id, TaskStatusCode.COMPLETED)
-    )
-    dispatcher.tick()
-
-    assert dispatcher.get_assigned_task("zone-b") is not None
-    assert any(isinstance(message, Ack) for message in uart.sent)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def test_cancel_failure_keeps_task_and_retries_on_tick() -> None:
-    uart = FakeUart()
-    uart.set_outcomes(TaskCancel, False, True)
-    sink = FakeLifecycleSink()
-    dispatcher = _dispatcher(uart=uart, sink=sink)
+    uart.set_outcomes(TaskAssign, False, True)
+    dispatcher = RobotDispatcherV2(uart)
+    dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1")
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
 
-    dispatcher.process_decision(_decision(DispatchAction.ZONE_CLEARED, zone, 7))
-
-    assert dispatcher.get_assigned_task(zone.id) is not None
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    reserved = dispatcher.get_assigned_task(zone.id)
+    assert reserved is not None
     assert dispatcher.pending_count() == 1
 
-    dispatcher.tick()
-
-    assert dispatcher.get_assigned_task(zone.id) is None
-    assert dispatcher.pending_count() == 0
-    assert ("cancelled", zone.id, 7) in sink.events
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def test_cancel_with_stale_person_does_not_cancel_newer_task() -> None:
-    uart = FakeUart()
-    dispatcher = _dispatcher(uart=uart)
-    zone = _zone("zone-1")
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 9))
-
-    handled = dispatcher.process_decision(
-        _decision(DispatchAction.CANCEL_SERVICE, zone, person_id=7)
-    )
-
-    assert not handled
-    assert dispatcher.get_assigned_task(zone.id).person_global_id == 9
-    assert not any(isinstance(message, TaskCancel) for message in uart.sent)
+    assert dispatcher.tick() == 1
+    assignments = [message for message in uart.sent if isinstance(message, TaskAssign)]
+    assert len(assignments) == 2
+    assert {
+        (message.robot_id, message.task_id)
+        for message in assignments
+    } == {(reserved.robot_id, reserved.task_id)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_replace_cancels_old_task_before_assigning_new_task() -> None:
-    uart = FakeUart()
-    sink = FakeLifecycleSink()
-    dispatcher = _dispatcher(uart=uart, sink=sink)
-    zone = _zone("zone-1")
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
-
-    dispatcher.process_decision(
-        _decision(
-            DispatchAction.REPLACE_SERVICE,
-            zone,
-            person_id=9,
-            previous_person_id=7,
-        )
-    )
-
-    assert [type(message) for message in uart.sent] == [TaskAssign, TaskCancel, TaskAssign]
-    assert dispatcher.get_assigned_task(zone.id).person_global_id == 9
-    assert ("cancelled", zone.id, 7) in sink.events
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def test_zone_cleared_drops_replacement_and_cancels_actual_old_task() -> None:
+def test_new_assign_waits_for_pending_cancel_of_old_task() -> None:
     uart = FakeUart()
     uart.set_outcomes(TaskCancel, False, True)
-    dispatcher = _dispatcher(uart=uart)
+    dispatcher = RobotDispatcherV2(uart)
+    dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1")
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
-    dispatcher.process_decision(
-        _decision(
-            DispatchAction.REPLACE_SERVICE,
-            zone,
-            person_id=9,
-            previous_person_id=7,
-        )
+
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
     )
+    old_task = dispatcher.get_assigned_task(zone.id)
+    assert old_task is not None
 
-    dispatcher.process_decision(_decision(DispatchAction.ZONE_CLEARED, zone, 9))
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_CANCEL, zone)
+    )
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    assert dispatcher.pending_count() == 2
 
-    assert dispatcher.get_assigned_task(zone.id) is None
-    assert dispatcher.pending_count() == 0
-    assert [type(message) for message in uart.sent] == [TaskAssign, TaskCancel, TaskCancel]
+    assert dispatcher.tick() == 2
+    new_task = dispatcher.get_assigned_task(zone.id)
+    assert new_task is not None
+    assert new_task.task_id != old_task.task_id
+    assert [type(message) for message in uart.sent] == [
+        TaskAssign,
+        TaskCancel,
+        TaskCancel,
+        TaskAssign,
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_task_status_emits_started_and_completed_feedback() -> None:
+def test_existing_reservation_is_bound_and_sent_instead_of_dropped() -> None:
     uart = FakeUart()
-    sink = FakeLifecycleSink()
-    dispatcher = _dispatcher(uart=uart, sink=sink)
+    registry = TaskRegistry()
+    reserved = registry.allocate(robot_id=1, zone_id="zone-1")
+    dispatcher = RobotDispatcherV2(uart, task_registry=registry)
     zone = _zone("zone-1")
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
+
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+
+    assert len(uart.sent) == 1
+    assert isinstance(uart.sent[0], TaskAssign)
+    assert uart.sent[0].robot_id == reserved.robot_id
+    assert uart.sent[0].task_id == reserved.task_id
+    assert dispatcher.pending_count() == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_no_idle_robot_keeps_assignment_until_tick() -> None:
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(uart)
+    zone = _zone("zone-1")
+
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    assert dispatcher.pending_count() == 1
+
+    dispatcher.on_heartbeat(_heartbeat())
+    assert dispatcher.tick() == 1
+    assert dispatcher.get_assigned_task(zone.id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_completed_status_is_idempotent_and_acknowledged() -> None:
+    uart = FakeUart()
+    engine = DispatchDecisionEngine()
+    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
+
+    dispatcher.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    dispatcher.process_zones([zone])
     task = dispatcher.get_assigned_task(zone.id)
+    assert task is not None
 
-    dispatcher.on_task_status(
-        TaskStatus(task.robot_id, task.task_id, TaskStatusCode.IN_PROGRESS)
+    status = TaskStatus(
+        robot_id=task.robot_id,
+        task_id=task.task_id,
+        status_code=TaskStatusCode.COMPLETED,
     )
-    dispatcher.on_task_status(
-        TaskStatus(task.robot_id, task.task_id, TaskStatusCode.COMPLETED)
-    )
+    dispatcher.on_task_status(status)
+    dispatcher.on_task_status(status)
 
-    assert sink.events == [
-        ("started", zone.id, 7),
-        ("completed", zone.id, 7),
-    ]
     assert dispatcher.get_assigned_task(zone.id) is None
+    assert engine.get_service_state(zone.id) is ZoneServiceState.COMPLETED
     assert len([message for message in uart.sent if isinstance(message, Ack)]) == 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_task_registry_full_keeps_request_for_next_tick() -> None:
+def test_failed_status_marks_service_failed_until_zone_is_empty() -> None:
     uart = FakeUart()
-    dispatcher = _dispatcher(uart=uart, registry=FlakyTaskRegistry())
-    zone = _zone("zone-1")
+    engine = DispatchDecisionEngine()
+    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
 
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
+    dispatcher.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    dispatcher.process_zones([zone])
+    task = dispatcher.get_assigned_task(zone.id)
+    assert task is not None
 
+    dispatcher.on_task_status(
+        TaskStatus(
+            robot_id=task.robot_id,
+            task_id=task.task_id,
+            status_code=TaskStatusCode.FAILED,
+        )
+    )
     assert dispatcher.get_assigned_task(zone.id) is None
-    assert dispatcher.pending_count() == 1
+    assert engine.get_service_state(zone.id) is ZoneServiceState.FAILED
 
-    dispatcher.tick()
-
-    assert dispatcher.get_assigned_task(zone.id) is not None
-    assert dispatcher.pending_count() == 0
+    zone.state = ZoneState.PENDING_EXIT
+    assert dispatcher.process_zones([zone]) == []
+    zone.state = ZoneState.EMPTY
+    assert dispatcher.process_zones([zone]) == []
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_zone_without_explicit_id_uses_stable_zone_key() -> None:
-    dispatcher = _dispatcher()
-    zone = _zone("temporary")
-    zone.id = None
+def test_invalid_goal_pose_rolls_back_requested_service() -> None:
+    uart = FakeUart()
+    engine = DispatchDecisionEngine()
+    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone(
+        "zone-1",
+        state=ZoneState.PENDING_ENTER,
+        goal_pose={"x": 1.0},
+    )
 
-    dispatcher.process_decision(_decision(DispatchAction.REQUEST_SERVICE, zone, 7))
+    dispatcher.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    dispatcher.process_zones([zone])
 
-    assert dispatcher.get_assigned_task(zone.key) is not None
+    assert dispatcher.pending_count() == 0
+    assert dispatcher.get_assigned_task(zone.id) is None
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_dispatcher_subscribes_without_replacing_existing_handler() -> None:
+    uart = FakeUart()
+    received = []
+    uart.set_handler(MessageType.HEARTBEAT, received.append)
+    dispatcher = RobotDispatcherV2(uart)
+    heartbeat = _heartbeat()
+
+    uart.emit(heartbeat)
+
+    assert received == [heartbeat]
+    assert dispatcher.robot_state_store.get(heartbeat.robot_id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_close_removes_only_dispatcher_subscribers() -> None:
+    uart = FakeUart()
+    received = []
+    uart.set_handler(MessageType.HEARTBEAT, received.append)
+    dispatcher = RobotDispatcherV2(uart)
+
+    dispatcher.close()
+    heartbeat = _heartbeat(robot_id=2)
+    uart.emit(heartbeat)
+
+    assert received == [heartbeat]
+    assert dispatcher.robot_state_store.get(heartbeat.robot_id) is None
