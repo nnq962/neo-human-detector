@@ -97,10 +97,12 @@ class MessageBase:
         MessageBase._registry[cls.MESSAGE_TYPE] = cls
 
     def to_payload(self) -> bytes:
+        """Đóng gói các field message thành payload chưa có checksum."""
         raise NotImplementedError
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Khôi phục message từ payload đã được kiểm tra checksum."""
         raise NotImplementedError
 
     def encode(self) -> bytes:
@@ -160,10 +162,12 @@ class Ack(MessageBase):
     task_id: int
 
     def to_payload(self) -> bytes:
+        """Đóng gói ACK thành payload nhị phân."""
         return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.acked_type, self.task_id)
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Giải mã payload ACK thành object."""
         _, robot_id, acked_type, task_id = struct.unpack(cls.FORMAT, payload)
         return cls(robot_id, acked_type, task_id)
 
@@ -197,6 +201,7 @@ class Heartbeat(MessageBase):
     state_code: int
 
     def to_payload(self) -> bytes:
+        """Đóng gói Heartbeat, quy đổi tọa độ và góc sang số nguyên."""
         return struct.pack(
             self.FORMAT,
             self.MESSAGE_TYPE,
@@ -210,6 +215,7 @@ class Heartbeat(MessageBase):
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Giải mã Heartbeat và khôi phục đơn vị mét/radian."""
         _, robot_id, timestamp, x_raw, y_raw, theta_raw, state_code = struct.unpack(cls.FORMAT, payload)
         return cls(
             robot_id=robot_id,
@@ -251,6 +257,7 @@ class TaskAssign(MessageBase):
     theta: float  # radian
 
     def to_payload(self) -> bytes:
+        """Đóng gói TaskAssign, quy đổi pose đích sang số nguyên."""
         return struct.pack(
             self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id,
             round(self.x * 100), round(self.y * 100), round(self.theta * 1000),
@@ -258,6 +265,7 @@ class TaskAssign(MessageBase):
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Giải mã TaskAssign và khôi phục pose đích."""
         _, robot_id, task_id, x_raw, y_raw, theta_raw = struct.unpack(cls.FORMAT, payload)
         return cls(robot_id, task_id, x_raw / 100, y_raw / 100, theta_raw / 1000)
 
@@ -285,10 +293,12 @@ class TaskStatus(MessageBase):
     status_code: int
 
     def to_payload(self) -> bytes:
+        """Đóng gói trạng thái task thành payload nhị phân."""
         return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id, self.status_code)
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Giải mã payload trạng thái task thành object."""
         _, robot_id, task_id, status_code = struct.unpack(cls.FORMAT, payload)
         return cls(robot_id, task_id, status_code)
 
@@ -314,9 +324,11 @@ class TaskCancel(MessageBase):
     task_id: int
 
     def to_payload(self) -> bytes:
+        """Đóng gói yêu cầu hủy task thành payload nhị phân."""
         return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id)
 
     @classmethod
     def from_payload(cls, payload: bytes):
+        """Giải mã payload hủy task thành object."""
         _, robot_id, task_id = struct.unpack(cls.FORMAT, payload)
         return cls(robot_id, task_id)

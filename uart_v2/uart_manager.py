@@ -211,7 +211,7 @@ class UartManagerV2:
         message: MessageBase,
         task_id: int,
         timeout: float = 1.0,
-        max_retries: int = 3,
+        max_retries: int = 5,
     ) -> bool:
         """Gửi 1 message quan trọng (TaskAssign, TaskCancel...), tự động gửi lại
         nếu không nhận được ACK trong `timeout` giây, tối đa `max_retries` lần.
