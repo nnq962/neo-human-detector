@@ -16,10 +16,11 @@ flowchart TD
     B -->|PENDING_EXIT → EMPTY| I{Zone đã REQUESTED và chưa hoàn thành?}
 
     I -->|Có| J[Sinh lệnh task_cancel]
-    J --> K[Đánh dấu zone không còn task phục vụ]
+    J --> K[Đánh dấu CANCEL_REQUESTED]
+    K -->|Cancel hoàn tất| M[Đánh dấu zone không còn task phục vụ]
 
     I -->|Đã COMPLETED hoặc không có| L[Không sinh task_cancel]
-    L --> K
+    L --> M
 
     B -->|Các transition khác| F
 ```
@@ -34,10 +35,66 @@ Các thành phần chính:
 
 - `DispatchDecisionEngine`: điều phối việc đọc state, gọi policy, cập nhật state
   và trả về các `DispatchDecision` phát sinh.
-- `ZoneOnlyDecisionPolicy`: ánh xạ transition zone và trạng thái phục vụ thành
-  action tương ứng.
-- `DispatchDecisionStateStore`: lưu trạng thái zone và trạng thái phục vụ gần
+- `ZoneOnlyDecisionPolicy`: sinh action chỉ từ transition và service của zone.
+- `ReIdDecisionPolicy`: sinh action từ transition, identity và trạng thái phục
+  vụ toàn cục của người.
+- `ZoneDecisionStateStore`: lưu trạng thái zone và trạng thái phục vụ gần
   nhất của từng zone.
+- `PersonServiceStateStore`: lưu `REQUESTED`/`SERVED` theo `global_id` để ngăn
+  một người được mời đồng thời hoặc được mời lại sau khi đã phục vụ xong.
+- `select_zone_person`: chọn detection đã có `global_id` và similarity cao nhất
+  trong zone; dùng confidence để phân hạng khi similarity bằng nhau.
+
+## Chế độ ReID
+
+Khởi tạo engine với policy bật ReID:
+
+```python
+engine = DispatchDecisionEngine(
+    policy=ReIdDecisionPolicy(),
+)
+```
+
+Khi xử lý zone, truyền detections đã được ReID enrich và danh sách tên zone có
+cùng thứ tự:
+
+```python
+decisions = engine.process_zones(
+    zones,
+    detections=detection_frame.detections,
+    zone_names=zone_names,
+)
+```
+
+Nếu transition `PENDING_ENTER → OCCUPIED` chưa có người với `global_id`, zone
+được đánh dấu `awaiting_identity`. Trạng thái này được giữ qua dao động
+`OCCUPIED ↔ PENDING_EXIT`, rồi xóa khi sinh `TASK_ASSIGN` hoặc zone về `EMPTY`.
+
+Khi sinh `TASK_ASSIGN`, `DispatchDecision` mang theo `person_global_id`,
+`person_similarity` và `person_track_id`. Global ID được đánh dấu `REQUESTED`
+ngay lúc sinh decision để chặn task trùng ở mọi zone. Khi robot báo hoàn thành,
+`on_service_completed(zone_id)` chuyển người sang `SERVED`; trạng thái này tồn
+tại đến hết phiên runtime và ngăn người đó được mời lại.
+
+Nếu task bị `FAILED`, bị cancel trước khi hoàn thành hoặc request cục bộ không
+hợp lệ, record `REQUESTED` được giải phóng. Người đó có thể được xét lại ở một
+lượt occupancy hợp lệ sau.
+
+## Thay người khi zone chưa về EMPTY
+
+ReID engine lưu riêng người đang được quan sát và người đang sở hữu task. Nếu
+identity trong một zone `OCCUPIED` đổi từ ID 10 sang ID 15:
+
+- Task của ID 10 còn `REQUESTED`: sinh `TASK_CANCEL`, giữ ID 10 bị chặn và đặt
+  `awaiting_reassignment`. Sau khi cancel hoàn tất, ID 15 được xét assign ở
+  frame tiếp theo dù zone chưa từng về `EMPTY`.
+- Task của ID 10 đã `COMPLETED` hoặc `FAILED`: xét assign ID 15 ngay, không cần
+  sinh cancel.
+- ID 15 đã `REQUESTED` hoặc `SERVED`: không sinh assign mới.
+
+`observed_person_global_id` ghi nhận identity gần nhất trong zone, còn
+`active_person_global_id` luôn là người sở hữu task hiện tại. Hai field này
+không được dùng thay thế cho nhau trong lúc handover.
 
 ## Lần đầu quan sát một zone
 
@@ -89,9 +146,10 @@ engine.on_service_request_failed(zone_id)
 
 ## Contract với tầng thực thi robot
 
-Engine đánh dấu service là `REQUESTED` ngay khi sinh `TASK_ASSIGN`, và reset về
-`NOT_REQUESTED` ngay khi sinh `TASK_CANCEL`. Đây là trạng thái decision, không
-phải xác nhận rằng robot đã nhận và thực thi message thành công.
+Engine đánh dấu service là `REQUESTED` ngay khi sinh `TASK_ASSIGN`. Khi sinh
+`TASK_CANCEL`, service chuyển sang `CANCEL_REQUESTED` và chỉ trở về
+`NOT_REQUESTED` sau khi tầng thực thi gọi `on_service_cancelled(zone_id)`. Nhờ
+vậy person request vẫn bị chặn trong lúc transport đang retry lệnh cancel.
 
 Vì engine chỉ sinh mỗi decision một lần, tầng thực thi robot chịu trách nhiệm:
 
@@ -99,3 +157,4 @@ Vì engine chỉ sinh mỗi decision một lần, tầng thực thi robot chịu
 - Gửi message tới robot.
 - Retry khi gửi thất bại hoặc chưa nhận được ACK.
 - Báo lại cho engine khi task hoàn thành bằng `on_service_completed(zone_id)`.
+- Báo lại khi cancel hoàn tất bằng `on_service_cancelled(zone_id)`.

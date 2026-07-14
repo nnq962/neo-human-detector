@@ -3,6 +3,7 @@ import numpy as np
 from src.dispatch_decision import (
     DispatchAction,
     DispatchDecisionEngine,
+    ReIdDecisionPolicy,
     ZoneServiceState,
 )
 from src.zones_management import Zone, ZoneState
@@ -72,6 +73,8 @@ def test_empty_cancels_requested_service() -> None:
     decisions = engine.process_zones([zone])
 
     assert [decision.action for decision in decisions] == [DispatchAction.TASK_CANCEL]
+    assert engine.get_service_state(zone.id) is ZoneServiceState.CANCEL_REQUESTED
+    assert engine.on_service_cancelled(zone.id)
     assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
 
 
@@ -143,6 +146,47 @@ def test_failed_service_is_terminal_until_zone_becomes_empty() -> None:
     zone.state = ZoneState.EMPTY
     assert engine.process_zones([zone]) == []
     assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_awaiting_identity_survives_occupied_pending_exit_oscillation() -> None:
+    """Mất detection tạm thời không được đóng lượt đang chờ identity."""
+    zone = _zone(ZoneState.PENDING_ENTER)
+    engine = DispatchDecisionEngine(
+        policy=ReIdDecisionPolicy(),
+    )
+
+    engine.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    assert engine.process_zones([zone]) == []
+    assert engine.is_awaiting_identity(zone.id)
+
+    zone.state = ZoneState.PENDING_EXIT
+    assert engine.process_zones([zone]) == []
+    assert engine.is_awaiting_identity(zone.id)
+
+    zone.state = ZoneState.OCCUPIED
+    assert engine.process_zones([zone]) == []
+    assert engine.is_awaiting_identity(zone.id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_awaiting_identity_is_cleared_only_when_zone_becomes_empty() -> None:
+    """Kết thúc lượt occupancy sẽ xóa trạng thái chờ identity."""
+    zone = _zone(ZoneState.PENDING_ENTER)
+    engine = DispatchDecisionEngine(
+        policy=ReIdDecisionPolicy(),
+    )
+
+    engine.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    engine.process_zones([zone])
+    zone.state = ZoneState.PENDING_EXIT
+    engine.process_zones([zone])
+    zone.state = ZoneState.EMPTY
+    assert engine.process_zones([zone]) == []
+
+    assert not engine.is_awaiting_identity(zone.id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

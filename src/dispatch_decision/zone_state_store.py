@@ -1,4 +1,4 @@
-"""Kho trạng thái nội bộ của dispatch decision engine."""
+"""Kho trạng thái decision được lưu theo từng zone."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from src.zones_management import ZoneState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-class DispatchDecisionStateStore:
+class ZoneDecisionStateStore:
     """
     Lưu trạng thái decision của từng zone.
 
@@ -50,35 +50,22 @@ class DispatchDecisionStateStore:
             )
 
     # ─────────────────────────────────────────────────────────────────────
-    def update_zone_state(
+    def update(
         self,
         zone_id: str,
-        zone_state: ZoneState,
+        **changes: object,
     ) -> ZoneDecisionState:
-        """Cập nhật ZoneState gần nhất và giữ nguyên service state."""
+        """Cập nhật nhiều field của một zone state trong cùng một lần lock."""
         with self._lock:
             current = self._require_state(zone_id)
-            updated = replace(current, last_zone_state=zone_state)
-            self._states[zone_id] = updated
-            return updated
-
-    # ─────────────────────────────────────────────────────────────────────
-    def set_service_state(
-        self,
-        zone_id: str,
-        service_state: ZoneServiceState,
-    ) -> ZoneDecisionState:
-        """Cập nhật trạng thái phục vụ và giữ nguyên zone state."""
-        with self._lock:
-            current = self._require_state(zone_id)
-            updated = replace(current, service_state=service_state)
+            updated = replace(current, **changes)
             self._states[zone_id] = updated
             return updated
 
     # ─────────────────────────────────────────────────────────────────────
     def get_service_state(self, zone_id: str) -> ZoneServiceState:
         """
-        Lấy trạng thái phục vụ của zone.
+        Lấy trạng thái phục vụ của một zone.
 
         Zone chưa từng được quan sát được xem là chưa yêu cầu phục vụ.
         """
@@ -89,6 +76,29 @@ class DispatchDecisionStateStore:
                 return ZoneServiceState.NOT_REQUESTED
 
             return state.service_state
+
+    # ─────────────────────────────────────────────────────────────────────
+    def is_awaiting_identity(self, zone_id: str) -> bool:
+        """Trả True nếu zone đang chờ một người có global ID."""
+        with self._lock:
+            state = self._states.get(zone_id)
+            return state is not None and state.awaiting_identity
+
+    # ─────────────────────────────────────────────────────────────────────
+    def is_awaiting_reassignment(self, zone_id: str) -> bool:
+        """Trả True nếu zone đang chờ assign cho người thay thế."""
+        with self._lock:
+            state = self._states.get(zone_id)
+            return state is not None and state.awaiting_reassignment
+
+    # ─────────────────────────────────────────────────────────────────────
+    def get_active_person_global_id(self, zone_id: str) -> Optional[int]:
+        """Lấy global ID của người đang được zone phục vụ nếu có."""
+        with self._lock:
+            state = self._states.get(zone_id)
+            if state is None:
+                return None
+            return state.active_person_global_id
 
     # ─────────────────────────────────────────────────────────────────────
     def remove(self, zone_id: str) -> Optional[ZoneDecisionState]:
@@ -109,5 +119,5 @@ class DispatchDecisionStateStore:
             return self._states[zone_id]
         except KeyError as exc:
             raise KeyError(
-                f"Zone {zone_id!r} chưa được khởi tạo trong decision state store"
+                f"Zone {zone_id!r} chưa được khởi tạo trong zone decision state store"
             ) from exc

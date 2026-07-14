@@ -2,10 +2,13 @@ import time
 
 import numpy as np
 
+from src.detection import Detection
 from src.dispatch_decision import (
     DispatchAction,
     DispatchDecision,
     DispatchDecisionEngine,
+    PersonServiceState,
+    ReIdDecisionPolicy,
     ZoneServiceState,
 )
 from src.robot_dispatch_v2 import RobotDispatcherV2, TaskRegistry
@@ -319,3 +322,42 @@ def test_close_removes_only_dispatcher_subscribers() -> None:
 
     assert received == [heartbeat]
     assert dispatcher.robot_state_store.get(heartbeat.robot_id) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_person_request_is_released_only_after_cancel_succeeds() -> None:
+    uart = FakeUart()
+    uart.set_outcomes(TaskCancel, False, True)
+    engine = DispatchDecisionEngine(policy=ReIdDecisionPolicy())
+    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
+    person = Detection(
+        bbox=(0.0, 0.0, 10.0, 20.0),
+        confidence=0.95,
+        track_id=10,
+        global_id=42,
+        similarity=0.9,
+    )
+    uart.emit(_heartbeat())
+
+    engine.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    assign_decisions = engine.process_zones(
+        [zone],
+        detections=[person],
+        zone_names=[zone.name],
+    )
+    assert dispatcher.process_decisions(assign_decisions) == [True]
+
+    zone.state = ZoneState.PENDING_EXIT
+    assert engine.process_zones([zone]) == []
+    zone.state = ZoneState.EMPTY
+    cancel_decisions = engine.process_zones([zone])
+    assert dispatcher.process_decisions(cancel_decisions) == [False]
+
+    assert engine.get_service_state(zone.id) is ZoneServiceState.CANCEL_REQUESTED
+    assert engine.get_person_service_state(42) is PersonServiceState.REQUESTED
+
+    assert dispatcher.tick() == 1
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+    assert engine.get_person_service_state(42) is None

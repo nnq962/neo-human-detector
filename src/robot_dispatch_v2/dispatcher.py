@@ -419,6 +419,7 @@ class RobotDispatcherV2:
         """Thử gửi TaskCancel cho task hiện tại của zone."""
         task = self._task_registry.get_by_zone(zone_id)
         if task is None:
+            self._decision_engine.on_service_cancelled(zone_id)
             self._remove_pending_cancellation(zone_id)
             return True
 
@@ -440,6 +441,7 @@ class RobotDispatcherV2:
             return False
 
         self._task_registry.release(task.robot_id, task.task_id)
+        self._decision_engine.on_service_cancelled(zone_id)
         self._remove_pending_cancellation(zone_id)
         return True
 
