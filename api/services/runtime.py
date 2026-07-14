@@ -42,30 +42,43 @@ class RuntimeManager:
         config_path = command.config_path or DEFAULT_CONFIG_PATH
         preview = command.preview if command.preview is not None else False
 
-        with self._lock:
-            if self._thread_alive_unlocked():
-                raise ValueError("Runtime is already running.")
+        from api.services.manual_robot_task import (
+            manual_robot_task_service,
+            robot_uart_operation_lock,
+        )
 
-            runtime_config = build_runtime_config(config_path, show=preview)
-            runtime = Runtime(runtime_config)
-            thread = threading.Thread(
-                target=self._run_runtime,
-                args=(runtime,),
-                name="app-runtime",
-                daemon=True,
-            )
+        with robot_uart_operation_lock:
+            with self._lock:
+                if self._thread_alive_unlocked():
+                    raise ValueError("Runtime is already running.")
 
-            self._runtime = runtime
-            self._thread = thread
-            self._state = "starting"
-            self._config_path = config_path
-            self._preview = preview
-            self._started_at = _now()
-            self._stopped_at = None
-            self._last_error = None
+                if manual_robot_task_service.has_active_tasks():
+                    raise ValueError(
+                        "Runtime cannot start while a manual robot task is active."
+                    )
 
-            thread.start()
-            return self._status_unlocked()
+                from uart_v2.uart_manager import uart_manager_v2
+
+                runtime_config = build_runtime_config(config_path, show=preview)
+                runtime = Runtime(runtime_config, robot_uart=uart_manager_v2)
+                thread = threading.Thread(
+                    target=self._run_runtime,
+                    args=(runtime,),
+                    name="app-runtime",
+                    daemon=True,
+                )
+
+                self._runtime = runtime
+                self._thread = thread
+                self._state = "starting"
+                self._config_path = config_path
+                self._preview = preview
+                self._started_at = _now()
+                self._stopped_at = None
+                self._last_error = None
+
+                thread.start()
+                return self._status_unlocked()
 
     def stop(self) -> dict:
         with self._lock:

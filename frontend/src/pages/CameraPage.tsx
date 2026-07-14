@@ -5,7 +5,6 @@ import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCamera } from "@/hooks/use-camera"
 import { useInvalidateCameras } from "@/hooks/use-cameras"
-import { useUartEvents } from "@/hooks/use-uart-events"
 import { camerasApi, type Camera, type Zone, type GoalPose } from "@/api/cameras.api"
 import { EditCameraDialog } from "@/components/edit-camera-dialog"
 import { CameraPreview } from "@/components/camera-preview"
@@ -20,7 +19,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -44,26 +42,6 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
       <div className="text-sm break-all">{value}</div>
     </div>
   )
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null
-  if (typeof value !== "string" || value.trim() === "") return null
-
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : null
-}
-
-function getGoalPoseFromUartData(data: unknown): GoalPose | null {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return null
-
-  const payload = data as Record<string, unknown>
-  const x = toFiniteNumber(payload.x)
-  const y = toFiniteNumber(payload.y)
-  const theta = toFiniteNumber(payload.theta)
-
-  if (x === null || y === null || theta === null) return null
-  return { x, y, theta }
 }
 
 function GoalPoseField({
@@ -143,7 +121,6 @@ export function CameraPage() {
   const [draftZoneName, setDraftZoneName]     = useState("")
   const [zoneNameError, setZoneNameError]     = useState("")
   const [draftGoalPose, setDraftGoalPose]     = useState<GoalPose>({ x: 0, y: 0, theta: 0 })
-  const [realtimeGoalPose, setRealtimeGoalPose] = useState(false)
 
   // New-zone naming dialog
   const [pendingPoints, setPendingPoints]           = useState<number[][] | null>(null)
@@ -159,15 +136,6 @@ export function CameraPage() {
   const isInteracting = isAddingZone || isEditingVertices
   const displayZones  = isEditingVertices ? draftZones : (camera?.zones ?? [])
 
-  const { status: uartEventsStatus } = useUartEvents({
-    enabled: isEditingVertices && realtimeGoalPose,
-    type: "json",
-    onEvent: (event) => {
-      const goalPose = getGoalPoseFromUartData(event.data)
-      if (goalPose) setDraftGoalPose(goalPose)
-    },
-  })
-
   useEffect(() => {
     setEditOpen(false)
     setDeleteOpen(false)
@@ -179,7 +147,6 @@ export function CameraPage() {
     setDraftZoneName("")
     setZoneNameError("")
     setDraftGoalPose({ x: 0, y: 0, theta: 0 })
-    setRealtimeGoalPose(false)
     setPendingPoints(null)
     setZoneNameDialogOpen(false)
     setPendingZoneName("")
@@ -220,7 +187,6 @@ export function CameraPage() {
     setDraftZoneName(zone?.name ?? "")
     setZoneNameError("")
     setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
-    setRealtimeGoalPose(false)
   }
 
   const handleZoneSelect = useCallback((index: number) => {
@@ -234,7 +200,6 @@ export function CameraPage() {
     setDraftZoneName(zone?.name ?? "")
     setZoneNameError("")
     setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
-    setRealtimeGoalPose(false)
   }, [selectedZoneIndex, isEditingVertices, draftZones])
 
   function handleCancel() {
@@ -480,47 +445,16 @@ export function CameraPage() {
                                 label="X"
                                 value={draftGoalPose.x}
                                 onChange={(v) => setDraftGoalPose((p) => ({ ...p, x: v }))}
-                                disabled={realtimeGoalPose}
                               />
                               <GoalPoseField
                                 label="Y"
                                 value={draftGoalPose.y}
                                 onChange={(v) => setDraftGoalPose((p) => ({ ...p, y: v }))}
-                                disabled={realtimeGoalPose}
                               />
                               <GoalPoseField
                                 label="θ"
                                 value={draftGoalPose.theta}
                                 onChange={(v) => setDraftGoalPose((p) => ({ ...p, theta: v }))}
-                                disabled={realtimeGoalPose}
-                              />
-                            </div>
-
-                            {/* Realtime switch */}
-                            <div className="flex min-w-0 items-center justify-between gap-2">
-                              <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground leading-snug">
-                                <span>Nhận giá trị realtime</span>
-                                <span className="relative flex size-2 shrink-0">
-                                  {uartEventsStatus === "connected" && (
-                                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
-                                  )}
-                                  <span
-                                    className={`relative inline-flex size-2 rounded-full ${
-                                      uartEventsStatus === "connected"
-                                        ? "bg-green-400"
-                                        : uartEventsStatus === "connecting"
-                                          ? "bg-amber-400"
-                                          : uartEventsStatus === "error"
-                                            ? "bg-red-400"
-                                            : "bg-muted-foreground/60"
-                                    }`}
-                                  />
-                                </span>
-                              </span>
-                              <Switch
-                                checked={realtimeGoalPose}
-                                onCheckedChange={setRealtimeGoalPose}
-                                className="shrink-0"
                               />
                             </div>
 

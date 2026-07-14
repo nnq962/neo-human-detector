@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass, replace
 from typing import List, Optional, Protocol, Sequence
 
+from src.detection import Detection
 from src.dispatch_decision import (
     DispatchAction,
     DispatchDecision,
@@ -175,14 +176,24 @@ class RobotDispatcherV2:
         self._uart.set_handler(MessageType.TASK_STATUS, None)
 
     # ─────────────────────────────────────────────────────────────────────────
-    def process_zones(self, zones: Sequence[Zone]) -> List[DispatchDecision]:
+    def process_zones(
+        self,
+        zones: Sequence[Zone],
+        *,
+        detections: Sequence[Detection] = (),
+        zone_names: Sequence[Optional[str]] = (),
+    ) -> List[DispatchDecision]:
         """
         Sinh decision từ các zone rồi thực thi từng decision.
 
         Giá trị trả về là danh sách decision đã được engine sinh ra. Một decision
         chưa thực thi được ngay vẫn được giữ lại để ``tick()`` thử lại.
         """
-        decisions = self._decision_engine.process_zones(zones)
+        decisions = self._decision_engine.process_zones(
+            zones,
+            detections=detections,
+            zone_names=zone_names,
+        )
         self.process_decisions(decisions)
         return decisions
 

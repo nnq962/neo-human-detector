@@ -46,6 +46,12 @@ class DispatchDecisionEngine:
         self._use_reid = isinstance(self._policy, ReIdDecisionPolicy)
         self._lock = threading.RLock()
 
+    # ────────────────────────────────────────────────────────────────────
+    @property
+    def uses_reid(self) -> bool:
+        """Cho biết engine có đang dùng policy dựa trên global ID hay không."""
+        return self._use_reid
+
     # ─────────────────────────────────────────────────────────────────────
     def process_zones(
         self,

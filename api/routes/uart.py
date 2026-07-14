@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from api.models.response import ApiResponse
-from api.models.uart import UartConfig, UartConfigUpdate, UartSendStringRequest
+from api.models.uart import UartConfig, UartConfigUpdate, UartMessageRequest
 from api.routes.responses import error_from_exception, ok
 from api.services import uart as uart_service
 
@@ -25,26 +25,15 @@ def get_uart_status():
         return error_from_exception(error)
 
 
-@router.post("/send-string", response_model=ApiResponse)
-def send_uart_string(request: UartSendStringRequest):
+@router.post("/messages", response_model=ApiResponse)
+def send_uart_message(request: UartMessageRequest):
     try:
         return ok(
-            "UART command sent successfully.",
-            uart_service.send_uart_string(request.command),
+            "UART message acknowledged successfully.",
+            uart_service.send_uart_message(request),
         )
     except Exception as error:
-        return error_from_exception(error)
-
-
-@router.post("/send", response_model=ApiResponse)
-def send_uart_command(request: UartSendStringRequest):
-    try:
-        return ok(
-            "UART command sent successfully.",
-            uart_service.send_uart_string(request.command),
-        )
-    except Exception as error:
-        return error_from_exception(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
 @router.patch("", response_model=ApiResponse)
@@ -52,7 +41,7 @@ def update_uart_config(update: UartConfigUpdate):
     try:
         return ok("UART config updated successfully.", uart_service.update_uart_config(update))
     except Exception as error:
-        return error_from_exception(error)
+        return error_from_exception(error, conflict_on_value_error=True)
 
 
 @router.put("", response_model=ApiResponse)
@@ -61,4 +50,4 @@ def replace_uart_config(config: UartConfig):
         data = uart_service.update_uart_config(UartConfigUpdate(**config.model_dump()))
         return ok("UART config replaced successfully.", data)
     except Exception as error:
-        return error_from_exception(error)
+        return error_from_exception(error, conflict_on_value_error=True)

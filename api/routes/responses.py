@@ -4,9 +4,6 @@ from fastapi import HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from api.models.response import ApiResponse
-
-
 def ok(message: str, data: Any = None) -> dict:
     return {
         "success": True,

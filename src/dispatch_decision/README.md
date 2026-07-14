@@ -47,6 +47,21 @@ Các thành phần chính:
 
 ## Chế độ ReID
 
+Runtime chọn policy qua section `robot_dispatch`. `use_reid` mặc định là
+`false` để giữ nguyên flow zone-only:
+
+```yaml
+reid:
+  enabled: true
+
+robot_dispatch:
+  enabled: true
+  use_reid: true
+```
+
+Khi `use_reid: true`, `reid.enabled` cũng phải là `true`; runtime sẽ từ
+chối cấu hình không nhất quán trước khi kết nối UART.
+
 Khởi tạo engine với policy bật ReID:
 
 ```python

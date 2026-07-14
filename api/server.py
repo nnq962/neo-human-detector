@@ -71,6 +71,16 @@ def run_startup_tasks() -> None:
     except Exception as e:
         LOGGER.error(f"Failed to sync MediaMTX camera paths: {e}")
 
+    try:
+        from api.services.manual_robot_task import manual_robot_task_service
+        from uart_v2.uart_manager import uart_manager_v2
+
+        manual_robot_task_service.register_uart_handlers()
+        if not uart_manager_v2.connect():
+            LOGGER.error("Failed to initialize UART V2: %s", uart_manager_v2.last_error)
+    except Exception as e:
+        LOGGER.error(f"Failed to initialize UART V2: {e}")
+
     if cfg.get("auto_start") is True:
         try:
             start_runtime(RuntimeCommandRequest(config_path=DEFAULT_CONFIG_PATH, preview=False))
@@ -78,23 +88,25 @@ def run_startup_tasks() -> None:
         except Exception as e:
             LOGGER.error(f"Failed to auto-start runtime: {e}")
 
-    try:
-        from uart.uart_manager import uart_manager
-
-        uart_manager.connect()
-    except Exception as e:
-        LOGGER.error(f"Failed to initialize UART: {e}")
-
 
 def run_shutdown_tasks() -> None:
     from utils import LOGGER
 
     try:
-        from uart.uart_manager import uart_manager
+        from api.services.runtime import stop_runtime
 
-        uart_manager.close()
+        stop_runtime()
     except Exception as e:
-        LOGGER.error(f"Failed to close UART: {e}")
+        LOGGER.error(f"Failed to stop Runtime: {e}")
+
+    try:
+        from api.services.manual_robot_task import manual_robot_task_service
+        from uart_v2.uart_manager import uart_manager_v2
+
+        manual_robot_task_service.close()
+        uart_manager_v2.close()
+    except Exception as e:
+        LOGGER.error(f"Failed to close UART V2: {e}")
 
 
 @asynccontextmanager

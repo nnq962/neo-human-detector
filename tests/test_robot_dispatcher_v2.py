@@ -361,3 +361,33 @@ def test_person_request_is_released_only_after_cancel_succeeds() -> None:
     assert dispatcher.tick() == 1
     assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
     assert engine.get_person_service_state(42) is None
+
+
+# ────────────────────────────────────────────────────────────────────
+def test_process_zones_forwards_reid_inputs_to_decision_engine() -> None:
+    uart = FakeUart()
+    engine = DispatchDecisionEngine(policy=ReIdDecisionPolicy())
+    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
+    person = Detection(
+        bbox=(0.0, 0.0, 10.0, 20.0),
+        confidence=0.95,
+        track_id=10,
+        global_id=42,
+        similarity=0.9,
+    )
+    uart.emit(_heartbeat())
+
+    assert dispatcher.process_zones([zone]) == []
+    zone.state = ZoneState.OCCUPIED
+    decisions = dispatcher.process_zones(
+        [zone],
+        detections=[person],
+        zone_names=[zone.name],
+    )
+
+    assert [decision.action for decision in decisions] == [
+        DispatchAction.TASK_ASSIGN
+    ]
+    assert decisions[0].person_global_id == 42
+    assert dispatcher.get_assigned_task(zone.id) is not None

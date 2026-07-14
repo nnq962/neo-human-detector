@@ -6,9 +6,10 @@ from dataclasses import dataclass
 # ─────────────────────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class RobotDispatchV2Config:
-    """Các tùy chọn cần thiết cho flow dispatch không-ReID hiện tại."""
+    """Các tùy chọn cho flow decision và thực thi lệnh robot V2."""
 
     enabled: bool = False
+    use_reid: bool = False
     ack_timeout_seconds: float = 1.0
     max_retries: int = 5
 

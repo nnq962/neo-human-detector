@@ -84,6 +84,7 @@ def build_robot_dispatch_config(raw: dict) -> RobotDispatchV2Config:
     """Đọc section robot_dispatch và tạo config cho RobotDispatcherV2."""
     return RobotDispatchV2Config(
         enabled=bool(raw.get("enabled", False)),
+        use_reid=bool(raw.get("use_reid", False)),
         ack_timeout_seconds=float(raw.get("ack_timeout_seconds", 1.0)),
         max_retries=int(raw.get("max_retries", 5)),
     )

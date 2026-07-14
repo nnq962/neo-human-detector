@@ -10,34 +10,66 @@ export interface UartConfigUpdate {
   baudrate?: number
 }
 
-export interface UartSendResult {
-  sent: boolean
-  command: string
+export interface ManualRobotTask {
+  robot_id: number
+  task_id: number
+  state: string
+  created_at: number
+  updated_at: number
+  x?: number | null
+  y?: number | null
+  theta?: number | null
 }
 
-export interface UartEvent {
-  sequence: number
-  timestamp: number
-  type: "json" | "string"
-  raw: string
-  data: unknown
+export interface UartStatus {
+  protocol: "v2"
+  port: string
+  baudrate: number
+  timeout: number
+  connected: boolean
+  listening: boolean
+  last_connected_at: number | null
+  last_disconnected_at: number | null
+  last_received_at: number | null
+  last_error: string | null
+  manual_tasks: ManualRobotTask[]
 }
 
-export function getUartEventsWsUrl() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-  return `${protocol}//${window.location.host}/ws/uart/events`
+export type UartMessageRequest =
+  | {
+      message_type: "task_assign"
+      robot_id: number
+      task_id: number
+      x: number
+      y: number
+      theta: number
+    }
+  | {
+      message_type: "task_cancel"
+      robot_id: number
+      task_id: number
+    }
+
+export interface UartMessageResult {
+  message_type: UartMessageRequest["message_type"]
+  robot_id: number
+  task_id: number
+  acknowledged: boolean
+  task: ManualRobotTask
 }
 
 export const uartApi = {
   get: () => apiRequest<ApiResponse<UartConfig>>("/uart").then(unwrapApiResponse),
+  getStatus: () =>
+    apiRequest<ApiResponse<UartStatus>>("/uart/status").then(unwrapApiResponse),
   update: (data: UartConfigUpdate) =>
     apiRequest<ApiResponse<UartConfig>>("/uart", {
       method: "PATCH",
       body: JSON.stringify(data),
     }).then(ensureApiSuccess),
-  send: (command: string) =>
-    apiRequest<ApiResponse<UartSendResult>>("/uart/send", {
+  sendMessage: (message: UartMessageRequest) =>
+    apiRequest<ApiResponse<UartMessageResult>>("/uart/messages", {
       method: "POST",
-      body: JSON.stringify({ command }),
+      body: JSON.stringify(message),
     }).then(unwrapApiResponse),
 }

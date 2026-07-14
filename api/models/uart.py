@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -13,5 +13,26 @@ class UartConfigUpdate(BaseModel):
     baudrate: Optional[int] = Field(None, ge=1)
 
 
-class UartSendStringRequest(BaseModel):
-    command: str = Field(..., min_length=1)
+class UartTaskAssignRequest(BaseModel):
+    """Payload gửi TaskAssign nhị phân trực tiếp để test robot."""
+
+    message_type: Literal["task_assign"]
+    robot_id: int = Field(..., ge=0, le=255)
+    task_id: int = Field(..., ge=0, le=255)
+    x: float = Field(..., ge=-327.68, le=327.67)
+    y: float = Field(..., ge=-327.68, le=327.67)
+    theta: float = Field(..., ge=-32.768, le=32.767)
+
+
+class UartTaskCancelRequest(BaseModel):
+    """Payload gửi TaskCancel cho task thủ công đang được theo dõi."""
+
+    message_type: Literal["task_cancel"]
+    robot_id: int = Field(..., ge=0, le=255)
+    task_id: int = Field(..., ge=0, le=255)
+
+
+UartMessageRequest = Annotated[
+    Union[UartTaskAssignRequest, UartTaskCancelRequest],
+    Field(discriminator="message_type"),
+]

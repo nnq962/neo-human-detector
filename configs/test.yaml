@@ -54,6 +54,7 @@ reid:
 # ─── Robot dispatch ──────────────────────────────────────────────────────────
 robot_dispatch:
   enabled: false              # true để bật decision engine và UART robot V2
+  use_reid: false             # true để policy chờ và phục vụ theo global ID
   ack_timeout_seconds: 1.0
   max_retries: 5
 

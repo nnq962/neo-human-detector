@@ -1,11 +1,10 @@
 import { memo, useEffect, useState } from "react"
-import { BellRing, CheckCircle2, CircleOff, Eraser, Loader, Play, RotateCcw, Square, Trash2, XCircle, SendHorizontal} from "lucide-react"
+import { Play, RotateCcw, Square } from "lucide-react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -17,10 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { CameraPreview } from "@/components/camera-preview"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
-import type { RobotDispatchEvent } from "@/api/robot-dispatch.api"
 import { useAutoStartConfig, useUpdateAutoStartConfig } from "@/hooks/use-auto-start"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
-import { useRobotDispatchEvents, type RobotDispatchEventsStatus } from "@/hooks/use-robot-dispatch-events"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { cn } from "@/lib/utils"
 
@@ -243,209 +240,10 @@ const CameraCell = memo(function CameraCell({ camera }: { camera: Camera }) {
   )
 })
 
-// ── Event feed ────────────────────────────────────────────────────────────────
-
-function formatEventTime(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleTimeString("vi-VN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
-}
-
-function personLabel(person: RobotDispatchEvent["person"]): string {
-  return person ? `#${person.global_id}` : "Không có ID"
-}
-
-function reasonLabel(reason: string): string {
-  if (reason === "already_requested") return "đã được phục vụ trước đó"
-  if (reason === "already_served") return "đã được phục vụ trước đó"
-  return reason
-}
-
-const EventItem = memo(function EventItem({ event }: { event: RobotDispatchEvent }) {
-  const isInvite = event.action === "invite"
-  const isClear = event.action === "clear"
-  const isServing = event.action === "serving"
-  const isServed = event.action === "served"
-  const isFailed = event.action === "failed"
-  const isSkipped = event.type === "skipped"
-  const Icon = isSkipped
-    ? CircleOff
-    : isClear
-      ? Eraser
-      : isServing
-        ? Loader
-      : isServed
-      ? CheckCircle2
-      : isFailed
-        ? XCircle
-        : SendHorizontal
-  const title = isSkipped
-    ? "Bỏ qua lệnh mời"
-    : isClear
-      ? "Đã clear zone"
-      : isServing
-        ? "Robot đang phục vụ"
-        : isServed
-          ? "Đã phục vụ xong"
-          : isFailed
-            ? "Phục vụ thất bại"
-            : "Đã gửi lệnh mời"
-  const actionLabel = isSkipped
-    ? "Skipped"
-    : isClear
-      ? "Clear"
-      : isServing
-        ? "Serving"
-        : isServed
-          ? "Served"
-          : isFailed
-            ? "Failed"
-            : "Invite"
-
-  return (
-    <div className="flex items-start gap-3 px-1 py-3">
-      <div
-        className={cn(
-          "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full",
-          isSkipped
-            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-            : isClear
-              ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400"
-              : isServed
-                ? "bg-violet-500/15 text-violet-700 dark:text-violet-400"
-              : isFailed
-                ? "bg-red-500/15 text-red-600 dark:text-red-400"
-                : isServing
-                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-400"
-                  : "bg-green-500/15 text-green-600 dark:text-green-400",
-        )}
-      >
-        <Icon className={cn("size-4", isServing && "animate-spin")} />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{title}</span>
-          <Badge
-            variant={isSkipped ? "secondary" : "outline"}
-            className={cn(
-              "h-5 text-[11px]",
-              isSkipped && "border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-400",
-              !isSkipped && isInvite && "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400",
-              !isSkipped && isClear && "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
-              !isSkipped && isServed && "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400",
-              !isSkipped && isServing && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
-              !isSkipped && isFailed && "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-            )}
-          >
-            {actionLabel}
-          </Badge>
-          <Badge
-            variant="outline"
-            className={cn(
-              "h-5 text-[11px]",
-              event.person
-                ? "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400"
-                : "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-            )}
-          >
-            {personLabel(event.person)}
-          </Badge>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span className="truncate font-medium text-foreground">{event.zone.zone_name}</span>
-          <span className="text-border">/</span>
-          <span className="truncate">{event.zone.camera_name}</span>
-          <span className="text-border">/</span>
-          <span>{formatEventTime(event.timestamp)}</span>
-          {event.reason && (
-            <>
-              <span className="text-border">/</span>
-              <span>Lý do: {reasonLabel(event.reason)}</span>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-})
-
-const ROBOT_DISPATCH_STATUS_LABEL: Record<RobotDispatchEventsStatus, string> = {
-  connecting: "Đang kết nối",
-  connected: "Đã kết nối",
-  disconnected: "Mất kết nối",
-}
-
-const RecentEventsCard = memo(function RecentEventsCard({
-  events,
-  status,
-  onClear,
-}: {
-  events: RobotDispatchEvent[]
-  status: RobotDispatchEventsStatus
-  onClear: () => void
-}) {
-  return (
-    <Card className="flex flex-col overflow-hidden">
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Sự kiện gần đây</CardTitle>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                status === "connected" && "bg-green-500",
-                status === "connecting" && "bg-amber-500",
-                status === "disconnected" && "bg-red-500",
-              )}
-            />
-            <span>{ROBOT_DISPATCH_STATUS_LABEL[status]}</span>
-            <span className="text-border">/</span>
-            <BellRing className="size-3.5" />
-            <span>{events.length} sự kiện</span>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="ml-1 size-7"
-              disabled={events.length === 0}
-              onClick={onClear}
-              title="Xóa sự kiện"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        {events.length === 0 ? (
-          <div className="flex h-[320px] items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            Chưa có sự kiện nào.
-          </div>
-        ) : (
-          <ScrollArea className="h-[320px]">
-            <div className="divide-y px-4">
-              {events.map((event) => (
-                <EventItem key={event.sequence} event={event} />
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
-  )
-})
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
-  const {
-    events: robotDispatchEvents,
-    status: robotDispatchEventsStatus,
-    clearEvents: clearRobotDispatchEvents,
-  } = useRobotDispatchEvents({ maxEvents: 100 })
   const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
@@ -477,12 +275,6 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Recent events */}
-      <RecentEventsCard
-        events={robotDispatchEvents}
-        status={robotDispatchEventsStatus}
-        onClear={clearRobotDispatchEvents}
-      />
     </div>
   )
 }

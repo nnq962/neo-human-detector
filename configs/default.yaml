@@ -1,4 +1,4 @@
-auto_start: true
+auto_start: false
 detection:
   task: pose
   model_size: medium
@@ -38,10 +38,11 @@ reid:
     ttl_minutes: 10.0
 robot_dispatch:
   enabled: true
+  use_reid: false
   ack_timeout_seconds: 1.0
   max_retries: 5
 uart:
-  port: /dev/ttyUSB1
+  port: /dev/ttyUSB0
   baudrate: 115200
 cameras:
 - name: AI Center

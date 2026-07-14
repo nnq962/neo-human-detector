@@ -15,6 +15,11 @@ from src.app.utils import build_runtime_config
 from src.camera_initializer import Camera, load_cameras_from_config
 from src.detection.datatypes import InferenceFrame
 from src.detection.yolo_detector import YoloDetector, YoloDetectorConfig
+from src.dispatch_decision import (
+    DispatchDecisionEngine,
+    ReIdDecisionPolicy,
+    ZoneOnlyDecisionPolicy,
+)
 from src.media_sources import MediaSources
 from src.reid import ReIdPipeline
 from src.robot_dispatch_v2 import RobotDispatcherV2
@@ -34,7 +39,12 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 class Runtime:
 
-    def __init__(self, config: RuntimeConfig):
+    def __init__(
+        self,
+        config: RuntimeConfig,
+        *,
+        robot_uart: Optional["UartManagerV2"] = None,
+    ):
         self.config = config
         self.cameras: List[Camera] = []
         self.detector: Optional[YoloDetector] = None
@@ -42,12 +52,13 @@ class Runtime:
         self.zone_machines: Dict[str, ZoneStateMachine] = {}
         self.reid_pipeline: Optional[ReIdPipeline] = None
         self.robot_dispatcher: Optional[RobotDispatcherV2] = None
-        self._robot_uart: Optional["UartManagerV2"] = None
+        self._robot_uart = robot_uart
         self.is_running = False
         self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
         self._frame_counters: Dict[str, int] = {}
 
+    # ─────────────────────────────────────────────────────────────────────────
     def run(self) -> None:
         """Chạy vòng lặp detect cho đến khi hết stream hoặc Ctrl+C."""
         self._stop_requested.clear()
@@ -116,7 +127,11 @@ class Runtime:
 
                         # Robot dispatcher
                         if camera.zones and self.robot_dispatcher is not None:
-                            self.robot_dispatcher.process_zones(camera.zones)
+                            self.robot_dispatcher.process_zones(
+                                camera.zones,
+                                detections=detection_frame.detections,
+                                zone_names=zone_names,
+                            )
 
                         # ws/runtime/bboxes
                         batch_payload[camera.id] = build_camera_detection_payload(
@@ -152,6 +167,7 @@ class Runtime:
         finally:
             self.stop()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def stop(self) -> None:
         self._stop_requested.set()
         self.is_running = False
@@ -175,10 +191,6 @@ class Runtime:
             self.robot_dispatcher.close()
             self.robot_dispatcher = None
 
-        if self._robot_uart is not None:
-            self._robot_uart.close()
-            self._robot_uart = None
-
         try:
             cv2.destroyAllWindows()
         except Exception:
@@ -187,6 +199,7 @@ class Runtime:
         runtime_state.clear()
         LOGGER.info("Runtime stopped.")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def request_stop(self) -> None:
         """Signal the runtime loop to stop without closing model resources."""
         self._stop_requested.set()
@@ -286,6 +299,7 @@ class Runtime:
         robot = self.config.robot_dispatch
         LOGGER.info("ROBOT DISPATCH")
         LOGGER.info("   → Enabled       : %s", robot.enabled)
+        LOGGER.info("   → Use ReID      : %s", robot.use_reid)
         LOGGER.info("   → ACK timeout   : %.2fs", robot.ack_timeout_seconds)
         LOGGER.info("   → Max retries   : %d", robot.max_retries)
 
@@ -323,31 +337,48 @@ class Runtime:
         if cv2.waitKey(1) & 0xFF == ord("q"):
             self.is_running = False
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _build_robot_dispatcher(self, cfg: dict) -> RobotDispatcherV2:
         """Kết nối UART nhị phân và tạo RobotDispatcherV2."""
-        from uart_v2.uart_manager import uart_manager_v2
+        robot_config = self.config.robot_dispatch
+        if robot_config.use_reid and not self.config.reid.enabled:
+            raise ValueError(
+                "robot_dispatch.use_reid=true yêu cầu reid.enabled=true."
+            )
+
+        if self._robot_uart is None:
+            from uart_v2.uart_manager import uart_manager_v2
+
+            self._robot_uart = uart_manager_v2
+
+        robot_uart = self._robot_uart
 
         uart_cfg = cfg.get("uart", {})
         if isinstance(uart_cfg, dict):
-            connected = uart_manager_v2.reconfigure(
+            connected = robot_uart.reconfigure(
                 port=uart_cfg.get("port"),
                 baudrate=uart_cfg.get("baudrate"),
             )
         else:
-            connected = uart_manager_v2.connect()
+            connected = robot_uart.connect()
 
         if not connected:
-            uart_manager_v2.close()
             raise RuntimeError("Không thể kết nối UART V2 cho robot dispatcher.")
 
-        self._robot_uart = uart_manager_v2
-        robot_config = self.config.robot_dispatch
+        policy = (
+            ReIdDecisionPolicy()
+            if robot_config.use_reid
+            else ZoneOnlyDecisionPolicy()
+        )
+        decision_engine = DispatchDecisionEngine(policy=policy)
         return RobotDispatcherV2(
-            uart_manager_v2,
+            robot_uart,
+            decision_engine=decision_engine,
             ack_timeout_seconds=robot_config.ack_timeout_seconds,
             max_retries=robot_config.max_retries,
         )
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _update_fps(self, camera_id: str, timestamp: float) -> float:
         prev = self._fps_tracker.get(camera_id)
         self._fps_tracker[camera_id] = timestamp
@@ -355,6 +386,7 @@ class Runtime:
             return 0.0
         return 1.0 / max(timestamp - prev, 1e-6)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _validate_batch_lengths(
         self,
         frames: List[np.ndarray],
@@ -371,6 +403,7 @@ class Runtime:
         if len(set(lengths.values())) != 1:
             raise RuntimeError(f"Runtime batch length mismatch: {lengths}")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _run_reid(
         self,
         *,
@@ -399,6 +432,7 @@ class Runtime:
             allowed_zone_names=allowed_zone_names,
         )
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _allowed_reid_zone_names(self, camera: Camera) -> Optional[set[str]]:
         """
         Lọc zone đang occupied.
