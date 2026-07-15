@@ -25,6 +25,17 @@ def get_uart_status():
         return error_from_exception(error)
 
 
+@router.get("/robots", response_model=ApiResponse)
+def get_uart_robots():
+    try:
+        return ok(
+            "Robot heartbeat snapshots loaded successfully.",
+            uart_service.get_robot_snapshots(),
+        )
+    except Exception as error:
+        return error_from_exception(error)
+
+
 @router.post("/messages", response_model=ApiResponse)
 def send_uart_message(request: UartMessageRequest):
     try:

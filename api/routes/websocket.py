@@ -5,6 +5,7 @@ from fastapi.encoders import jsonable_encoder
 
 from api.routes.responses import ok
 from api.services import runtime as runtime_service
+from api.services.robot_heartbeat import robot_heartbeat_service
 from src.app.runtime_state import runtime_state
 from utils import LOGGER
 
@@ -12,6 +13,7 @@ from utils import LOGGER
 router = APIRouter()
 MIN_RUNTIME_STATUS_INTERVAL_SECONDS = 0.2
 MAX_RUNTIME_STATUS_INTERVAL_SECONDS = 10.0
+ROBOT_HEARTBEAT_INTERVAL_SECONDS = 1.0
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -59,6 +61,28 @@ async def runtime_status_websocket(websocket: WebSocket):
             await asyncio.sleep(interval_seconds)
     except WebSocketDisconnect:
         LOGGER.info("Client disconnected from /ws/runtime/status")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Gửi snapshot robot mới nhất và tự cập nhật trạng thái online/offline.
+@router.websocket("/ws/uart/robots")
+async def uart_robots_websocket(websocket: WebSocket):
+    await websocket.accept()
+    LOGGER.info("Client connected to /ws/uart/robots")
+
+    try:
+        while True:
+            await websocket.send_json(
+                jsonable_encoder(
+                    ok(
+                        "Robot heartbeat snapshots loaded successfully.",
+                        robot_heartbeat_service.snapshot(),
+                    )
+                )
+            )
+            await asyncio.sleep(ROBOT_HEARTBEAT_INTERVAL_SECONDS)
+    except WebSocketDisconnect:
+        LOGGER.info("Client disconnected from /ws/uart/robots")
 
 
 # ─────────────────────────────────────────────────────────────────────────

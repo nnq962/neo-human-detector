@@ -33,6 +33,7 @@ from utils import LOGGER, load_config, LINE_CHAR
 
 
 if TYPE_CHECKING:
+    from src.robot_dispatch_v2.robot_state import RobotStateStore
     from uart_v2.uart_manager import UartManagerV2
 
 
@@ -44,6 +45,8 @@ class Runtime:
         config: RuntimeConfig,
         *,
         robot_uart: Optional["UartManagerV2"] = None,
+        robot_state_store: Optional["RobotStateStore"] = None,
+        register_robot_heartbeat_handler: bool = True,
     ):
         self.config = config
         self.cameras: List[Camera] = []
@@ -53,6 +56,8 @@ class Runtime:
         self.reid_pipeline: Optional[ReIdPipeline] = None
         self.robot_dispatcher: Optional[RobotDispatcherV2] = None
         self._robot_uart = robot_uart
+        self._robot_state_store = robot_state_store
+        self._register_robot_heartbeat_handler = register_robot_heartbeat_handler
         self.is_running = False
         self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
@@ -374,8 +379,10 @@ class Runtime:
         return RobotDispatcherV2(
             robot_uart,
             decision_engine=decision_engine,
+            robot_state_store=self._robot_state_store,
             ack_timeout_seconds=robot_config.ack_timeout_seconds,
             max_retries=robot_config.max_retries,
+            register_heartbeat_handler=self._register_robot_heartbeat_handler,
         )
 
     # ─────────────────────────────────────────────────────────────────────────

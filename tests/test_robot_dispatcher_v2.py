@@ -310,6 +310,22 @@ def test_dispatcher_subscribes_without_replacing_existing_handler() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def test_dispatcher_can_use_externally_managed_heartbeat_store() -> None:
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        register_heartbeat_handler=False,
+    )
+
+    assert int(MessageType.HEARTBEAT) not in uart.additional_handlers
+    assert int(MessageType.TASK_STATUS) in uart.additional_handlers
+
+    uart.emit(_heartbeat())
+
+    assert dispatcher.robot_state_store.all_snapshots() == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def test_close_removes_only_dispatcher_subscribers() -> None:
     uart = FakeUart()
     received = []

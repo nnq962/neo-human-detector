@@ -43,6 +43,13 @@ def get_uart_status() -> dict:
     }
 
 
+def get_robot_snapshots() -> dict:
+    """Trả trạng thái robot mới nhất được tổng hợp từ Heartbeat UART."""
+    from api.services.robot_heartbeat import robot_heartbeat_service
+
+    return robot_heartbeat_service.snapshot()
+
+
 def update_uart_config(update: UartConfigUpdate) -> dict:
     update_data = _model_dump(update, exclude_none=True, exclude_unset=True)
 

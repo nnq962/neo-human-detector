@@ -3,6 +3,7 @@ import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { RuntimeStatusIndicator } from "@/components/runtime-status"
 import { cn } from "@/lib/utils"
 import { useCameras } from "@/hooks/use-cameras"
 
@@ -68,6 +69,7 @@ export function AppHeader() {
       </nav>
 
       <div className="ml-auto flex items-center gap-3">
+        <RuntimeStatusIndicator />
         <ThemeToggle />
       </div>
     </header>

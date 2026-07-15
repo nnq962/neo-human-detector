@@ -96,6 +96,7 @@ class RobotDispatcherV2:
         ack_timeout_seconds: float = DEFAULT_ACK_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         register_handlers: bool = True,
+        register_heartbeat_handler: bool = True,
     ) -> None:
         """Khởi tạo dispatcher và tùy chọn đăng ký các UART handler cần thiết."""
         self._uart = uart
@@ -104,6 +105,7 @@ class RobotDispatcherV2:
         self._task_registry = task_registry or TaskRegistry()
         self._ack_timeout_seconds = ack_timeout_seconds
         self._max_retries = max_retries
+        self._register_heartbeat_handler = register_heartbeat_handler
 
         self._pending_assignments: dict[str, _PendingAssignment] = {}
         self._pending_cancellations: set[str] = set()
@@ -135,12 +137,14 @@ class RobotDispatcherV2:
 
             add_handler = getattr(self._uart, "add_handler", None)
             if callable(add_handler):
-                add_handler(MessageType.HEARTBEAT, self.on_heartbeat)
+                if self._register_heartbeat_handler:
+                    add_handler(MessageType.HEARTBEAT, self.on_heartbeat)
                 add_handler(MessageType.TASK_STATUS, self.on_task_status)
                 self._registered_with_add_handler = True
             else:
                 # Fallback cho transport tối giản chỉ triển khai set_handler().
-                self._uart.set_handler(MessageType.HEARTBEAT, self.on_heartbeat)
+                if self._register_heartbeat_handler:
+                    self._uart.set_handler(MessageType.HEARTBEAT, self.on_heartbeat)
                 self._uart.set_handler(MessageType.TASK_STATUS, self.on_task_status)
                 self._registered_with_add_handler = False
 
@@ -165,14 +169,16 @@ class RobotDispatcherV2:
         if registered_with_add_handler:
             remove_handler = getattr(self._uart, "remove_handler", None)
             if callable(remove_handler):
-                remove_handler(MessageType.HEARTBEAT, self.on_heartbeat)
+                if self._register_heartbeat_handler:
+                    remove_handler(MessageType.HEARTBEAT, self.on_heartbeat)
                 remove_handler(MessageType.TASK_STATUS, self.on_task_status)
                 return
 
         # Fallback cho transport không có API subscriber. Trong trường hợp này
         # register_uart_handlers() đã dùng set_handler(), nên dispatcher sở hữu
         # hai handler chính và có thể gỡ chúng bằng cách truyền None.
-        self._uart.set_handler(MessageType.HEARTBEAT, None)
+        if self._register_heartbeat_handler:
+            self._uart.set_handler(MessageType.HEARTBEAT, None)
         self._uart.set_handler(MessageType.TASK_STATUS, None)
 
     # ─────────────────────────────────────────────────────────────────────────

@@ -35,6 +35,27 @@ export interface UartStatus {
   manual_tasks: ManualRobotTask[]
 }
 
+export type RobotState = "IDLE" | "SERVING" | "ERROR" | "UNKNOWN"
+
+export interface RobotHeartbeat {
+  robot_id: number
+  state: RobotState
+  state_code: number
+  online: boolean
+  heartbeat_timestamp: number
+  heartbeat_age_seconds: number
+  x: number
+  y: number
+  theta: number
+}
+
+export interface RobotHeartbeatSnapshot {
+  total: number
+  online: number
+  latest_heartbeat_age_seconds: number | null
+  robots: RobotHeartbeat[]
+}
+
 export type UartMessageRequest =
   | {
       message_type: "task_assign"
@@ -62,6 +83,8 @@ export const uartApi = {
   get: () => apiRequest<ApiResponse<UartConfig>>("/uart").then(unwrapApiResponse),
   getStatus: () =>
     apiRequest<ApiResponse<UartStatus>>("/uart/status").then(unwrapApiResponse),
+  getRobots: () =>
+    apiRequest<ApiResponse<RobotHeartbeatSnapshot>>("/uart/robots").then(unwrapApiResponse),
   update: (data: UartConfigUpdate) =>
     apiRequest<ApiResponse<UartConfig>>("/uart", {
       method: "PATCH",

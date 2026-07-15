@@ -18,27 +18,55 @@ Runtime đang chạy, nếu còn manual task active khi khởi động Runtime,
 hoặc khi đổi cấu hình UART trong lúc UART đang được sử dụng.
 
 Mục tiêu của V2 là bỏ format string/JSON khi gửi qua LoRa/UART, thay bằng các
-packet nhị phân nhỏ, có kích thước cố định theo từng loại message.
+frame nhị phân nhỏ, có kích thước cố định theo từng loại message.
 
 ---
 
-## 1. Format Chung Của MessageBase
+## 1. Format MessageBase Và UART Wire Frame
 
-Tất cả message đều kế thừa `MessageBase` và tuân theo cùng một format gói tin:
+Tất cả message đều kế thừa `MessageBase`. Hàm `MessageBase.encode()` tạo packet
+nội bộ theo format:
 
 ```text
-packet = payload + checksum
+message_packet = payload + checksum
 ```
 
-Trong đó:
+Khi packet được truyền qua UART, `UartManagerV2` thêm một byte bắt đầu ở phía
+trước. Format đầy đủ thực sự xuất hiện trên đường truyền là:
+
+```text
+uart_frame = start_byte + payload + checksum
+           = 0xAA       + payload + checksum
+```
 
 | Thành phần | Kích thước | Mô tả |
 |---|---:|---|
+| `start_byte` | 1 byte | Cố định `0xAA`, đánh dấu bắt đầu một UART frame |
 | `payload` | Tùy từng message | Dữ liệu nhị phân được đóng gói bằng `struct.pack(...)` |
 | `checksum` | 2 byte | `uint16`, little-endian |
 
-`checksum` không nằm trong payload. Khi nhận packet, code tách 2 byte cuối làm
-checksum, phần còn lại là payload.
+Minh họa thứ tự byte:
+
+```text
++----------+-----------------------------+--------------------+
+|   0xAA   |           payload           |      checksum      |
++----------+-----------------------------+--------------------+
+  1 byte       kích thước tùy message       2 byte little-endian
+```
+
+Phân biệt hai khái niệm trong tài liệu:
+
+| Thành phần | Kích thước | Mô tả |
+|---|---:|---|
+| MessageBase packet | `payload + 2` byte | Kết quả của `MessageBase.encode()`, chưa có `0xAA` |
+| UART wire frame | `payload + 3` byte | Toàn bộ dữ liệu thực sự được ghi xuống UART |
+
+`UartManagerV2.send_message()` tự thêm `0xAA` khi Python gửi. Khi nhận,
+`UartManagerV2._read_one_message()` đọc và kiểm tra `0xAA` trước, sau đó mới
+chuyển `payload + checksum` cho `MessageBase.decode_any()`.
+
+Firmware gửi message về Python phải tự thêm `0xAA`. Nếu thiếu byte này, UART
+manager sẽ bỏ frame. `start_byte` và `checksum` đều không thuộc payload.
 
 ---
 
@@ -52,8 +80,9 @@ Mọi payload đều bắt đầu bằng field `message_type` 1 byte:
 | ... | ... | Payload riêng | ... | Các field còn lại tùy từng message |
 
 Bên nhận chỉ cần đọc byte đầu tiên của payload để biết message thuộc loại nào.
-`MessageBase.decode_any(packet)` dùng byte này để tra registry và gọi đúng class
-decode tương ứng.
+`MessageBase.decode_any(message_packet)` dùng byte này để tra registry và gọi
+đúng class decode tương ứng. Byte `0xAA` đã được UART manager đọc bỏ trước bước
+này, vì vậy offset 0 trong các bảng payload bên dưới luôn là `message_type`.
 
 Tất cả số nhiều byte đều dùng little-endian theo `struct` format của Python.
 
@@ -65,7 +94,7 @@ Trong code hiện tại, `encode()` tạo checksum như sau:
 
 ```python
 crc = binascii.crc32(payload) & 0xFFFF
-packet = payload + struct.pack("<H", crc)
+message_packet = payload + struct.pack("<H", crc)
 ```
 
 Vì vậy, dù docstring gọi là CRC16, công thức thực tế là:
@@ -78,9 +107,10 @@ Lưu ý triển khai firmware:
 
 | Quy tắc | Mô tả |
 |---|---|
-| Vùng tính checksum | Chỉ tính trên `payload`, không tính 2 byte checksum cuối |
+| Vùng tính checksum | Chỉ tính trên `payload` |
+| Byte không tham gia checksum | Không tính `start_byte = 0xAA` và không tính 2 byte checksum cuối |
 | Kiểu lưu checksum | `uint16`, little-endian |
-| Khi checksum sai | Bỏ packet, coi như chưa nhận được |
+| Khi checksum sai | Bỏ frame, coi như chưa nhận được |
 
 ---
 
@@ -191,13 +221,14 @@ Payload:
 | 2 | 1 | `acked_type` | `uint8` | Loại message được ACK, ví dụ `TASK_ASSIGN`/`TASK_CANCEL`/`TASK_STATUS` |
 | 3 | 1 | `task_id` | `uint8` | Task cụ thể được ACK |
 
-Kích thước packet:
+Kích thước frame truyền qua UART:
 
 | Thành phần | Byte |
 |---|---:|
+| Start byte `0xAA` | 1 |
 | Payload | 4 |
 | Checksum | 2 |
-| Tổng packet | 6 |
+| Tổng UART frame | 7 |
 
 Ví dụ: ACK cho `TaskAssign` của `task_id=10` từ robot `1` thì
 `acked_type = MessageType.TASK_ASSIGN = 1`.
@@ -227,20 +258,21 @@ Payload:
 | 10 | 2 | `theta` | `int16` | Góc hướng, radian -> milliradian |
 | 12 | 1 | `state_code` | `uint8` | Xem `RobotStateCode` |
 
-Kích thước packet:
+Kích thước frame truyền qua UART:
 
 | Thành phần | Byte |
 |---|---:|
+| Start byte `0xAA` | 1 |
 | Payload | 13 |
 | Checksum | 2 |
-| Tổng packet | 15 |
+| Tổng UART frame | 16 |
 
 ---
 
 ### 7.3. TaskAssign
 
 `TaskAssign` là message Dispatcher gửi để giao đúng 1 điểm phục vụ cho robot.
-Mỗi packet chỉ chứa 1 task. Nếu cần giao nhiều điểm, gửi nhiều packet
+Mỗi frame chỉ chứa 1 task. Nếu cần giao nhiều điểm, gửi nhiều frame
 `TaskAssign` liên tiếp với các `task_id` khác nhau.
 
 Format trong code:
@@ -260,13 +292,14 @@ Payload:
 | 5 | 2 | `y` | `int16` | Vị trí y, mét -> centimet |
 | 7 | 2 | `theta` | `int16` | Góc đích, radian -> milliradian |
 
-Kích thước packet:
+Kích thước frame truyền qua UART:
 
 | Thành phần | Byte |
 |---|---:|
+| Start byte `0xAA` | 1 |
 | Payload | 9 |
 | Checksum | 2 |
-| Tổng packet | 11 |
+| Tổng UART frame | 12 |
 
 Ví dụ:
 
@@ -307,13 +340,14 @@ Payload:
 | 2 | 1 | `task_id` | `uint8` | Task được báo cáo |
 | 3 | 1 | `status_code` | `uint8` | Xem `TaskStatusCode` |
 
-Kích thước packet:
+Kích thước frame truyền qua UART:
 
 | Thành phần | Byte |
 |---|---:|
+| Start byte `0xAA` | 1 |
 | Payload | 4 |
 | Checksum | 2 |
-| Tổng packet | 6 |
+| Tổng UART frame | 7 |
 
 #### Quy tắc gửi TaskStatus
 
@@ -352,13 +386,14 @@ Payload:
 | 1 | 1 | `robot_id` | `uint8` | Robot đang giữ task |
 | 2 | 1 | `task_id` | `uint8` | Task cần hủy |
 
-Kích thước packet:
+Kích thước frame truyền qua UART:
 
 | Thành phần | Byte |
 |---|---:|
+| Start byte `0xAA` | 1 |
 | Payload | 3 |
 | Checksum | 2 |
-| Tổng packet | 5 |
+| Tổng UART frame | 6 |
 
 Ví dụ:
 
@@ -379,9 +414,13 @@ Giá trị raw trước checksum:
 ## 8. Lưu Ý Triển Khai Firmware
 
 - Không parse theo string, không parse JSON.
+- Mỗi UART frame phải bắt đầu bằng byte cố định `0xAA`.
 - Byte đầu tiên của payload luôn là `message_type`.
-- Mỗi packet kết thúc bằng 2 byte checksum little-endian.
-- Checksum tính trên payload, không tính trên 2 byte checksum cuối.
+- Mỗi frame kết thúc bằng 2 byte checksum little-endian.
+- Checksum chỉ tính trên payload; không tính byte bắt đầu `0xAA` và không tính
+  2 byte checksum cuối.
+- Khi Python gửi bằng `UartManagerV2.send_message()`, manager tự thêm `0xAA`.
+  Firmware gửi Heartbeat, TaskStatus hoặc ACK về Python phải tự thêm byte này.
 - Công thức checksum hiện tại là `crc32(payload) & 0xFFFF`, không phải biến thể
   CRC-16/CCITT truyền thống.
 - `task_id` hiện tại là `uint8`, tối đa 255. Nếu cần chạy lâu với nhiều task hơn,

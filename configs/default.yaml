@@ -2,7 +2,7 @@ auto_start: false
 detection:
   task: pose
   model_size: medium
-  batch_size: 2
+  batch_size: 1
   conf: 0.5
   verbose: false
 zone_state_machine:
@@ -101,22 +101,3 @@ cameras:
     - [1112, 572]
     - [1087, 556]
   id: gcphg
-- name: Camera 2
-  stream:
-    source: rtsp://admin:061223%40bC@192.168.0.15:554/Streaming/Channels/101
-    protocol: tcp
-    on_demand: true
-  enabled: true
-  zones:
-  - id: h44wo
-    name: Khai
-    goal_pose:
-      x: 7.428926944732666
-      y: -5.026613712310791
-      theta: 1.621917724609375
-    points:
-    - [1150, 579]
-    - [1524, 515]
-    - [1619, 747]
-    - [1174, 849]
-  id: lx6ug

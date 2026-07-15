@@ -58,9 +58,15 @@ class RuntimeManager:
                     )
 
                 from uart_v2.uart_manager import uart_manager_v2
+                from api.services.robot_heartbeat import robot_heartbeat_service
 
                 runtime_config = build_runtime_config(config_path, show=preview)
-                runtime = Runtime(runtime_config, robot_uart=uart_manager_v2)
+                runtime = Runtime(
+                    runtime_config,
+                    robot_uart=uart_manager_v2,
+                    robot_state_store=robot_heartbeat_service.state_store,
+                    register_robot_heartbeat_handler=False,
+                )
                 thread = threading.Thread(
                     target=self._run_runtime,
                     args=(runtime,),

@@ -73,9 +73,11 @@ def run_startup_tasks() -> None:
 
     try:
         from api.services.manual_robot_task import manual_robot_task_service
+        from api.services.robot_heartbeat import robot_heartbeat_service
         from uart_v2.uart_manager import uart_manager_v2
 
         manual_robot_task_service.register_uart_handlers()
+        robot_heartbeat_service.register_uart_handler(uart_manager_v2)
         if not uart_manager_v2.connect():
             LOGGER.error("Failed to initialize UART V2: %s", uart_manager_v2.last_error)
     except Exception as e:
@@ -101,9 +103,11 @@ def run_shutdown_tasks() -> None:
 
     try:
         from api.services.manual_robot_task import manual_robot_task_service
+        from api.services.robot_heartbeat import robot_heartbeat_service
         from uart_v2.uart_manager import uart_manager_v2
 
         manual_robot_task_service.close()
+        robot_heartbeat_service.close()
         uart_manager_v2.close()
     except Exception as e:
         LOGGER.error(f"Failed to close UART V2: {e}")
