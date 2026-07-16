@@ -38,6 +38,7 @@ import {
   useUartStatus,
 } from "@/hooks/use-uart"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
+import { cn } from "@/lib/utils"
 
 
 const COMMON_PORTS = [
@@ -219,7 +220,7 @@ function RobotHeartbeatCard() {
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
             <div className="flex size-9 items-center justify-center rounded-md bg-background ring-1 ring-border">
-              <Bot className="size-4 text-muted-foreground" />
+              <Bot className="size-4 text-violet-500" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Tổng robot</p>
@@ -255,13 +256,13 @@ function RobotHeartbeatCard() {
         </div>
 
         <div className="overflow-hidden rounded-lg border">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead>Robot</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead>Heartbeat</TableHead>
-                <TableHead>Pose</TableHead>
+                <TableHead className="w-40">Robot</TableHead>
+                <TableHead className="w-28">Trạng thái</TableHead>
+                <TableHead className="w-40">Heartbeat</TableHead>
+                <TableHead className="w-56">Pose</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -275,7 +276,7 @@ function RobotHeartbeatCard() {
                         <span
                           className={`size-2 rounded-full ${robot.online ? "bg-emerald-500" : "bg-zinc-400"}`}
                         />
-                        <span className="font-medium">Robot #{robot.robot_id}</span>
+                        <span className="truncate font-medium">Robot #{robot.robot_id}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -285,8 +286,8 @@ function RobotHeartbeatCard() {
                     </TableCell>
                     <TableCell>
                       <div className="space-y-0.5">
-                        <p>{new Date(robot.heartbeat_timestamp * 1000).toLocaleTimeString("vi-VN", { hour12: false })}</p>
-                        <p className={robot.online ? "text-xs text-emerald-600" : "text-xs text-muted-foreground"}>
+                        <p className="truncate">{new Date(robot.heartbeat_timestamp * 1000).toLocaleTimeString("vi-VN", { hour12: false })}</p>
+                        <p className={cn("truncate", robot.online ? "text-xs text-emerald-600" : "text-xs text-muted-foreground")}>
                           {Math.floor(robot.heartbeat_age_seconds)} giây trước
                         </p>
                       </div>

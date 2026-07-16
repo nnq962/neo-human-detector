@@ -15,9 +15,9 @@ from src.robot_dispatch_v2.datatypes import MessageBase, MessageType
 DEFAULT_PORT = "/dev/ttyS4"
 DEFAULT_BAUDRATE = 115200
 DEFAULT_TIMEOUT = 1
-CRC_SIZE = 2  # số byte checksum (crc32(payload) & 0xFFFF), khớp struct.pack('<H', crc) trong MessageBase.encode()
 ACK_TTL = 30.0  # giây; ACK không ai wait_for_ack() nhận trong khoảng này sẽ bị dọn khỏi _received_acks
 BINARY_START_BYTE = 0xAA  # byte đánh dấu đầu mỗi gói nhị phân
+MAX_BODY_SIZE = 0xFF  # LENGTH là uint8, nên phần thân (message_type+payload+checksum) tối đa 255 byte
 CONFIG_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "configs/default.yaml",
@@ -30,12 +30,14 @@ class UartManagerV2:
     Phiên bản UART manager chỉ xử lý giao thức nhị phân (không còn JSON/string).
 
     Khung mỗi gói tin trên dây (wire format):
-        [BINARY_START_BYTE][payload theo FORMAT của message][checksum]
-                1 byte              N byte (tùy loại message)      2 byte
+        [BINARY_START_BYTE][LENGTH][message_type + payload + checksum]
+                1 byte      1 byte      N byte (= giá trị của LENGTH)
 
-    Vì mỗi loại message có kích thước CỐ ĐỊNH (tra qua MessageBase._registry),
-    bên nhận không cần dấu kết thúc kiểu '\\n' như bản JSON/string cũ - chỉ cần
-    biết message_type là biết chính xác cần đọc thêm bao nhiêu byte.
+    LENGTH là tổng số byte còn lại NGAY SAU chính nó (message_type + payload +
+    checksum gộp lại), không phụ thuộc vào MessageBase._registry hay FORMAT của
+    từng loại message. Nhờ vậy bên đọc (kể cả một bên trung gian chỉ forward dữ
+    liệu, không biết ý nghĩa từng loại message) vẫn xác định được chính xác
+    điểm kết thúc gói: đọc 1 byte LENGTH rồi đọc đúng bấy nhiêu byte tiếp theo.
     """
 
     def __init__(
@@ -171,11 +173,20 @@ class UartManagerV2:
     def send_message(self, message: MessageBase) -> bool:
         """Đóng gói 1 object message (Heartbeat, TaskAssign, ...) thành nhị phân và gửi đi."""
         try:
-            packet = bytes([BINARY_START_BYTE]) + message.encode()
+            body = message.encode()  # message_type + payload + checksum
         except struct.error as e:
             self.last_error = str(e)
             LOGGER.error(f"Dữ liệu vượt phạm vi kiểu khi encode {type(message).__name__}: {e}")
             return False
+
+        if len(body) > MAX_BODY_SIZE:
+            self.last_error = (
+                f"{type(message).__name__} dài {len(body)} byte, vượt giới hạn LENGTH 1 byte ({MAX_BODY_SIZE})."
+            )
+            LOGGER.error(self.last_error)
+            return False
+
+        packet = bytes([BINARY_START_BYTE, len(body)]) + body
 
         with self._lock:
             conn = self.serial_conn
@@ -340,8 +351,8 @@ class UartManagerV2:
     # ─────────────────────────────────────────────────────────────────────────
     def _read_one_message(self) -> Optional[MessageBase]:
         """Đọc đúng 1 gói nhị phân hoàn chỉnh từ UART (blocking theo số byte cần thiết,
-        không dùng readline). Trả None nếu chưa có gói, sai start byte, message_type
-        không rõ, đọc thiếu byte, hoặc CRC sai."""
+        không dùng readline). Trả None nếu chưa có gói, sai start byte, đọc thiếu byte,
+        message_type không rõ, hoặc CRC sai."""
         with self._lock:
             conn = self.serial_conn
             if conn is None or not conn.is_open:
@@ -356,24 +367,15 @@ class UartManagerV2:
                     LOGGER.warning(f"Byte đầu không khớp start byte nhị phân: {start!r}")
                     return None
 
-                type_byte = conn.read(1)
-                if not type_byte:
+                length_byte = conn.read(1)
+                if not length_byte:
                     return None
-                message_type = type_byte[0]
+                length = length_byte[0]
 
-                msg_class = MessageBase._registry.get(message_type)
-                if msg_class is None:
-                    LOGGER.warning(f"Không rõ message_type nhị phân: {message_type}")
-                    return None
-
-                payload_size = struct.calcsize(msg_class.FORMAT)
-                remaining = payload_size - 1 + CRC_SIZE  # -1 vì message_type đã đọc ở trên
-                rest = conn.read(remaining)
-                if len(rest) != remaining:
+                packet = conn.read(length)
+                if len(packet) != length:
                     LOGGER.warning("Đọc thiếu byte, gói nhị phân không đầy đủ.")
                     return None
-
-                packet = type_byte + rest
             except Exception as e:
                 self.last_error = str(e)
                 LOGGER.error(f"Lỗi khi đọc message nhị phân: {e}")
@@ -381,7 +383,7 @@ class UartManagerV2:
 
         message = MessageBase.decode_any(packet)
         if message is None:
-            LOGGER.warning("CRC sai, bỏ qua gói nhị phân.")
+            LOGGER.warning("Không giải mã được gói nhị phân (CRC sai hoặc message_type không rõ).")
         return message
 
     # ─────────────────────────────────────────────────────────────────────────

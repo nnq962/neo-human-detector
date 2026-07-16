@@ -10,7 +10,7 @@ export function DashboardLayout() {
     <SidebarProvider>
       <AppSidebar />
 
-      <main className="flex min-h-screen flex-1 flex-col">
+      <main className="flex min-w-0 min-h-screen flex-1 flex-col">
         <AppHeader />
 
         <div className="flex-1 p-6">
