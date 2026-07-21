@@ -229,6 +229,13 @@ def get_runtime_status() -> dict:
     return runtime_manager.status()
 
 
+def get_runtime_tasks() -> dict:
+    """Trả read-model task của phiên runtime hiện tại."""
+    from src.robot_dispatch_v2 import runtime_task_activity_store
+
+    return runtime_task_activity_store.snapshot()
+
+
 def start_runtime(command: Optional[RuntimeCommandRequest] = None) -> dict:
     return runtime_manager.start(command)
 

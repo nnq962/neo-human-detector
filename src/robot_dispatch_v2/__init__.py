@@ -8,6 +8,11 @@ from src.robot_dispatch_v2.task_registry import (
     TaskRegistry,
     TaskRegistryFull,
 )
+from src.robot_dispatch_v2.task_activity import (
+    TaskActivity,
+    TaskActivityStore,
+    runtime_task_activity_store,
+)
 
 __all__ = [
     "AssignedTask",
@@ -17,4 +22,7 @@ __all__ = [
     "RobotStateStore",
     "TaskRegistry",
     "TaskRegistryFull",
+    "TaskActivity",
+    "TaskActivityStore",
+    "runtime_task_activity_store",
 ]

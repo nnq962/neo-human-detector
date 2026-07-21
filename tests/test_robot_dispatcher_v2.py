@@ -11,7 +11,11 @@ from src.dispatch_decision import (
     ReIdDecisionPolicy,
     ZoneServiceState,
 )
-from src.robot_dispatch_v2 import RobotDispatcherV2, TaskRegistry
+from src.robot_dispatch_v2 import (
+    RobotDispatcherV2,
+    TaskActivityStore,
+    TaskRegistry,
+)
 from src.robot_dispatch_v2.datatypes import (
     Ack,
     Heartbeat,
@@ -407,3 +411,78 @@ def test_process_zones_forwards_reid_inputs_to_decision_engine() -> None:
     ]
     assert decisions[0].person_global_id == 42
     assert dispatcher.get_assigned_task(zone.id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_task_activity_keeps_terminal_task_history() -> None:
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-1")
+
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    assigned = activity_store.snapshot()["tasks"][0]
+    assert assigned["status"] == "ASSIGNED"
+    assert assigned["robot_id"] == 1
+    assert assigned["task_id"] == 0
+    assert assigned["camera_id"] == "camera-1"
+    assert assigned["zone_name"] == "zone-1"
+    assert assigned["goal_pose"] == {"x": 1.0, "y": 2.0, "theta": 0.0}
+
+    dispatcher.on_task_status(
+        TaskStatus(
+            robot_id=1,
+            task_id=0,
+            status_code=TaskStatusCode.IN_PROGRESS,
+        )
+    )
+    assert activity_store.snapshot()["tasks"][0]["status"] == "IN_PROGRESS"
+
+    dispatcher.on_task_status(
+        TaskStatus(
+            robot_id=1,
+            task_id=0,
+            status_code=TaskStatusCode.COMPLETED,
+        )
+    )
+    snapshot = activity_store.snapshot()
+    assert snapshot["active"] == 0
+    assert snapshot["completed"] == 1
+    assert snapshot["tasks"][0]["status"] == "COMPLETED"
+    assert snapshot["tasks"][0]["completed_at"] is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_task_activity_tracks_assign_retry_and_cancel() -> None:
+    uart = FakeUart()
+    uart.set_outcomes(TaskAssign, False, True)
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-1")
+
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    first_snapshot = activity_store.snapshot()
+    assert first_snapshot["tasks"][0]["status"] == "ASSIGNING"
+    assert first_snapshot["tasks"][0]["retry_count"] == 1
+
+    assert dispatcher.tick() == 1
+    assert activity_store.snapshot()["tasks"][0]["status"] == "ASSIGNED"
+
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_CANCEL, zone)
+    )
+    snapshot = activity_store.snapshot()
+    assert snapshot["canceled"] == 1
+    assert snapshot["tasks"][0]["status"] == "CANCELED"

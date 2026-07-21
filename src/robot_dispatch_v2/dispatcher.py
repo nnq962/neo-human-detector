@@ -28,6 +28,7 @@ from src.robot_dispatch_v2.task_registry import (
     TaskRegistry,
     TaskRegistryFull,
 )
+from src.robot_dispatch_v2.task_activity import TaskActivityStore
 from src.zones_management import Zone
 from utils import LOGGER
 
@@ -70,6 +71,7 @@ class _PendingAssignment:
     theta: float
     robot_id: Optional[int] = None
     task_id: Optional[int] = None
+    activity_id: str = ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +95,7 @@ class RobotDispatcherV2:
         decision_engine: Optional[DispatchDecisionEngine] = None,
         robot_state_store: Optional[RobotStateStore] = None,
         task_registry: Optional[TaskRegistry] = None,
+        task_activity_store: Optional[TaskActivityStore] = None,
         ack_timeout_seconds: float = DEFAULT_ACK_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         register_handlers: bool = True,
@@ -103,6 +106,7 @@ class RobotDispatcherV2:
         self._decision_engine = decision_engine or DispatchDecisionEngine()
         self._robot_state_store = robot_state_store or RobotStateStore()
         self._task_registry = task_registry or TaskRegistry()
+        self._task_activity_store = task_activity_store or TaskActivityStore()
         self._ack_timeout_seconds = ack_timeout_seconds
         self._max_retries = max_retries
         self._register_heartbeat_handler = register_heartbeat_handler
@@ -127,6 +131,11 @@ class RobotDispatcherV2:
     def robot_state_store(self) -> RobotStateStore:
         """Kho snapshot robot được cập nhật từ Heartbeat."""
         return self._robot_state_store
+
+    @property
+    def task_activity_store(self) -> TaskActivityStore:
+        """Read-model task được cập nhật theo lifecycle thực thi."""
+        return self._task_activity_store
 
     # ─────────────────────────────────────────────────────────────────────────
     def register_uart_handlers(self) -> None:
@@ -225,6 +234,14 @@ class RobotDispatcherV2:
                 self._decision_engine.on_service_request_failed(decision.zone_id)
                 return False
 
+            activity_id = self._task_activity_store.create_assignment(
+                decision,
+                x=pending.x,
+                y=pending.y,
+                theta=pending.theta,
+            )
+            pending = replace(pending, activity_id=activity_id)
+
             with self._lock:
                 waiting_for_cancel = (
                     decision.zone_id in self._pending_cancellations
@@ -238,6 +255,12 @@ class RobotDispatcherV2:
             return self._try_assign(pending)
 
         if decision.action is DispatchAction.TASK_CANCEL:
+            task = self._task_registry.get_by_zone(decision.zone_id)
+            self._task_activity_store.mark_cancel_requested(
+                decision.zone_id,
+                robot_id=task.robot_id if task is not None else None,
+                task_id=task.task_id if task is not None else None,
+            )
             with self._lock:
                 # Dừng việc retry TaskAssign khi đã phát sinh TaskCancel.
                 self._pending_assignments.pop(decision.zone_id, None)
@@ -323,11 +346,19 @@ class RobotDispatcherV2:
         self._remove_pending_assignment(task.zone_id)
 
         if status is TaskStatusCode.COMPLETED:
+            self._task_activity_store.mark_completed(
+                message.robot_id,
+                message.task_id,
+            )
             released = self._task_registry.release(message.robot_id, message.task_id)
             if released is not None:
                 self._decision_engine.on_service_completed(released.zone_id)
 
         elif status is TaskStatusCode.FAILED:
+            self._task_activity_store.mark_failed(
+                message.robot_id,
+                message.task_id,
+            )
             # Không tự giao lại task vì retry nghiệp vụ cần policy riêng.
             released = self._task_registry.release(message.robot_id, message.task_id)
             if released is not None:
@@ -337,6 +368,12 @@ class RobotDispatcherV2:
                 message.robot_id,
                 message.task_id,
                 task.zone_id,
+            )
+
+        elif status is TaskStatusCode.IN_PROGRESS:
+            self._task_activity_store.mark_in_progress(
+                message.robot_id,
+                message.task_id,
             )
 
         self._send_task_status_ack(message)
@@ -404,6 +441,12 @@ class RobotDispatcherV2:
             with self._lock:
                 self._pending_assignments[pending.zone_id] = pending
 
+        self._task_activity_store.mark_assigning(
+            pending.activity_id,
+            task.robot_id,
+            task.task_id,
+        )
+
         message = TaskAssign(
             robot_id=task.robot_id,
             task_id=task.task_id,
@@ -419,6 +462,7 @@ class RobotDispatcherV2:
             max_retries=self._max_retries,
         )
         if not sent:
+            self._task_activity_store.increment_retry(pending.activity_id)
             LOGGER.warning(
                 "Chưa nhận ACK cho TaskAssign; giữ nguyên task để thử lại: "
                 "zone_id=%s, robot_id=%s, task_id=%s",
@@ -429,6 +473,7 @@ class RobotDispatcherV2:
             return False
 
         self._remove_pending_assignment(pending.zone_id)
+        self._task_activity_store.mark_assigned(pending.activity_id)
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -436,6 +481,7 @@ class RobotDispatcherV2:
         """Thử gửi TaskCancel cho task hiện tại của zone."""
         task = self._task_registry.get_by_zone(zone_id)
         if task is None:
+            self._task_activity_store.mark_canceled(zone_id)
             self._decision_engine.on_service_cancelled(zone_id)
             self._remove_pending_cancellation(zone_id)
             return True
@@ -448,6 +494,10 @@ class RobotDispatcherV2:
             max_retries=self._max_retries,
         )
         if not sent:
+            self._task_activity_store.increment_cancel_retry(
+                task.robot_id,
+                task.task_id,
+            )
             LOGGER.warning(
                 "Gửi TaskCancel chưa thành công; giữ decision để thử lại: "
                 "zone_id=%s, robot_id=%s, task_id=%s",
@@ -457,6 +507,11 @@ class RobotDispatcherV2:
             )
             return False
 
+        self._task_activity_store.mark_canceled(
+            zone_id,
+            robot_id=task.robot_id,
+            task_id=task.task_id,
+        )
         self._task_registry.release(task.robot_id, task.task_id)
         self._decision_engine.on_service_cancelled(zone_id)
         self._remove_pending_cancellation(zone_id)

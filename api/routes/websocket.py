@@ -14,6 +14,7 @@ router = APIRouter()
 MIN_RUNTIME_STATUS_INTERVAL_SECONDS = 0.2
 MAX_RUNTIME_STATUS_INTERVAL_SECONDS = 10.0
 ROBOT_HEARTBEAT_INTERVAL_SECONDS = 1.0
+RUNTIME_TASK_INTERVAL_SECONDS = 0.5
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -83,6 +84,28 @@ async def uart_robots_websocket(websocket: WebSocket):
             await asyncio.sleep(ROBOT_HEARTBEAT_INTERVAL_SECONDS)
     except WebSocketDisconnect:
         LOGGER.info("Client disconnected from /ws/uart/robots")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Gửi read-model task của phiên runtime hiện tại.
+@router.websocket("/ws/runtime/tasks")
+async def runtime_tasks_websocket(websocket: WebSocket):
+    await websocket.accept()
+    LOGGER.info("Client connected to /ws/runtime/tasks")
+
+    try:
+        while True:
+            await websocket.send_json(
+                jsonable_encoder(
+                    ok(
+                        "Runtime task snapshot loaded successfully.",
+                        runtime_service.get_runtime_tasks(),
+                    )
+                )
+            )
+            await asyncio.sleep(RUNTIME_TASK_INTERVAL_SECONDS)
+    except WebSocketDisconnect:
+        LOGGER.info("Client disconnected from /ws/runtime/tasks")
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -22,7 +22,7 @@ from src.dispatch_decision import (
 )
 from src.media_sources import MediaSources
 from src.reid import ReIdPipeline
-from src.robot_dispatch_v2 import RobotDispatcherV2
+from src.robot_dispatch_v2 import RobotDispatcherV2, runtime_task_activity_store
 from src.visualization import (
     draw_detections,
     draw_status_bar,
@@ -261,6 +261,7 @@ class Runtime:
         if self.config.reid.enabled:
             self.reid_pipeline = ReIdPipeline.from_config(self.config.reid)
 
+        runtime_task_activity_store.reset()
         if self.config.robot_dispatch.enabled:
             self.robot_dispatcher = self._build_robot_dispatcher(cfg)
 
@@ -380,6 +381,7 @@ class Runtime:
             robot_uart,
             decision_engine=decision_engine,
             robot_state_store=self._robot_state_store,
+            task_activity_store=runtime_task_activity_store,
             ack_timeout_seconds=robot_config.ack_timeout_seconds,
             max_retries=robot_config.max_retries,
             register_heartbeat_handler=self._register_robot_heartbeat_handler,

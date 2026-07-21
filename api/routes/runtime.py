@@ -18,6 +18,17 @@ def get_runtime_status():
         return error_from_exception(error, conflict_on_value_error=True)
 
 
+@router.get("/tasks", response_model=ApiResponse)
+def get_runtime_tasks():
+    try:
+        return ok(
+            "Runtime task snapshot loaded successfully.",
+            runtime_service.get_runtime_tasks(),
+        )
+    except Exception as error:
+        return error_from_exception(error)
+
+
 @router.post("/start", response_model=ApiResponse)
 def start_runtime(command: Optional[RuntimeCommandRequest] = None):
     try:
