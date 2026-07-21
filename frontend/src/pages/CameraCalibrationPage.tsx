@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCamera } from "@/hooks/use-camera"
+import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
 import {
   createCalibrationPointPositions,
   type CalibrationPointPosition,
@@ -44,12 +45,6 @@ const POINT_LAYOUT_OPTIONS = [
   { size: 4, label: "4×4 - 16 điểm" },
 ]
 
-const MOCK_ROBOTS = [
-  { id: "robot-1", name: "Robot #1", online: true, x: 1.25, y: 2.4 },
-  { id: "robot-2", name: "Robot #2", online: true, x: 4.82, y: 1.13 },
-  { id: "robot-3", name: "Robot #3", online: false, x: 0.65, y: 5.21 },
-]
-
 interface RobotCoordinateValue {
   robotId: string
   x: string
@@ -58,7 +53,7 @@ interface RobotCoordinateValue {
 }
 
 const EMPTY_ROBOT_COORDINATE: RobotCoordinateValue = {
-  robotId: MOCK_ROBOTS[0].id,
+  robotId: "",
   x: "",
   y: "",
   source: null,
@@ -67,6 +62,8 @@ const EMPTY_ROBOT_COORDINATE: RobotCoordinateValue = {
 export function CameraCalibrationPage() {
   const { id = "" } = useParams<{ id: string }>()
   const { data: camera, isLoading, isError } = useCamera(id)
+  const { snapshot: robotSnapshot, connected: robotsConnected } =
+    useRobotHeartbeats()
   const [pointLayoutSize, setPointLayoutSize] = useState(2)
   const [points, setPoints] = useState<CalibrationPointPosition[]>(() =>
     createCalibrationPointPositions(2),
@@ -101,11 +98,21 @@ export function CameraCalibrationPage() {
 
   const selectedPoint =
     points.find((point) => point.id === selectedPointId) ?? null
+  const robots = robotSnapshot?.robots ?? []
+  const defaultRobotId = String(
+    robots.find((robot) => robot.online)?.robot_id ??
+      robots[0]?.robot_id ??
+      "",
+  )
+  const defaultRobotCoordinate: RobotCoordinateValue = {
+    ...EMPTY_ROBOT_COORDINATE,
+    robotId: defaultRobotId,
+  }
   const selectedCoordinate = selectedPoint
-    ? (robotCoordinates[selectedPoint.id] ?? EMPTY_ROBOT_COORDINATE)
+    ? (robotCoordinates[selectedPoint.id] ?? defaultRobotCoordinate)
     : null
-  const selectedRobot = MOCK_ROBOTS.find(
-    (robot) => robot.id === selectedCoordinate?.robotId,
+  const selectedRobot = robots.find(
+    (robot) => String(robot.robot_id) === selectedCoordinate?.robotId,
   )
   const savedSelectedCoordinate = selectedPoint
     ? savedRobotCoordinates[selectedPoint.id]
@@ -118,7 +125,8 @@ export function CameraCalibrationPage() {
       selectedCoordinate.y === savedSelectedCoordinate.y,
   )
   const canSaveSelectedCoordinate = Boolean(
-    selectedCoordinate?.x.trim() &&
+    selectedCoordinate?.robotId &&
+      selectedCoordinate.x.trim() &&
       selectedCoordinate.y.trim() &&
       Number.isFinite(Number(selectedCoordinate.x)) &&
       Number.isFinite(Number(selectedCoordinate.y)),
@@ -131,7 +139,7 @@ export function CameraCalibrationPage() {
     setRobotCoordinates((current) => ({
       ...current,
       [selectedPoint.id]: {
-        ...(current[selectedPoint.id] ?? EMPTY_ROBOT_COORDINATE),
+        ...(current[selectedPoint.id] ?? defaultRobotCoordinate),
         ...updates,
       },
     }))
@@ -155,7 +163,7 @@ export function CameraCalibrationPage() {
       ...current,
       [selectedPoint.id]: { ...selectedCoordinate },
     }))
-    toast.success(`Đã lưu tọa độ mock cho ${selectedPoint.label}.`)
+    toast.success(`Đã lưu tạm tọa độ cho ${selectedPoint.label}.`)
   }
 
   function changePointLayout(value: string) {
@@ -326,8 +334,18 @@ export function CameraCalibrationPage() {
                           <label className="text-xs font-medium">
                             Robot tham chiếu
                           </label>
-                          <Badge variant="secondary" className="text-[10px]">
-                            Mock data
+                          <Badge
+                            variant={robotsConnected ? "secondary" : "outline"}
+                            className="gap-1.5 text-[10px]"
+                          >
+                            <span
+                              className={`size-1.5 rounded-full ${robotsConnected ? "bg-emerald-500" : "bg-amber-500"}`}
+                            />
+                            {robotsConnected
+                              ? "Realtime"
+                              : robotSnapshot
+                                ? "Snapshot"
+                                : "Đang tải"}
                           </Badge>
                         </div>
                         <Select
@@ -335,18 +353,22 @@ export function CameraCalibrationPage() {
                           onValueChange={(robotId) =>
                             updateSelectedCoordinate({ robotId, source: null })
                           }
+                          disabled={robots.length === 0}
                         >
                           <SelectTrigger className="w-full">
-                            <SelectValue />
+                            <SelectValue placeholder="Chưa có robot" />
                           </SelectTrigger>
                           <SelectContent position="popper">
-                            {MOCK_ROBOTS.map((robot) => (
-                              <SelectItem key={robot.id} value={robot.id}>
+                            {robots.map((robot) => (
+                              <SelectItem
+                                key={robot.robot_id}
+                                value={String(robot.robot_id)}
+                              >
                                 <span className="flex items-center gap-2">
                                   <span
                                     className={`size-2 rounded-full ${robot.online ? "bg-emerald-500" : "bg-zinc-400"}`}
                                   />
-                                  {robot.name}
+                                  Robot #{robot.robot_id}
                                   {!robot.online && " · Offline"}
                                 </span>
                               </SelectItem>
@@ -416,7 +438,9 @@ export function CameraCalibrationPage() {
                           <LocateFixed />
                           {selectedRobot?.online
                             ? "Lấy vị trí robot hiện tại"
-                            : "Robot đang offline"}
+                            : selectedRobot
+                              ? "Robot đang offline"
+                              : "Chưa có robot"}
                         </Button>
                         <Button
                           type="button"
@@ -438,12 +462,14 @@ export function CameraCalibrationPage() {
                       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                         <Bot className="size-3.5 shrink-0" />
                         {selectedCoordinate.source === "robot"
-                          ? `Đã lấy pose mock từ ${selectedRobot?.name}.`
+                          ? `Đã lấy pose từ Robot #${selectedRobot?.robot_id}.`
                           : selectedCoordinate.source === "manual"
                             ? "Tọa độ đang được nhập thủ công."
-                            : selectedRobot?.online
-                              ? `Pose hiện tại: X ${selectedRobot.x.toFixed(2)} · Y ${selectedRobot.y.toFixed(2)} m`
-                              : "Không có pose mới vì robot đang offline."}
+                            : !selectedRobot
+                              ? "Chưa nhận được heartbeat từ robot."
+                              : selectedRobot.online
+                                ? `Pose mới nhất: X ${selectedRobot.x.toFixed(2)} · Y ${selectedRobot.y.toFixed(2)} m · ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s trước`
+                                : `Heartbeat đã cũ ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s; không nên dùng pose này.`}
                       </div>
                     </div>
                   </div>
