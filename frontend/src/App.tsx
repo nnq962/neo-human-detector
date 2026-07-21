@@ -9,6 +9,11 @@ const DashboardPage = lazy(() =>
 const CameraPage = lazy(() =>
   import("@/pages/CameraPage").then((m) => ({ default: m.CameraPage })),
 )
+const CameraCalibrationPage = lazy(() =>
+  import("@/pages/CameraCalibrationPage").then((m) => ({
+    default: m.CameraCalibrationPage,
+  })),
+)
 const UartPage = lazy(() =>
   import("@/pages/UartPage").then((m) => ({ default: m.UartPage })),
 )
@@ -29,6 +34,10 @@ function App() {
         <Route element={<DashboardLayout />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/cameras/:id" element={<CameraPage />} />
+          <Route
+            path="/calibration/cameras/:id"
+            element={<CameraCalibrationPage />}
+          />
           <Route path="/uart" element={<UartPage />} />
           <Route path="/re-id" element={<ReidPage />} />
           <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />

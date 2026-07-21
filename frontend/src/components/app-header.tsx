@@ -9,6 +9,7 @@ import { useCameras } from "@/hooks/use-cameras"
 
 const SEGMENT_LABELS: Record<string, string> = {
   cameras: "Cameras",
+  calibration: "Calibration",
   detection: "Detection",
   "zone-state-machine": "Zone State Machine",
   "re-id": "Re-ID",
@@ -21,10 +22,16 @@ function useBreadcrumbs() {
 
   if (pathname === "/") return ["Dashboard"]
 
-  return pathname
+  const segments = pathname
     .split("/")
     .filter(Boolean)
-    .map((seg) => {
+
+  const breadcrumbSegments =
+    segments[0] === "calibration" && segments[1] === "cameras"
+      ? [segments[0], ...segments.slice(2)]
+      : segments
+
+  return breadcrumbSegments.map((seg) => {
       const camera = cameras?.find((c) => c.id === seg)
       if (camera) return camera.name
       return SEGMENT_LABELS[seg] ?? seg
@@ -52,23 +59,30 @@ export function AppHeader() {
   const breadcrumbs = useBreadcrumbs()
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background px-4">
+    <header className="sticky top-0 z-40 flex h-14 min-w-0 items-center gap-3 border-b bg-background px-4">
       <SidebarTrigger />
 
       <div className="h-4 w-px shrink-0 bg-border" />
 
-      <nav className="flex items-center gap-1.5 text-sm">
+      <nav className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm">
         {breadcrumbs.map((label, i) => (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={i} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <span className="text-muted-foreground/40">/</span>}
-            <span className={cn(i < breadcrumbs.length - 1 ? "text-muted-foreground" : "font-medium")}>
+            <span
+              className={cn(
+                "truncate",
+                i < breadcrumbs.length - 1
+                  ? "text-muted-foreground"
+                  : "font-medium",
+              )}
+            >
               {label}
             </span>
           </span>
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
         <RuntimeStatusIndicator />
         <ThemeToggle />
       </div>

@@ -316,6 +316,7 @@ export interface CameraPreviewProps {
   /** Bật overlay detection realtime cho camera này (subscribe WS dùng chung). */
   bboxCameraId?: string | null
   hideFaceKeypoints?: boolean
+  onVideoSizeChange?: (size: VideoSize | null) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -334,6 +335,7 @@ export function CameraPreview({
   onZoneSelect,
   bboxCameraId = null,
   hideFaceKeypoints = false,
+  onVideoSizeChange,
 }: CameraPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -642,7 +644,7 @@ export function CameraPreview({
     if (!video) return
 
     if (!endpointUrl) {
-      setStatus("error"); setError("Thiếu stream URL"); setResolution("Unavailable"); return
+      setStatus("error"); setError("Thiếu stream URL"); setResolution("Unavailable"); onVideoSizeChange?.(null); return
     }
 
     let disposed = false
@@ -654,6 +656,7 @@ export function CameraPreview({
       const { videoWidth: w, videoHeight: h } = video
       setResolution(w > 0 && h > 0 ? `${w} × ${h}` : "Detecting...")
       setVideoSize({ width: w, height: h })
+      onVideoSizeChange?.(w > 0 && h > 0 ? { width: w, height: h } : null)
     }
 
     const clearReconnectTimer = () => {
@@ -778,7 +781,7 @@ export function CameraPreview({
       video.removeEventListener("resize", updateResolution)
       closeCurrentConnection()
     }
-  }, [src, reconnectKey])
+  }, [src, reconnectKey, onVideoSizeChange])
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (

@@ -101,3 +101,11 @@ cameras:
     - [1112, 572]
     - [1087, 556]
   id: gcphg
+- name: hihi
+  stream:
+    source: rtsp://admin:061223%40bC@192.168.0.15:554/Streaming/Channels/101
+    protocol: tcp
+    on_demand: true
+  enabled: true
+  zones: []
+  id: xzyi9

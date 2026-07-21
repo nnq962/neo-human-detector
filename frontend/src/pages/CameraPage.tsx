@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -132,9 +138,25 @@ export function CameraPage() {
   // Zone delete dialog
   const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null)
   const [isDeletingZone, setIsDeletingZone] = useState(false)
+  const videoPanelRef = useRef<HTMLDivElement>(null)
+  const [videoPanelHeight, setVideoPanelHeight] = useState<number | null>(null)
 
   const isInteracting = isAddingZone || isEditingVertices
   const displayZones  = isEditingVertices ? draftZones : (camera?.zones ?? [])
+
+  useEffect(() => {
+    const element = videoPanelRef.current
+    if (!element) return
+
+    const updateHeight = () => {
+      setVideoPanelHeight(Math.round(element.getBoundingClientRect().height))
+    }
+
+    updateHeight()
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [camera])
 
   useEffect(() => {
     setEditOpen(false)
@@ -392,10 +414,13 @@ export function CameraPage() {
           </CardHeader>
 
           <CardContent className="p-0">
-            <div className="flex flex-col md:flex-row md:h-[500px] overflow-hidden">
+            <div className="flex flex-col overflow-hidden md:grid md:grid-cols-[minmax(0,1fr)_16rem]">
 
               {/* Video */}
-              <div className="relative h-[260px] md:h-auto md:flex-1 overflow-hidden">
+              <div
+                ref={videoPanelRef}
+                className="relative aspect-video w-full min-w-0 self-start overflow-hidden bg-black"
+              >
                 <CameraPreview
                   src={camera.webrtc_address ?? ""}
                   zones={displayZones}
@@ -409,7 +434,16 @@ export function CameraPage() {
               </div>
 
               {/* Zone panel */}
-              <div className="flex h-[475px] w-full shrink-0 flex-col border-t md:h-auto md:w-64 md:border-l md:border-t-0">
+              <div
+                className="flex h-[475px] min-h-0 w-full flex-col overflow-hidden border-t md:h-[var(--camera-video-height)] md:w-auto md:border-l md:border-t-0"
+                style={
+                  {
+                    "--camera-video-height": videoPanelHeight
+                      ? `${videoPanelHeight}px`
+                      : "auto",
+                  } as CSSProperties
+                }
+              >
                 {isInteracting ? (
                   <>
                     {/* Header */}

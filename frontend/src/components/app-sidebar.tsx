@@ -5,6 +5,7 @@ import {
   Camera,
   ChevronRight,
   Cpu,
+  Crosshair,
   Fingerprint,
   GitBranch,
   LayoutDashboard,
@@ -43,6 +44,9 @@ const navItems = [
 export function AppSidebar() {
   const { pathname } = useLocation()
   const [cameraOpen, setCameraOpen] = useState(pathname.startsWith("/cameras"))
+  const [calibrationOpen, setCalibrationOpen] = useState(
+    pathname.startsWith("/calibration"),
+  )
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const { data: cameras, isLoading: camerasLoading } = useCameras()
 
@@ -74,12 +78,15 @@ export function AppSidebar() {
                 <Collapsible.Root open={cameraOpen} onOpenChange={setCameraOpen}>
                   <SidebarMenuItem>
                     <Collapsible.Trigger asChild>
-                      <SidebarMenuButton isActive={pathname.startsWith("/cameras")}>
+                      <SidebarMenuButton
+                        isActive={pathname.startsWith("/cameras")}
+                        className="pr-14"
+                      >
                         <Camera />
                         <span>Cameras</span>
                         <ChevronRight
                           className={cn(
-                            "ml-auto transition-transform duration-200",
+                            "absolute right-2 transition-transform duration-200",
                             cameraOpen && "rotate-90"
                           )}
                         />
@@ -89,6 +96,7 @@ export function AppSidebar() {
                     <SidebarMenuAction
                       showOnHover
                       title="Thêm camera"
+                      className="right-7"
                       onClick={(e) => {
                         e.stopPropagation()
                         setAddDialogOpen(true)
@@ -113,6 +121,56 @@ export function AppSidebar() {
                                   isActive={pathname === `/cameras/${cam.id}`}
                                 >
                                   <Link to={`/cameras/${cam.id}`}>{cam.name}</Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ))
+                          )}
+                        </SidebarMenuSub>
+                      )}
+                    </Collapsible.Content>
+                  </SidebarMenuItem>
+                </Collapsible.Root>
+
+                <Collapsible.Root
+                  open={calibrationOpen}
+                  onOpenChange={setCalibrationOpen}
+                >
+                  <SidebarMenuItem>
+                    <Collapsible.Trigger asChild>
+                      <SidebarMenuButton
+                        isActive={pathname.startsWith("/calibration")}
+                      >
+                        <Crosshair />
+                        <span>Calibration</span>
+                        <ChevronRight
+                          className={cn(
+                            "ml-auto transition-transform duration-200",
+                            calibrationOpen && "rotate-90"
+                          )}
+                        />
+                      </SidebarMenuButton>
+                    </Collapsible.Trigger>
+
+                    <Collapsible.Content>
+                      {(camerasLoading || (cameras && cameras.length > 0)) && (
+                        <SidebarMenuSub>
+                          {camerasLoading ? (
+                            <>
+                              <SidebarMenuSkeleton />
+                              <SidebarMenuSkeleton />
+                            </>
+                          ) : (
+                            cameras?.map((cam) => (
+                              <SidebarMenuSubItem key={cam.id}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={
+                                    pathname === `/calibration/cameras/${cam.id}`
+                                  }
+                                >
+                                  <Link to={`/calibration/cameras/${cam.id}`}>
+                                    {cam.name}
+                                  </Link>
                                 </SidebarMenuSubButton>
                               </SidebarMenuSubItem>
                             ))
