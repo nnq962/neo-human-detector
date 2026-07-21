@@ -307,21 +307,21 @@ function RobotTasksCard() {
         ) : (
           <>
         <div className="hidden overflow-hidden rounded-lg border lg:block">
-          <Table>
+          <Table className="table-fixed">
             <TableHeader className="bg-muted/40">
               <TableRow>
-                <TableHead>Task</TableHead>
-                <TableHead>Robot</TableHead>
-                <TableHead>Điểm đến</TableHead>
-                <TableHead>Người</TableHead>
-                <TableHead>Trạng thái</TableHead>
-                <TableHead>Cập nhật</TableHead>
+                <TableHead className="w-[13%]">Task</TableHead>
+                <TableHead className="w-[18%]">Robot</TableHead>
+                <TableHead className="w-[20%]">Điểm đến</TableHead>
+                <TableHead className="w-[14%]">Người</TableHead>
+                <TableHead className="w-[19%]">Trạng thái</TableHead>
+                <TableHead className="w-[16%]">Cập nhật</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleTasks.map((task) => (
                 <TableRow key={task.uid}>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <p className="font-medium">
                       {task.task_id === null ? "Chưa cấp ID" : `#${task.task_id}`}
                     </p>
@@ -329,25 +329,25 @@ function RobotTasksCard() {
                       {formatTaskTime(task.assigned_at)}
                     </p>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
+                  <TableCell className="overflow-hidden">
+                    <div className="flex min-w-0 items-center gap-2">
                       <div className="grid size-7 place-items-center rounded-full bg-primary/10 text-primary">
                         <Bot className="size-3.5" />
                       </div>
-                      <span className="font-medium">
+                      <span className="truncate font-medium">
                         {task.robot_id === null
                           ? "Đang chờ robot"
                           : `Robot #${task.robot_id}`}
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <TaskGoal task={task} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <TaskIdentity task={task} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="overflow-hidden">
                     <div className="flex flex-col items-start gap-1.5">
                       <TaskStatusBadge status={task.status} />
                       {task.retry_count > 0 && (
@@ -357,9 +357,9 @@ function RobotTasksCard() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Clock3 className="size-3.5" />
+                  <TableCell className="overflow-hidden">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                      <Clock3 className="size-3.5 shrink-0" />
                       {formatTaskAge(task.updated_at)}
                     </div>
                   </TableCell>
