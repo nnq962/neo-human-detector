@@ -18,8 +18,10 @@ def get_runtime_status():
         return error_from_exception(error, conflict_on_value_error=True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @router.get("/tasks", response_model=ApiResponse)
 def get_runtime_tasks():
+    """Trả snapshot task của phiên runtime hiện tại."""
     try:
         return ok(
             "Runtime task snapshot loaded successfully.",

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -49,3 +49,92 @@ class CameraUpdate(BaseModel):
 class Camera(CameraBase):
     id: str
     webrtc_address: Optional[str] = None
+
+
+class CalibrationImageSize(BaseModel):
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class CalibrationPixelCoordinate(BaseModel):
+    u: float
+    v: float
+
+
+class CalibrationWorldCoordinate(BaseModel):
+    x: float
+    y: float
+
+
+class CalibrationPointInput(BaseModel):
+    id: str = Field(min_length=1)
+    pixel: CalibrationPixelCoordinate
+    world: CalibrationWorldCoordinate
+    robot_id: Optional[int] = None
+
+
+class CalibrationPreviewRequest(BaseModel):
+    image_size: CalibrationImageSize
+    points: List[CalibrationPointInput] = Field(min_length=4)
+    ransac_threshold_m: float = Field(default=0.10, gt=0)
+
+
+class CalibrationApplyRequest(CalibrationPreviewRequest):
+    accept_warning: bool = False
+
+
+class CalibrationPredictedWorld(BaseModel):
+    x: float
+    y: float
+
+
+class CalibrationPointResult(BaseModel):
+    id: str
+    valid: bool
+    predicted_world: CalibrationPredictedWorld
+    error_m: float
+    validation_error_m: Optional[float] = None
+
+
+class CalibrationQuality(BaseModel):
+    valid_points: int
+    total_points: int
+    valid_ratio: float
+    rmse_inlier_m: float
+    rmse_all_m: float
+    validation_rmse_m: Optional[float] = None
+    rating: Literal["GOOD", "CHECK", "RECALIBRATE", "LIMITED"]
+
+
+class CalibrationPreviewResult(BaseModel):
+    camera_id: str
+    image_size: CalibrationImageSize
+    direction: Literal["pixel_to_world"]
+    method: Literal["ransac"]
+    ransac_threshold_m: float
+    homography: List[List[float]]
+    quality: CalibrationQuality
+    points: List[CalibrationPointResult]
+
+
+class CalibrationStoredPoint(BaseModel):
+    id: str
+    pixel: List[float] = Field(min_length=2, max_length=2)
+    world: List[float] = Field(min_length=2, max_length=2)
+    robot_id: Optional[int] = None
+    valid: bool
+    predicted_world: List[float] = Field(min_length=2, max_length=2)
+    error_m: float
+    validation_error_m: Optional[float] = None
+
+
+class CameraCalibration(BaseModel):
+    camera_id: str
+    image_size: CalibrationImageSize
+    direction: Literal["pixel_to_world"]
+    method: Literal["ransac"]
+    ransac_threshold_m: float
+    homography: List[List[float]]
+    quality: CalibrationQuality
+    points: List[CalibrationStoredPoint]
+    updated_at: str

@@ -415,6 +415,7 @@ def test_process_zones_forwards_reid_inputs_to_decision_engine() -> None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def test_task_activity_keeps_terminal_task_history() -> None:
+    """Kiểm tra read-model giữ task terminal trong lịch sử runtime."""
     uart = FakeUart()
     activity_store = TaskActivityStore()
     dispatcher = RobotDispatcherV2(
@@ -460,6 +461,7 @@ def test_task_activity_keeps_terminal_task_history() -> None:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def test_task_activity_tracks_assign_retry_and_cancel() -> None:
+    """Kiểm tra read-model theo dõi retry assign và trạng thái hủy."""
     uart = FakeUart()
     uart.set_outcomes(TaskAssign, False, True)
     activity_store = TaskActivityStore()

@@ -86,10 +86,11 @@ async def uart_robots_websocket(websocket: WebSocket):
         LOGGER.info("Client disconnected from /ws/uart/robots")
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Gửi read-model task của phiên runtime hiện tại.
 @router.websocket("/ws/runtime/tasks")
 async def runtime_tasks_websocket(websocket: WebSocket):
+    """Phát snapshot task runtime định kỳ tới WebSocket client."""
     await websocket.accept()
     LOGGER.info("Client connected to /ws/runtime/tasks")
 

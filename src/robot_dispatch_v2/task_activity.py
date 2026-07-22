@@ -44,7 +44,9 @@ class TaskActivity:
 class TaskActivityStore:
     """Lưu task active và lịch sử terminal để API/WebSocket đọc an toàn."""
 
+    # ─────────────────────────────────────────────────────────────────────────
     def __init__(self, *, max_history: int = 500) -> None:
+        """Khởi tạo kho task với số bản ghi terminal tối đa cần giữ."""
         self._lock = threading.RLock()
         self._max_history = max(1, max_history)
         self._tasks: dict[str, TaskActivity] = {}
@@ -53,6 +55,7 @@ class TaskActivityStore:
         self._sequence = 0
         self._session_id = uuid.uuid4().hex
 
+    # ─────────────────────────────────────────────────────────────────────────
     def reset(self) -> None:
         """Bắt đầu lịch sử mới cho một phiên runtime mới."""
         with self._lock:
@@ -62,6 +65,7 @@ class TaskActivityStore:
             self._session_id = uuid.uuid4().hex
             self._sequence += 1
 
+    # ─────────────────────────────────────────────────────────────────────────
     def create_assignment(
         self,
         decision: DispatchDecision,
@@ -70,6 +74,7 @@ class TaskActivityStore:
         y: float,
         theta: float,
     ) -> str:
+        """Tạo read-model cho một yêu cầu giao task mới."""
         now = _utc_now()
         uid = f"{self._session_id}:{uuid.uuid4().hex}"
         task = TaskActivity(
@@ -95,7 +100,9 @@ class TaskActivityStore:
             self._changed_unlocked()
         return uid
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_assigning(self, uid: str, robot_id: int, task_id: int) -> None:
+        """Đánh dấu task đang được gửi tới robot và gắn định danh task."""
         with self._lock:
             task = self._tasks.get(uid)
             if task is None or task.status not in {"WAITING_ROBOT", "ASSIGNING"}:
@@ -110,7 +117,9 @@ class TaskActivityStore:
             self._by_robot_task[(robot_id, task_id)] = uid
             self._changed_unlocked()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_assigned(self, uid: str) -> None:
+        """Đánh dấu robot đã nhận task thành công."""
         with self._lock:
             task = self._tasks.get(uid)
             if task is None:
@@ -125,7 +134,9 @@ class TaskActivityStore:
             if self._pending_by_zone.get(task.zone_id) == uid:
                 self._pending_by_zone.pop(task.zone_id, None)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_in_progress(self, robot_id: int, task_id: int) -> None:
+        """Đánh dấu robot đang thực hiện task."""
         with self._lock:
             uid = self._by_robot_task.get((robot_id, task_id))
             task = self._tasks.get(uid) if uid is not None else None
@@ -143,12 +154,17 @@ class TaskActivityStore:
             )
             self._changed_unlocked()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_completed(self, robot_id: int, task_id: int) -> None:
+        """Đánh dấu task đã hoàn thành."""
         self._mark_terminal_by_robot_task(robot_id, task_id, "COMPLETED")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_failed(self, robot_id: int, task_id: int) -> None:
+        """Đánh dấu task thực thi thất bại."""
         self._mark_terminal_by_robot_task(robot_id, task_id, "FAILED")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_cancel_requested(
         self,
         zone_id: str,
@@ -156,6 +172,7 @@ class TaskActivityStore:
         robot_id: Optional[int] = None,
         task_id: Optional[int] = None,
     ) -> None:
+        """Đánh dấu task đang trong quá trình hủy."""
         with self._lock:
             uid = (
                 self._by_robot_task.get((robot_id, task_id))
@@ -165,6 +182,7 @@ class TaskActivityStore:
         if uid is not None:
             self._update_by_uid(uid, status="CANCELING")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_canceled(
         self,
         zone_id: str,
@@ -172,6 +190,7 @@ class TaskActivityStore:
         robot_id: Optional[int] = None,
         task_id: Optional[int] = None,
     ) -> None:
+        """Đánh dấu task đã được hủy thành công."""
         with self._lock:
             uid = (
                 self._by_robot_task.get((robot_id, task_id))
@@ -181,7 +200,9 @@ class TaskActivityStore:
         if uid is not None:
             self._mark_terminal_by_uid(uid, "CANCELED")
 
+    # ─────────────────────────────────────────────────────────────────────────
     def increment_retry(self, uid: str) -> None:
+        """Tăng số lần gửi lại của một task chưa kết thúc."""
         with self._lock:
             task = self._tasks.get(uid)
             if task is None or task.status in TERMINAL_TASK_STATUSES:
@@ -193,13 +214,17 @@ class TaskActivityStore:
             )
             self._changed_unlocked()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def increment_cancel_retry(self, robot_id: int, task_id: int) -> None:
+        """Tăng số lần thử hủy theo định danh robot và task."""
         with self._lock:
             uid = self._by_robot_task.get((robot_id, task_id))
         if uid is not None:
             self.increment_retry(uid)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def snapshot(self) -> dict:
+        """Tạo snapshot bất biến cho REST API và WebSocket đọc."""
         with self._lock:
             tasks = sorted(
                 self._tasks.values(),
@@ -216,7 +241,9 @@ class TaskActivityStore:
                 "tasks": [asdict(task) for task in tasks],
             }
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _update_by_uid(self, uid: str, *, status: str) -> None:
+        """Cập nhật trạng thái task theo UID nếu task chưa kết thúc."""
         with self._lock:
             task = self._tasks.get(uid)
             if task is None or task.status in TERMINAL_TASK_STATUSES:
@@ -228,18 +255,22 @@ class TaskActivityStore:
             )
             self._changed_unlocked()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _mark_terminal_by_robot_task(
         self,
         robot_id: int,
         task_id: int,
         status: str,
     ) -> None:
+        """Kết thúc task được xác định bởi robot ID và task ID."""
         with self._lock:
             uid = self._by_robot_task.get((robot_id, task_id))
         if uid is not None:
             self._mark_terminal_by_uid(uid, status)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _mark_terminal_by_uid(self, uid: str, status: str) -> None:
+        """Kết thúc task theo UID và dọn các chỉ mục đang hoạt động."""
         now = _utc_now()
         with self._lock:
             task = self._tasks.get(uid)
@@ -262,7 +293,9 @@ class TaskActivityStore:
             self._prune_unlocked()
             self._changed_unlocked()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _prune_unlocked(self) -> None:
+        """Loại lịch sử terminal cũ vượt quá giới hạn cấu hình."""
         terminal_tasks = sorted(
             (
                 task
@@ -275,11 +308,15 @@ class TaskActivityStore:
         for task in terminal_tasks[self._max_history :]:
             self._tasks.pop(task.uid, None)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _changed_unlocked(self) -> None:
+        """Tăng sequence sau mỗi thay đổi read-model."""
         self._sequence += 1
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _utc_now() -> str:
+    """Trả thời điểm UTC hiện tại theo định dạng ISO 8601."""
     return datetime.now(timezone.utc).isoformat()
 
 
