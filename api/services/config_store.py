@@ -48,7 +48,9 @@ def _locked_config_file(*, exclusive: bool):
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _prepare_config_for_yaml(config_dict: dict) -> dict:
+    """Chuẩn hóa các mảng tọa độ để YAML được ghi gọn trên một dòng."""
     config_dict = copy.deepcopy(config_dict)
     config_dict.pop("source", None)
 
@@ -64,6 +66,16 @@ def _prepare_config_for_yaml(config_dict: dict) -> dict:
                 for zone in camera["zones"]:
                     if "points" in zone:
                         zone["points"] = [FlowList(point) for point in zone["points"]]
+
+            calibration = camera.get("calibration")
+            if calibration:
+                calibration["homography"] = [
+                    FlowList(row) for row in calibration.get("homography") or []
+                ]
+                for point in calibration.get("points") or []:
+                    for key in ("pixel", "world", "predicted_world"):
+                        if key in point:
+                            point[key] = FlowList(point[key])
 
     return config_dict
 

@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Request, status
 
-from api.models.camera import CameraCreate, CameraUpdate
+from api.models.camera import (
+    CalibrationApplyRequest,
+    CalibrationPreviewRequest,
+    CameraCreate,
+    CameraUpdate,
+)
 from api.models.response import ApiResponse
 from api.routes.responses import error_from_exception, ok
 from api.services import mediamtx as mediamtx_service
@@ -41,6 +46,56 @@ def get_camera(camera_id: str, request: Request):
         return ok("Camera loaded successfully.", data)
     except Exception as error:
         return error_from_exception(error, conflict_on_value_error=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/{camera_id}/calibration/preview", response_model=ApiResponse)
+def preview_camera_calibration(
+    camera_id: str,
+    calibration: CalibrationPreviewRequest,
+):
+    """Tính thử Homography cho camera mà không lưu vào cấu hình."""
+    try:
+        data = camera_service.preview_camera_calibration(camera_id, calibration)
+        return ok("Camera calibration preview calculated successfully.", data)
+    except Exception as error:
+        return error_from_exception(error)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.get("/{camera_id}/calibration", response_model=ApiResponse)
+def get_camera_calibration(camera_id: str):
+    """Lấy calibration đã áp dụng của camera."""
+    try:
+        data = camera_service.get_camera_calibration(camera_id)
+        return ok("Camera calibration loaded successfully.", data)
+    except Exception as error:
+        return error_from_exception(error)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.put("/{camera_id}/calibration", response_model=ApiResponse)
+def apply_camera_calibration(
+    camera_id: str,
+    calibration: CalibrationApplyRequest,
+):
+    """Tính lại và áp dụng calibration cho camera."""
+    try:
+        data = camera_service.apply_camera_calibration(camera_id, calibration)
+        return ok("Camera calibration applied successfully.", data)
+    except Exception as error:
+        return error_from_exception(error)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.delete("/{camera_id}/calibration", response_model=ApiResponse)
+def delete_camera_calibration(camera_id: str):
+    """Xóa calibration đã lưu của camera."""
+    try:
+        data = camera_service.delete_camera_calibration(camera_id)
+        return ok("Camera calibration deleted successfully.", data)
+    except Exception as error:
+        return error_from_exception(error)
 
 
 @router.post("", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)

@@ -1,10 +1,17 @@
 import secrets
 import string
+from datetime import datetime, timezone
 from typing import List
 
-from api.models.camera import CameraCreate, CameraUpdate
+from api.models.camera import (
+    CalibrationApplyRequest,
+    CalibrationPreviewRequest,
+    CameraCreate,
+    CameraUpdate,
+)
 from api.services import config_store
 from api.services import mediamtx as mediamtx_service
+from src.calibration import calculate_homography
 
 CAMERA_ID_LENGTH = 5
 CAMERA_ID_ALPHABET = string.ascii_lowercase + string.digits
@@ -134,6 +141,121 @@ def get_camera(camera_id: str) -> dict:
     return _with_runtime_fields(cameras[index])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def preview_camera_calibration(
+    camera_id: str,
+    request: CalibrationPreviewRequest,
+) -> dict:
+    """Tính thử Homography cho camera mà không thay đổi cấu hình."""
+    get_camera(camera_id)
+
+    width = request.image_size.width
+    height = request.image_size.height
+    for point in request.points:
+        if not 0 <= point.pixel.u < width or not 0 <= point.pixel.v < height:
+            raise ValueError(
+                f'Pixel của point "{point.id}" nằm ngoài độ phân giải video.'
+            )
+
+    result = calculate_homography(
+        [(point.pixel.u, point.pixel.v) for point in request.points],
+        [(point.world.x, point.world.y) for point in request.points],
+        point_ids=[point.id for point in request.points],
+        ransac_threshold_m=request.ransac_threshold_m,
+    )
+    return {
+        "camera_id": camera_id,
+        "image_size": request.image_size.model_dump(),
+        **result,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def get_camera_calibration(camera_id: str) -> dict | None:
+    """Lấy calibration đã lưu của camera hoặc ``None`` nếu chưa có."""
+    config = _get_config()
+    cameras = _get_cameras(config)
+    index = _find_camera_index(cameras, camera_id)
+    calibration = cameras[index].get("calibration")
+    if calibration is None:
+        return None
+    return {"camera_id": camera_id, **calibration}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def apply_camera_calibration(
+    camera_id: str,
+    request: CalibrationApplyRequest,
+) -> dict:
+    """Tính lại và lưu calibration vào đúng camera trong cấu hình."""
+    preview = preview_camera_calibration(camera_id, request)
+    rating = preview["quality"]["rating"]
+
+    if rating == "RECALIBRATE":
+        raise ValueError(
+            "Chất lượng calibration quá thấp; vui lòng đo lại các điểm."
+        )
+    if rating in {"CHECK", "LIMITED"} and not request.accept_warning:
+        raise ValueError(
+            "Calibration cần xác nhận cảnh báo trước khi áp dụng."
+        )
+
+    results_by_id = {point["id"]: point for point in preview["points"]}
+    calibration = {
+        "image_size": request.image_size.model_dump(),
+        "direction": preview["direction"],
+        "method": preview["method"],
+        "ransac_threshold_m": preview["ransac_threshold_m"],
+        "homography": preview["homography"],
+        "quality": preview["quality"],
+        "points": [
+            {
+                "id": point.id,
+                "pixel": [point.pixel.u, point.pixel.v],
+                "world": [point.world.x, point.world.y],
+                "robot_id": point.robot_id,
+                "valid": results_by_id[point.id]["valid"],
+                "predicted_world": [
+                    results_by_id[point.id]["predicted_world"]["x"],
+                    results_by_id[point.id]["predicted_world"]["y"],
+                ],
+                "error_m": results_by_id[point.id]["error_m"],
+                "validation_error_m": results_by_id[point.id][
+                    "validation_error_m"
+                ],
+            }
+            for point in request.points
+        ],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    def mutate(config: dict) -> None:
+        """Gắn calibration mới vào camera trong config đang được khóa."""
+        cameras = _get_cameras(config)
+        index = _find_camera_index(cameras, camera_id)
+        cameras[index]["calibration"] = calibration
+
+    config_store.update_config_data(mutate)
+    return {"camera_id": camera_id, **calibration}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def delete_camera_calibration(camera_id: str) -> dict | None:
+    """Xóa calibration của camera mà không thay đổi các cấu hình khác."""
+    # ─────────────────────────────────────────────────────────────────────────────
+    def mutate(config: dict) -> dict | None:
+        """Gỡ và trả calibration trong config đang được khóa."""
+        cameras = _get_cameras(config)
+        index = _find_camera_index(cameras, camera_id)
+        return cameras[index].pop("calibration", None)
+
+    deleted = config_store.update_config_data(mutate)
+    if deleted is None:
+        return None
+    return {"camera_id": camera_id, **deleted}
+
+
 def create_camera(camera: CameraCreate) -> dict:
     camera_data = _model_dump(camera)
 
@@ -163,6 +285,8 @@ def replace_camera(camera_id: str, camera: CameraCreate) -> dict:
         next_camera = dict(camera_data)
 
         next_camera["id"] = camera_id
+        if current_camera.get("calibration") is not None:
+            next_camera["calibration"] = current_camera["calibration"]
         _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
         _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
