@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Play, RotateCcw, Square } from "lucide-react"
+import { Cpu, Play, RotateCcw, Square } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -135,69 +135,85 @@ export function RuntimeStatusIndicator() {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-80 gap-4 p-4">
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 gap-0 overflow-hidden rounded-2xl border-2 border-border bg-popover p-0 shadow-none ring-0 dark:border-input"
+      >
 
-        {/* Status */}
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">AI Detection Runtime</span>
-            <Badge variant="outline" className={cn("text-[11px]", s.badgeClass)}>
-              {s.label}
-            </Badge>
+          {/* Status */}
+        <div className="flex items-start gap-3 border-b-2 border-border p-4 dark:border-input">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#1cb0f6] text-white">
+            <Cpu className="size-5" strokeWidth={2.5} />
           </div>
-          <span className="text-xs text-muted-foreground">{sub}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-bold">AI Detection Runtime</span>
+              <Badge
+                variant="outline"
+                className={cn("text-[10px] uppercase tracking-wide", s.badgeClass)}
+              >
+                {s.label}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs font-medium text-muted-foreground">{sub}</p>
+          </div>
         </div>
 
-        {/* Auto start */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Auto start</span>
-          <Switch
-            checked={autoStart}
-            disabled={updateAutoStart.isPending}
-            onCheckedChange={(checked) => {
-              updateAutoStart.mutate(
-                { auto_start: checked },
-                {
-                  onError: (e) => {
-                    toast.error(e instanceof Error ? e.message : "Không thể cập nhật auto start")
+        <div className="flex flex-col gap-4 p-4">
+          {/* Auto start */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-border bg-muted/30 px-3 py-2.5 dark:border-input">
+            <div>
+              <p className="text-xs font-bold">Tự động khởi động</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Chạy runtime khi server sẵn sàng
+              </p>
+            </div>
+            <Switch
+              checked={autoStart}
+              disabled={updateAutoStart.isPending}
+              onCheckedChange={(checked) => {
+                updateAutoStart.mutate(
+                  { auto_start: checked },
+                  {
+                    onError: (e) => {
+                      toast.error(e instanceof Error ? e.message : "Không thể cập nhật auto start")
+                    },
                   },
-                },
-              )
-            }}
-          />
-        </div>
+                )
+              }}
+            />
+          </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            className="flex-1"
-            disabled={buttonsDisabled || displayState === "running"}
-            onClick={handleStart}
-          >
-            <Play />
-            Start
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            className="flex-1"
-            disabled={buttonsDisabled || displayState === "stopped"}
-            onClick={handleStop}
-          >
-            <Square />
-            Stop
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            disabled={buttonsDisabled || displayState === "stopped"}
-            onClick={handleRestart}
-          >
-            <RotateCcw />
-            Restart
-          </Button>
+          {/* Controls */}
+          <div className="grid grid-cols-3 gap-2">
+            <Button
+              size="sm"
+              disabled={buttonsDisabled || displayState === "running"}
+              onClick={handleStart}
+            >
+              <Play />
+              Start
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={buttonsDisabled || displayState === "stopped"}
+              onClick={handleStop}
+            >
+              <Square />
+              Stop
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={buttonsDisabled || displayState === "stopped"}
+              onClick={handleRestart}
+            >
+              <RotateCcw />
+              Restart
+            </Button>
+          </div>
         </div>
 
       </PopoverContent>

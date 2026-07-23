@@ -11,7 +11,6 @@ import {
   User,
   XCircle,
 } from "lucide-react"
-import { Link } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -91,10 +90,7 @@ const TASK_STATUS_VIEW = {
 
 const CameraCell = memo(function CameraCell({ camera }: { camera: Camera }) {
   return (
-    <Link
-      to={`/cameras/${camera.id}`}
-      className="relative block aspect-video overflow-hidden rounded-lg ring-1 ring-border transition-shadow hover:ring-2 hover:ring-ring"
-    >
+    <div className="relative aspect-video overflow-hidden rounded-lg ring-1 ring-border">
       <CameraPreview
         src={camera.webrtc_address ?? ""}
         zones={camera.zones}
@@ -104,7 +100,7 @@ const CameraCell = memo(function CameraCell({ camera }: { camera: Camera }) {
       <div className="pointer-events-none absolute bottom-3 left-3 z-30 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
         {camera.name}
       </div>
-    </Link>
+    </div>
   )
 })
 

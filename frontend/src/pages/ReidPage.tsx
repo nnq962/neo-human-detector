@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
@@ -208,9 +209,9 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
       </CardHeader>
 
       <CardContent className="flex flex-col">
-        <div className="flex flex-col divide-y">
+        <div className="flex flex-col">
           {/* Bool rows */}
-          <div className="flex flex-col divide-y">
+          <div className="flex flex-col">
             <BoolRow
               label="Bật Re-ID"
               desc="Kích hoạt toàn bộ chức năng Re-ID"
@@ -218,6 +219,7 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
               editing={editing}
               onChange={(val) => setDraft((p) => ({ ...p, enabled: val }))}
             />
+            <Separator />
             <BoolRow
               label="Chỉ trong zone"
               desc="Chỉ xử lý Re-ID cho người đang ở trong vùng (zone)"
@@ -225,6 +227,7 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
               editing={editing}
               onChange={(val) => setDraft((p) => ({ ...p, zone_only: val }))}
             />
+            <Separator />
             <BoolRow
               label="Yêu cầu zone có người"
               desc="Bỏ qua nếu zone chưa có người nào được xác nhận vào"
@@ -233,6 +236,8 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
               onChange={(val) => setDraft((p) => ({ ...p, require_occupied_zone: val }))}
             />
           </div>
+
+          <Separator />
 
           {/* Model / Device / Batch */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-4 pb-1">

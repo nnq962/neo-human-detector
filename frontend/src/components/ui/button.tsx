@@ -21,7 +21,7 @@ const buttonVariants = cva(
         purple:
           `${raisedButtonClass} text-white before:bg-[#ce82ff] before:shadow-[0_4px_0_#a560d0] hover:before:bg-[#d996ff]`,
         outline:
-          "relative isolate bg-transparent pb-0.5 text-foreground before:absolute before:inset-x-0 before:top-0 before:bottom-0.5 before:-z-10 before:rounded-[inherit] before:border-2 before:border-border before:bg-background before:shadow-[0_2px_0_var(--border)] before:content-[''] hover:before:bg-muted active:translate-y-0.5 active:before:shadow-none aria-expanded:text-foreground aria-expanded:before:bg-muted dark:before:border-input dark:before:bg-input/30 dark:before:shadow-[0_2px_0_var(--input)] dark:hover:before:bg-input/50",
+          "relative isolate bg-transparent pb-0.5 text-foreground before:absolute before:inset-x-0 before:top-0 before:bottom-0.5 before:-z-10 before:rounded-[inherit] before:border-2 before:border-border before:bg-background before:shadow-[0_2px_0_var(--border)] before:content-[''] hover:before:bg-muted active:translate-y-0.5 active:before:shadow-none aria-expanded:text-foreground aria-expanded:before:bg-muted dark:before:border-input dark:before:bg-input/30 dark:before:shadow-[0_2px_0_var(--input)] dark:hover:before:bg-input/50 dark:active:before:shadow-none",
         secondary:
           `${raisedButtonClass} text-[#4b4b4b] before:bg-[#e5e5e5] before:shadow-[0_4px_0_#c4c4c4] hover:before:bg-[#eeeeee] aria-expanded:before:bg-[#e5e5e5] dark:text-white dark:before:bg-[#59616d] dark:before:shadow-[0_4px_0_#3f4650] dark:hover:before:bg-[#66707d] dark:aria-expanded:before:bg-[#59616d]`,
         ghost:
