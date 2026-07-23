@@ -36,7 +36,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }
       toastOptions={{
         classNames: {
-          toast: "cn-toast",
+          toast: "cn-toast rounded-xl! border-2! shadow-none!",
+          default: "border-input!",
+          success: "border-emerald-500/50!",
+          error: "border-red-500/50!",
+          warning: "border-amber-500/50!",
+          info: "border-blue-500/50!",
+          loading: "border-input!",
         },
       }}
       {...props}
