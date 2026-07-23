@@ -52,7 +52,7 @@ function EditActions({
 }) {
   if (!editing) {
     return (
-      <Button variant="outline" size="sm" onClick={onEdit}>
+      <Button variant="blue" size="sm" onClick={onEdit}>
         <Pencil />
         Sửa
       </Button>

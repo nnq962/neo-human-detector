@@ -120,7 +120,7 @@ export function RuntimeStatusIndicator() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8 gap-2 rounded-full pr-3 pl-2">
+        <Button variant="outline">
           <span className="relative flex size-3.5 shrink-0 items-center justify-center">
             {transitioning ? (
               <Spinner className="size-3.5 text-muted-foreground" />

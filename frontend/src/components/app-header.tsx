@@ -43,7 +43,7 @@ function ThemeToggle() {
 
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="icon"
       className="size-8"
       onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}

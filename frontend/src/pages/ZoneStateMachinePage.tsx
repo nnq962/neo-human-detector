@@ -196,7 +196,7 @@ function ConfigCard({
         <div className="flex items-center justify-between">
           <CardTitle>Cấu hình</CardTitle>
           {!editing ? (
-            <Button variant="outline" size="sm" onClick={startEdit}>
+            <Button variant="blue" size="sm" onClick={startEdit}>
               <Pencil />
               Sửa
             </Button>
