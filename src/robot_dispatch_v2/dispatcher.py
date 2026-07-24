@@ -40,6 +40,15 @@ DEFAULT_MAX_RETRIES = 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _ack_reason_name(reason_code: int) -> str:
+    """Đổi mã nguyên nhân ACK sang tên dễ đọc trong log dispatcher."""
+    try:
+        return AckReasonCode(reason_code).name
+    except ValueError:
+        return "UNKNOWN"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 class UartTransport(Protocol):
     """Phần API UART mà RobotDispatcherV2 cần sử dụng."""
 
@@ -52,14 +61,14 @@ class UartTransport(Protocol):
     def send_message(self, message: MessageBase) -> bool:
         """Gửi một message đúng một lần."""
 
-    def send_with_retry(
+    def send_with_retry_ack(
         self,
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
-    ) -> bool:
-        """Gửi message tới khi được chấp nhận, bị từ chối hoặc hết số lần thử."""
+    ) -> Optional[Ack]:
+        """Gửi message và trả ACK đầy đủ, hoặc ``None`` nếu hết thời gian."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -457,21 +466,32 @@ class RobotDispatcherV2:
             theta=pending.theta,
         )
 
-        sent = self._uart.send_with_retry(
+        ack = self._uart.send_with_retry_ack(
             message,
             reference_id=task.task_id,
             timeout=self._ack_timeout_seconds,
             max_retries=self._max_retries,
         )
-        if not sent:
+        if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             self._task_activity_store.increment_retry(pending.activity_id)
-            LOGGER.warning(
-                "Chưa nhận ACK cho TaskAssign; giữ nguyên task để thử lại: "
-                "zone_id=%s, robot_id=%s, task_id=%s",
-                pending.zone_id,
-                task.robot_id,
-                task.task_id,
-            )
+            if ack is None:
+                LOGGER.warning(
+                    "Chưa nhận ACK cho TaskAssign; giữ nguyên task để thử lại: "
+                    "zone_id=%s, robot_id=%s, task_id=%s",
+                    pending.zone_id,
+                    task.robot_id,
+                    task.task_id,
+                )
+            else:
+                LOGGER.warning(
+                    "Robot từ chối TaskAssign; giữ nguyên task để thử lại: "
+                    "zone_id=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
+                    pending.zone_id,
+                    task.robot_id,
+                    task.task_id,
+                    _ack_reason_name(ack.reason_code),
+                    ack.reason_code,
+                )
             return False
 
         self._remove_pending_assignment(pending.zone_id)
@@ -489,24 +509,35 @@ class RobotDispatcherV2:
             return True
 
         message = TaskCancel(robot_id=task.robot_id, task_id=task.task_id)
-        sent = self._uart.send_with_retry(
+        ack = self._uart.send_with_retry_ack(
             message,
             reference_id=task.task_id,
             timeout=self._ack_timeout_seconds,
             max_retries=self._max_retries,
         )
-        if not sent:
+        if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             self._task_activity_store.increment_cancel_retry(
                 task.robot_id,
                 task.task_id,
             )
-            LOGGER.warning(
-                "Gửi TaskCancel chưa thành công; giữ decision để thử lại: "
-                "zone_id=%s, robot_id=%s, task_id=%s",
-                zone_id,
-                task.robot_id,
-                task.task_id,
-            )
+            if ack is None:
+                LOGGER.warning(
+                    "Chưa nhận ACK cho TaskCancel; giữ decision để thử lại: "
+                    "zone_id=%s, robot_id=%s, task_id=%s",
+                    zone_id,
+                    task.robot_id,
+                    task.task_id,
+                )
+            else:
+                LOGGER.warning(
+                    "Robot từ chối TaskCancel; giữ decision để thử lại: "
+                    "zone_id=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
+                    zone_id,
+                    task.robot_id,
+                    task.task_id,
+                    _ack_reason_name(ack.reason_code),
+                    ack.reason_code,
+                )
             return False
 
         self._task_activity_store.mark_canceled(
@@ -560,5 +591,10 @@ def _build_pending_assignment(
             theta=float(decision.zone.goal_pose["theta"]),
         )
     except (KeyError, TypeError, ValueError) as exc:
-        LOGGER.error("Goal pose không hợp lệ cho zone %s: %s", decision.zone_id, exc)
+        LOGGER.error(
+            "Goal pose không hợp lệ cho zone '%s' (id=%s): %s",
+            decision.zone.name,
+            decision.zone_id,
+            exc,
+        )
         return None

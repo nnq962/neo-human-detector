@@ -56,6 +56,34 @@ export interface RobotHeartbeatSnapshot {
   robots: RobotHeartbeat[]
 }
 
+export interface UartAckResult {
+  result_code: number
+  result: string
+  reason_code: number
+  reason: string
+}
+
+export interface MoveToPointRequest {
+  robot_id: number
+  move_id: number
+  x: number
+  y: number
+  theta: number
+}
+
+export interface MoveToPointResult {
+  message_type: "move_to_point"
+  robot_id: number
+  move_id: number
+  acknowledged: boolean
+  ack: UartAckResult
+  target: {
+    x: number
+    y: number
+    theta: number
+  }
+}
+
 export type UartMessageRequest =
   | {
       message_type: "task_assign"
@@ -76,6 +104,7 @@ export interface UartMessageResult {
   robot_id: number
   task_id: number
   acknowledged: boolean
+  ack: UartAckResult
   task: ManualRobotTask
 }
 
@@ -94,5 +123,10 @@ export const uartApi = {
     apiRequest<ApiResponse<UartMessageResult>>("/uart/messages", {
       method: "POST",
       body: JSON.stringify(message),
+    }).then(unwrapApiResponse),
+  moveToPoint: (request: MoveToPointRequest) =>
+    apiRequest<ApiResponse<MoveToPointResult>>("/uart/move-to-point", {
+      method: "POST",
+      body: JSON.stringify(request),
     }).then(unwrapApiResponse),
 }

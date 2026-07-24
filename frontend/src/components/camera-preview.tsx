@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Canvas, Circle, FabricText, Point, Polygon, Polyline, controlsUtils } from "fabric"
+import {
+  Canvas,
+  Circle,
+  FabricText,
+  Group,
+  Path,
+  Point,
+  Polygon,
+  Polyline,
+  Rect,
+  controlsUtils,
+} from "fabric"
 import { cn } from "@/lib/utils"
 import type { Zone } from "@/api/cameras.api"
 import {
@@ -21,6 +32,7 @@ type OfferData = { iceUfrag: string; icePwd: string; medias: string[] }
 const DOUBLE_TAP_MAX_DELAY_MS = 350
 const DOUBLE_TAP_MAX_DISTANCE_PX = 28
 const STREAM_RECONNECT_DELAY_MS = 3000
+const MIN_FABRIC_PIXEL_RATIO = 2
 
 function getWhepUrl(src: string) {
   const t = src.trim()
@@ -309,10 +321,13 @@ export interface CameraPreviewProps {
   zones?: Zone[]
   isAddingZone?: boolean
   isEditingVertices?: boolean
+  isPickingServicePoint?: boolean
   selectedZoneIndex?: number | null
+  servicePoint?: [number, number] | null
   onZoneAdd?: (points: number[][]) => void
   onZonePointsChange?: (index: number, points: number[][]) => void
   onZoneSelect?: (index: number) => void
+  onServicePointChange?: (point: [number, number]) => void
   /** Bật overlay detection realtime cho camera này (subscribe WS dùng chung). */
   bboxCameraId?: string | null
   hideFaceKeypoints?: boolean
@@ -329,10 +344,13 @@ export function CameraPreview({
   zones = EMPTY_ZONES,
   isAddingZone = false,
   isEditingVertices = false,
+  isPickingServicePoint = false,
   selectedZoneIndex = null,
+  servicePoint = null,
   onZoneAdd,
   onZonePointsChange,
   onZoneSelect,
+  onServicePointChange,
   bboxCameraId = null,
   hideFaceKeypoints = false,
   onVideoSizeChange,
@@ -434,7 +452,15 @@ export function CameraPreview({
     const el = overlayCanvasRef.current
     if (!el) return
 
-    const canvas = new Canvas(el, { selection: false, renderOnAddRemove: false })
+    const canvas = new Canvas(el, {
+      selection: false,
+      renderOnAddRemove: false,
+      enableRetinaScaling: true,
+    })
+    canvas.getRetinaScaling = () => Math.max(
+      window.devicePixelRatio || 1,
+      MIN_FABRIC_PIXEL_RATIO,
+    )
     canvas.defaultCursor = "default"
     canvas.hoverCursor = "default"
     Object.assign(canvas.wrapperEl.style, {
@@ -470,11 +496,14 @@ export function CameraPreview({
 
     canvas.setDimensions({ width: previewSize.width, height: previewSize.height })
 
-    const isInteractive = isEditingVertices || isAddingZone
+    const isInteractive = isEditingVertices || isAddingZone || isPickingServicePoint
+    const isPickingPoint = isPickingServicePoint && selectedZoneIndex !== null
     canvas.wrapperEl.style.pointerEvents = isInteractive ? "auto" : "none"
     canvas.upperCanvasEl.style.pointerEvents = isInteractive ? "auto" : "none"
-    canvas.defaultCursor = isAddingZone ? "crosshair" : "default"
-    canvas.hoverCursor = isAddingZone ? "crosshair" : isEditingVertices ? "move" : "default"
+    canvas.defaultCursor = isAddingZone || isPickingPoint ? "crosshair" : "default"
+    canvas.hoverCursor = isAddingZone || isPickingPoint
+      ? "crosshair"
+      : isEditingVertices ? "move" : "default"
     canvas.clear()
 
     if (!videoSize.width || !videoSize.height) { canvas.requestRenderAll(); return }
@@ -496,14 +525,14 @@ export function CameraPreview({
         stroke: color.stroke,
         strokeWidth: isSelected ? 3 : 2,
         objectCaching: false,
-        selectable: isEditingVertices && isSelected,
-        evented: isEditingVertices,
-        hasControls: isEditingVertices && isSelected,
+        selectable: isEditingVertices && isSelected && !isPickingPoint,
+        evented: isEditingVertices && !isPickingPoint,
+        hasControls: isEditingVertices && isSelected && !isPickingPoint,
         hasBorders: false,
         lockScalingX: true, lockScalingY: true, lockRotation: true,
         cornerColor: "#ffffff", cornerStrokeColor: color.stroke,
         cornerStyle: "circle", transparentCorners: false,
-        hoverCursor: isEditingVertices && isSelected ? "move" : "default",
+        hoverCursor: isEditingVertices && isSelected && !isPickingPoint ? "move" : "default",
         moveCursor: "move",
       })
 
@@ -534,7 +563,7 @@ export function CameraPreview({
         canvas.requestRenderAll()
       }
 
-      if (isEditingVertices && isSelected) {
+      if (isEditingVertices && isSelected && !isPickingPoint) {
         polygon.controls = controlsUtils.createPolyControls(polygon, {
           cursorStyle: "crosshair",
           render: controlsUtils.renderCircleControl,
@@ -545,12 +574,163 @@ export function CameraPreview({
         polygon.on("modified", syncPoints)
       }
 
-      if (isEditingVertices) {
+      if (isEditingVertices && !isPickingPoint) {
         polygon.on("mousedown", () => onZoneSelect?.(index))
       }
 
       canvas.add(polygon, label)
-      if (isEditingVertices && isSelected) canvas.setActiveObject(polygon)
+      if (isEditingVertices && isSelected && !isPickingPoint) {
+        canvas.setActiveObject(polygon)
+      }
+    })
+
+    const visibleServicePoints = zones.flatMap((zone, zoneIndex) => {
+      const point = zoneIndex === selectedZoneIndex && servicePoint
+        ? servicePoint
+        : zone.service_point
+      return point ? [{ point, zoneIndex }] : []
+    })
+
+    visibleServicePoints.forEach(({ point, zoneIndex }) => {
+      const [x, y] = point
+      const markerX = offsetX + x * scale
+      const markerY = offsetY + y * scale
+      const servicePointColor = getZoneColor(
+        zones[zoneIndex],
+        zoneIndex,
+        zoneStates,
+      ).stroke
+      const servicePointLabel = new FabricText(zones[zoneIndex].name, {
+        originX: "center",
+        originY: "center",
+        fill: "#ffffff",
+        fontFamily: "Arial",
+        fontSize: 11,
+        fontWeight: "600",
+        selectable: false,
+        evented: false,
+      })
+      const labelWidth = (servicePointLabel.width ?? 64) + 16
+      const labelHeight = (servicePointLabel.height ?? 13) + 8
+      const badgeOffset = 26
+      const pinCenterOffset = 12
+      const canDragServicePoint =
+        isEditingVertices
+        && zoneIndex === selectedZoneIndex
+        && !isPickingPoint
+      const servicePointBadge = new Group(
+        [
+          new Rect({
+            width: labelWidth,
+            height: labelHeight,
+            rx: labelHeight / 2,
+            ry: labelHeight / 2,
+            fill: servicePointColor,
+            stroke: "#ffffff",
+            strokeWidth: 1,
+            originX: "center",
+            originY: "center",
+            selectable: false,
+            evented: false,
+          }),
+          servicePointLabel,
+        ],
+        {
+          left: markerX,
+          top: markerY - badgeOffset,
+          originX: "center",
+          originY: "bottom",
+          selectable: canDragServicePoint,
+          evented: canDragServicePoint,
+          hasControls: false,
+          hasBorders: false,
+          hoverCursor: "move",
+          moveCursor: "move",
+        },
+      )
+      const marker = new Path(
+        "M20 10c0 5-5.5 10.2-7.4 11.8a1 1 0 0 1-1.2 0C9.5 20.2 4 15 4 10a8 8 0 1 1 16 0",
+        {
+          left: markerX,
+          top: markerY,
+          fill: servicePointColor,
+          stroke: "#ffffff",
+          strokeWidth: 1.75,
+          strokeUniform: true,
+          originX: "center",
+          originY: "bottom",
+          selectable: canDragServicePoint,
+          evented: canDragServicePoint,
+          hasControls: false,
+          hasBorders: false,
+          hoverCursor: "move",
+          moveCursor: "move",
+        },
+      )
+      const markerCenter = new Circle({
+        left: markerX,
+        top: markerY - pinCenterOffset,
+        radius: 3,
+        fill: "#ffffff",
+        originX: "center",
+        originY: "center",
+        selectable: false,
+        evented: false,
+      })
+
+      const syncServicePointVisuals = (pointX: number, pointY: number) => {
+        const nextX = Math.min(
+          Math.max(pointX, offsetX),
+          offsetX + renderedW,
+        )
+        const nextY = Math.min(
+          Math.max(pointY, offsetY),
+          offsetY + renderedH,
+        )
+        marker.set({ left: nextX, top: nextY })
+        markerCenter.set({ left: nextX, top: nextY - pinCenterOffset })
+        servicePointBadge.set({ left: nextX, top: nextY - badgeOffset })
+        marker.setCoords()
+        markerCenter.setCoords()
+        servicePointBadge.setCoords()
+        canvas.requestRenderAll()
+        return { x: nextX, y: nextY }
+      }
+
+      const commitServicePoint = (pointX: number, pointY: number) => {
+        const nextPoint = syncServicePointVisuals(pointX, pointY)
+        onServicePointChange?.([
+          Math.round((nextPoint.x - offsetX) / scale),
+          Math.round((nextPoint.y - offsetY) / scale),
+        ])
+      }
+
+      if (canDragServicePoint) {
+        marker.on("moving", () => {
+          syncServicePointVisuals(marker.left ?? markerX, marker.top ?? markerY)
+        })
+        marker.on("modified", () => {
+          commitServicePoint(marker.left ?? markerX, marker.top ?? markerY)
+        })
+        servicePointBadge.on("moving", () => {
+          syncServicePointVisuals(
+            servicePointBadge.left ?? markerX,
+            (servicePointBadge.top ?? markerY - badgeOffset) + badgeOffset,
+          )
+        })
+        servicePointBadge.on("modified", () => {
+          commitServicePoint(
+            servicePointBadge.left ?? markerX,
+            (servicePointBadge.top ?? markerY - badgeOffset) + badgeOffset,
+          )
+        })
+      }
+
+      canvas.add(
+        marker,
+        markerCenter,
+        servicePointBadge,
+      )
     })
 
     // Draft polyline when adding zone
@@ -576,7 +756,21 @@ export function CameraPreview({
     }
 
     canvas.requestRenderAll()
-  }, [previewSize, videoSize, zones, zoneStates, selectedZoneIndex, isEditingVertices, isAddingZone, draftPoints, onZoneSelect, onZonePointsChange])
+  }, [
+    previewSize,
+    videoSize,
+    zones,
+    zoneStates,
+    selectedZoneIndex,
+    servicePoint,
+    isEditingVertices,
+    isAddingZone,
+    isPickingServicePoint,
+    draftPoints,
+    onZoneSelect,
+    onZonePointsChange,
+    onServicePointChange,
+  ])
 
   // ── Add zone — mouse interaction ─────────────────────────────────────────
   useEffect(() => {
@@ -626,6 +820,47 @@ export function CameraPreview({
     canvas.on("mouse:down", handleMouseDown)
     return () => { canvas.off("mouse:down", handleMouseDown) }
   }, [isAddingZone, previewSize, videoSize, onZoneAdd])
+
+  // ── Pick service point — mouse interaction ───────────────────────────────
+  useEffect(() => {
+    const canvas = fabricCanvasRef.current
+    if (
+      !canvas
+      || !isPickingServicePoint
+      || selectedZoneIndex === null
+      || !previewSize.width
+      || !videoSize.width
+    ) return
+
+    const scale = Math.min(
+      previewSize.width / videoSize.width,
+      previewSize.height / videoSize.height,
+    )
+    const renderedW = videoSize.width * scale
+    const renderedH = videoSize.height * scale
+    const offsetX = (previewSize.width - renderedW) / 2
+    const offsetY = (previewSize.height - renderedH) / 2
+
+    const handleMouseDown = (event: { e: MouseEvent | PointerEvent | TouchEvent }) => {
+      const point = canvas.getScenePoint(event.e)
+      const x = Math.round(
+        (Math.min(Math.max(point.x, offsetX), offsetX + renderedW) - offsetX) / scale,
+      )
+      const y = Math.round(
+        (Math.min(Math.max(point.y, offsetY), offsetY + renderedH) - offsetY) / scale,
+      )
+      onServicePointChange?.([x, y])
+    }
+
+    canvas.on("mouse:down", handleMouseDown)
+    return () => { canvas.off("mouse:down", handleMouseDown) }
+  }, [
+    isPickingServicePoint,
+    selectedZoneIndex,
+    previewSize,
+    videoSize,
+    onServicePointChange,
+  ])
 
   // ── Clear draft on mode exit ─────────────────────────────────────────────
   useEffect(() => {

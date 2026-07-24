@@ -44,13 +44,13 @@ class ManualTaskTransport(Protocol):
 
     def send_message(self, message: MessageBase) -> bool: ...
 
-    def send_with_retry(
+    def send_with_retry_ack(
         self,
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
-    ) -> bool: ...
+    ) -> Optional[Ack]: ...
 
     def is_connected(self) -> bool: ...
 
@@ -232,15 +232,24 @@ class ManualRobotTaskService:
             y=request.y,
             theta=request.theta,
         )
-        acknowledged = self._uart.send_with_retry(
+        ack = self._uart.send_with_retry_ack(
             message,
             reference_id=request.task_id,
             timeout=ack_timeout_seconds,
             max_retries=max_retries,
         )
-        if not acknowledged:
+        if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             with self._lock:
                 self._tasks.pop(key, None)
+            if ack is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Robot từ chối TaskAssign: "
+                        f"{_ack_reason_name(ack.reason_code)} "
+                        f"(reason_code={ack.reason_code})."
+                    ),
+                )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Robot did not acknowledge TaskAssign.",
@@ -252,7 +261,12 @@ class ManualRobotTaskService:
                 task.state = "assigned"
                 task.updated_at = time.time()
 
-        return self._build_send_result("task_assign", request.robot_id, request.task_id)
+        return self._build_send_result(
+            "task_assign",
+            request.robot_id,
+            request.task_id,
+            ack,
+        )
 
     # ───────────────────────────────────────────────────────────────────
     def _send_cancel(
@@ -274,18 +288,27 @@ class ManualRobotTaskService:
             task.state = "cancel_pending"
             task.updated_at = time.time()
 
-        acknowledged = self._uart.send_with_retry(
+        ack = self._uart.send_with_retry_ack(
             TaskCancel(robot_id=robot_id, task_id=task_id),
             reference_id=task_id,
             timeout=ack_timeout_seconds,
             max_retries=max_retries,
         )
-        if not acknowledged:
+        if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             with self._lock:
                 task = self._tasks.get(key)
                 if task is not None and task.state == "cancel_pending":
                     task.state = previous_state
                     task.updated_at = time.time()
+            if ack is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Robot từ chối TaskCancel: "
+                        f"{_ack_reason_name(ack.reason_code)} "
+                        f"(reason_code={ack.reason_code})."
+                    ),
+                )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Robot did not acknowledge TaskCancel.",
@@ -297,7 +320,7 @@ class ManualRobotTaskService:
                 task.state = "cancelled"
                 task.updated_at = time.time()
 
-        return self._build_send_result("task_cancel", robot_id, task_id)
+        return self._build_send_result("task_cancel", robot_id, task_id, ack)
 
     # ───────────────────────────────────────────────────────────────────
     def _build_send_result(
@@ -305,7 +328,9 @@ class ManualRobotTaskService:
         message_type: str,
         robot_id: int,
         task_id: int,
+        ack: Ack,
     ) -> dict:
+        """Tạo response task thủ công kèm đầy đủ kết quả ACK."""
         with self._lock:
             task = self._tasks[(robot_id, task_id)]
             return {
@@ -313,7 +338,23 @@ class ManualRobotTaskService:
                 "robot_id": robot_id,
                 "task_id": task_id,
                 "acknowledged": True,
+                "ack": {
+                    "result_code": int(ack.result_code),
+                    "result": AckResultCode(ack.result_code).name,
+                    "reason_code": int(ack.reason_code),
+                    "reason": _ack_reason_name(ack.reason_code),
+                },
                 "task": asdict(task),
             }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _ack_reason_name(reason_code: int) -> str:
+    """Đổi mã nguyên nhân ACK sang tên enum, có fallback cho mã lạ."""
+    try:
+        return AckReasonCode(reason_code).name
+    except ValueError:
+        return "UNKNOWN"
+
 
 manual_robot_task_service = ManualRobotTaskService(uart_manager_v2)

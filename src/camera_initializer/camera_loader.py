@@ -7,6 +7,7 @@ Việc đọc stream (RTSP) được xử lý ở tầng khác bởi MediaSource
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Set
@@ -27,6 +28,7 @@ class Camera:
     source  : str
     zones   : List[Zone] = field(default_factory=list)
     enabled : bool = True
+    calibration_image_size: Optional[tuple[int, int]] = None
 
     @property
     def zone_count(self) -> int:
@@ -104,10 +106,19 @@ def _parse_camera(
         LOGGER.warning("Bỏ qua camera trùng id '%s'.", camera_id)
         return None
 
+    calibration_data = camera_data.get("calibration")
+    if not isinstance(calibration_data, Mapping):
+        calibration_data = {}
+    calibration_image_size = _parse_calibration_image_size(
+        calibration_data.get("image_size"),
+    )
+    homography = calibration_data.get("homography")
+
     zones = _parse_zones(
         camera_id=camera_id,
         camera_name=camera_name,
         zones_data=camera_data.get("zones") or [],
+        homography=homography,
         seen_zone_keys=seen_zone_keys,
     )
 
@@ -121,6 +132,7 @@ def _parse_camera(
         source=source,
         zones=zones,
         enabled=enabled,
+        calibration_image_size=calibration_image_size,
     )
 
 
@@ -130,6 +142,7 @@ def _parse_zones(
     camera_id: str,
     camera_name: str,
     zones_data: Any,
+    homography: Any,
     seen_zone_keys: Set[str],
 ) -> List[Zone]:
     if not isinstance(zones_data, list):
@@ -142,6 +155,7 @@ def _parse_zones(
             camera_id=camera_id,
             camera_name=camera_name,
             zone_data=zone_data,
+            homography=homography,
             seen_zone_keys=seen_zone_keys,
         )
         if zone is not None:
@@ -155,6 +169,7 @@ def _parse_zone(
     camera_id: str,
     camera_name: str,
     zone_data: Any,
+    homography: Any,
     seen_zone_keys: Set[str],
 ) -> Optional[Zone]:
     if not isinstance(zone_data, Mapping):
@@ -178,6 +193,11 @@ def _parse_zone(
         LOGGER.warning("Bỏ qua zone '%s' vì points không hợp lệ.", zone_key)
         return None
 
+    service_point = _parse_service_point(zone_data.get("service_point"))
+    goal_pose = _build_goal_pose(service_point, points, homography)
+    if not goal_pose:
+        goal_pose = dict(zone_data.get("goal_pose") or {})
+
     seen_zone_keys.add(zone_key)
     return Zone(
         id=zone_id,
@@ -185,8 +205,146 @@ def _parse_zone(
         camera_name=camera_name,
         name=zone_name,
         pts=np.asarray(points, dtype=np.int32),
-        goal_pose=dict(zone_data.get("goal_pose") or {}),
+        goal_pose=goal_pose,
+        service_point=service_point,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_service_point(value: Any) -> Optional[tuple[float, float]]:
+    """Đọc điểm phục vụ pixel và trả về cặp tọa độ hợp lệ."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+
+    try:
+        point = (float(value[0]), float(value[1]))
+    except (TypeError, ValueError):
+        return None
+    if not all(np.isfinite(coordinate) for coordinate in point):
+        return None
+    return point
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_calibration_image_size(value: Any) -> Optional[tuple[int, int]]:
+    """Đọc độ phân giải dùng để calibration dưới dạng ``(width, height)``."""
+    if not isinstance(value, Mapping):
+        return None
+
+    try:
+        width = int(value["width"])
+        height = int(value["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _project_pixel_point(
+    point: tuple[float, float],
+    matrix: np.ndarray,
+) -> Optional[tuple[float, float]]:
+    """Chiếu một điểm pixel sang hệ tọa độ robot bằng homography."""
+    projected = matrix @ np.asarray(
+        [point[0], point[1], 1.0],
+        dtype=np.float64,
+    )
+    denominator = float(projected[2])
+    if not np.isfinite(denominator) or abs(denominator) < 1e-9:
+        return None
+
+    x = float(projected[0] / denominator)
+    y = float(projected[1] / denominator)
+    if not np.isfinite(x) or not np.isfinite(y):
+        return None
+    return x, y
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _polygon_centroid(
+    points: list[tuple[float, float]],
+) -> Optional[tuple[float, float]]:
+    """Tính tâm hình học có trọng số diện tích của polygon tọa độ robot."""
+    if len(points) < 3:
+        return None
+
+    polygon = np.asarray(points, dtype=np.float64)
+    next_polygon = np.roll(polygon, -1, axis=0)
+    cross_products = (
+        polygon[:, 0] * next_polygon[:, 1]
+        - next_polygon[:, 0] * polygon[:, 1]
+    )
+    twice_area = float(np.sum(cross_products))
+    if not np.isfinite(twice_area) or abs(twice_area) < 1e-9:
+        center = np.mean(polygon, axis=0)
+        if not np.isfinite(center).all():
+            return None
+        return float(center[0]), float(center[1])
+
+    center_x = float(
+        np.sum((polygon[:, 0] + next_polygon[:, 0]) * cross_products)
+        / (3.0 * twice_area)
+    )
+    center_y = float(
+        np.sum((polygon[:, 1] + next_polygon[:, 1]) * cross_products)
+        / (3.0 * twice_area)
+    )
+    if not np.isfinite(center_x) or not np.isfinite(center_y):
+        return None
+    return center_x, center_y
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _calculate_service_theta(
+    zone_center: tuple[float, float],
+    goal_point: tuple[float, float],
+) -> float:
+    """Tính theta để mặt robot hướng ra ngoài và mông quay về tâm zone."""
+    delta_x = goal_point[0] - zone_center[0]
+    delta_y = goal_point[1] - zone_center[1]
+    if math.hypot(delta_x, delta_y) < 1e-9:
+        return 0.0
+    return math.atan2(delta_y, delta_x)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_goal_pose(
+    service_point: Optional[tuple[float, float]],
+    zone_points: Any,
+    homography: Any,
+) -> Dict[str, float]:
+    """Tạo goal pose runtime từ điểm phục vụ, polygon zone và homography."""
+    if service_point is None:
+        return {}
+
+    try:
+        matrix = np.asarray(homography, dtype=np.float64)
+    except (TypeError, ValueError):
+        return {}
+    if matrix.shape != (3, 3) or not np.isfinite(matrix).all():
+        return {}
+
+    goal_point = _project_pixel_point(service_point, matrix)
+    if goal_point is None:
+        return {}
+
+    projected_zone_points = [
+        projected
+        for point in zone_points
+        if (projected := _project_pixel_point(
+            (float(point[0]), float(point[1])),
+            matrix,
+        )) is not None
+    ]
+    zone_center = _polygon_centroid(projected_zone_points)
+    theta = (
+        _calculate_service_theta(zone_center, goal_point)
+        if zone_center is not None
+        else 0.0
+    )
+    return {"x": goal_point[0], "y": goal_point[1], "theta": theta}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

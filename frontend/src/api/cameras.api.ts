@@ -2,16 +2,10 @@ import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } fro
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface GoalPose {
-  x: number
-  y: number
-  theta: number
-}
-
 export interface Zone {
   id?: string
   name: string
-  goal_pose?: GoalPose | null
+  service_point?: [number, number] | null
   points: [number, number][]
 }
 

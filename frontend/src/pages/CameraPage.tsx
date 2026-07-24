@@ -6,12 +6,15 @@ import {
   type CSSProperties,
 } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Crosshair, MapPin, Navigation, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCamera } from "@/hooks/use-camera"
 import { useInvalidateCameras } from "@/hooks/use-cameras"
-import { camerasApi, type Camera, type Zone, type GoalPose } from "@/api/cameras.api"
+import { camerasApi, type Camera, type Zone } from "@/api/cameras.api"
+import { cameraCalibrationApi } from "@/api/camera-calibration.api"
+import { uartApi } from "@/api/uart.api"
+import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
 import { EditCameraDialog } from "@/components/edit-camera-dialog"
 import { CameraPreview } from "@/components/camera-preview"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +39,13 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 function maskRtspPassword(url: string): string {
   return url.replace(/^(rtsp:\/\/[^:]+):([^@]+)@/, "$1:***@")
@@ -50,59 +60,52 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function GoalPoseField({
-  label,
-  value,
-  onChange,
-  disabled,
-}: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-  disabled?: boolean
-}) {
-  const [raw, setRaw] = useState(String(value))
-  const synced = useRef(value)
-
-  useEffect(() => {
-    if (synced.current !== value) {
-      synced.current = value
-      setRaw(String(value))
-    }
-  }, [value])
-
-  return (
-    <div className="box-border flex h-8 w-full max-w-full items-center rounded-md border border-input bg-background text-sm ring-offset-background focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 has-[:disabled]:opacity-50">
-      <span className="shrink-0 select-none pl-2.5 pr-2 text-muted-foreground">{label}</span>
-      <div className="self-stretch w-px bg-border" />
-      <input
-        type="number"
-        step="0.01"
-        value={raw}
-        onChange={(e) => {
-          setRaw(e.target.value)
-          const n = parseFloat(e.target.value)
-          if (!isNaN(n)) { synced.current = n; onChange(n) }
-        }}
-        onBlur={() => {
-          const n = parseFloat(raw)
-          if (isNaN(n) || raw.trim() === "") {
-            setRaw(String(value)); synced.current = value
-          } else {
-            setRaw(String(n)); synced.current = n
-          }
-        }}
-        onWheel={(e) => e.currentTarget.blur()}
-        disabled={disabled}
-        className="h-full min-w-0 flex-1 bg-transparent px-2.5 outline-none disabled:cursor-not-allowed [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-      />
-    </div>
-  )
-}
-
 const ZONE_COLORS = [
   "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6", "#ec4899",
 ]
+
+function projectPixelToWorld(
+  point: [number, number],
+  homography: number[][],
+): [number, number] {
+  if (
+    homography.length !== 3
+    || homography.some(
+      (row) => row.length !== 3 || row.some((value) => !Number.isFinite(value)),
+    )
+  ) {
+    throw new Error("Ma trận homography của camera không hợp lệ")
+  }
+
+  const [pixelX, pixelY] = point
+  const denominator =
+    homography[2][0] * pixelX
+    + homography[2][1] * pixelY
+    + homography[2][2]
+  if (!Number.isFinite(denominator) || Math.abs(denominator) < 1e-9) {
+    throw new Error("Không thể chiếu điểm pixel bằng ma trận homography")
+  }
+
+  const worldX = (
+    homography[0][0] * pixelX
+    + homography[0][1] * pixelY
+    + homography[0][2]
+  ) / denominator
+  const worldY = (
+    homography[1][0] * pixelX
+    + homography[1][1] * pixelY
+    + homography[1][2]
+  ) / denominator
+  if (!Number.isFinite(worldX) || !Number.isFinite(worldY)) {
+    throw new Error("Tọa độ đích sau khi chiếu không hợp lệ")
+  }
+
+  return [worldX, worldY]
+}
+
+function generateMoveId(): number {
+  return Math.floor(Math.random() * 256)
+}
 
 export function CameraPage() {
   const { id } = useParams<{ id: string }>()
@@ -110,6 +113,7 @@ export function CameraPage() {
   const queryClient = useQueryClient()
   const invalidateCameras = useInvalidateCameras()
   const { data: camera, isLoading, isError } = useCamera(id!)
+  const { snapshot: robotSnapshot } = useRobotHeartbeats()
 
   // Camera-level dialogs
   const [editOpen, setEditOpen]     = useState(false)
@@ -122,18 +126,26 @@ export function CameraPage() {
   const [selectedZoneIndex, setSelectedZoneIndex] = useState<number | null>(null)
   const [draftZones, setDraftZones]               = useState<Zone[]>([])
   const [isConfirming, setIsConfirming]           = useState(false)
+  const [isPickingServicePoint, setIsPickingServicePoint] = useState(false)
+  const [draftServicePoint, setDraftServicePoint] = useState<[number, number] | null>(null)
+  const [servicePointRobotId, setServicePointRobotId] = useState("")
+  const [isMovingToServicePoint, setIsMovingToServicePoint] = useState(false)
+  const onlineRobots = robotSnapshot?.robots.filter((robot) => robot.online) ?? []
+  const selectedServicePointRobotId = onlineRobots.some(
+    (robot) => String(robot.robot_id) === servicePointRobotId,
+  )
+    ? servicePointRobotId
+    : onlineRobots[0] ? String(onlineRobots[0].robot_id) : ""
 
-  // Goal pose + name editing
+  // Zone name editing
   const [draftZoneName, setDraftZoneName]     = useState("")
   const [zoneNameError, setZoneNameError]     = useState("")
-  const [draftGoalPose, setDraftGoalPose]     = useState<GoalPose>({ x: 0, y: 0, theta: 0 })
 
   // New-zone naming dialog
   const [pendingPoints, setPendingPoints]           = useState<number[][] | null>(null)
   const [zoneNameDialogOpen, setZoneNameDialogOpen] = useState(false)
   const [pendingZoneName, setPendingZoneName]       = useState("")
   const [pendingZoneNameError, setPendingZoneNameError] = useState("")
-  const [isSavingZone, setIsSavingZone]             = useState(false)
 
   // Zone delete dialog
   const [deletingZoneId, setDeletingZoneId] = useState<string | null>(null)
@@ -166,14 +178,14 @@ export function CameraPage() {
     setSelectedZoneIndex(null)
     setDraftZones([])
     setIsConfirming(false)
+    setIsPickingServicePoint(false)
+    setDraftServicePoint(null)
     setDraftZoneName("")
     setZoneNameError("")
-    setDraftGoalPose({ x: 0, y: 0, theta: 0 })
     setPendingPoints(null)
     setZoneNameDialogOpen(false)
     setPendingZoneName("")
     setPendingZoneNameError("")
-    setIsSavingZone(false)
     setDeletingZoneId(null)
     setIsDeletingZone(false)
   }, [id])
@@ -208,7 +220,8 @@ export function CameraPage() {
     setIsEditingVertices(true)
     setDraftZoneName(zone?.name ?? "")
     setZoneNameError("")
-    setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
+    setIsPickingServicePoint(false)
+    setDraftServicePoint(zone?.service_point ?? null)
   }
 
   const handleZoneSelect = useCallback((index: number) => {
@@ -221,7 +234,8 @@ export function CameraPage() {
     const zone = draftZones[index]
     setDraftZoneName(zone?.name ?? "")
     setZoneNameError("")
-    setDraftGoalPose(zone?.goal_pose ?? { x: 0, y: 0, theta: 0 })
+    setIsPickingServicePoint(false)
+    setDraftServicePoint(zone?.service_point ?? null)
   }, [selectedZoneIndex, isEditingVertices, draftZones])
 
   function handleCancel() {
@@ -231,6 +245,8 @@ export function CameraPage() {
     setDraftZones([])
     setDraftZoneName("")
     setZoneNameError("")
+    setIsPickingServicePoint(false)
+    setDraftServicePoint(null)
   }
 
   async function handleConfirmEdit() {
@@ -246,25 +262,32 @@ export function CameraPage() {
       setZoneNameError("Tên zone đã tồn tại")
       return
     }
+    if (!draftServicePoint) {
+      toast.error("Vui lòng chọn điểm phục vụ trước khi lưu zone")
+      setIsPickingServicePoint(true)
+      return
+    }
 
     setIsConfirming(true)
     try {
       const updatedZones = draftZones.map((z, i) =>
-        i === selectedZoneIndex ? { ...z, name: trimmedName, goal_pose: draftGoalPose } : z,
+        i === selectedZoneIndex
+          ? { ...z, name: trimmedName, service_point: draftServicePoint }
+          : z,
       )
       const response = await camerasApi.update(id!, { zones: updatedZones })
 
       // Cập nhật cache ngay lập tức trước khi thoát edit mode
       // để displayZones không flash về dữ liệu cũ trong khi chờ refetch
-      queryClient.setQueryData<Camera>(["cameras", id], (old) =>
-        old ? { ...old, zones: updatedZones } : old,
-      )
+      queryClient.setQueryData<Camera>(["cameras", id], response.data)
 
       setIsEditingVertices(false)
       setSelectedZoneIndex(null)
       setDraftZones([])
       setDraftZoneName("")
       setZoneNameError("")
+      setIsPickingServicePoint(false)
+      setDraftServicePoint(null)
       toast.success(response.message)
       invalidateCameras()
     } catch (err) {
@@ -287,33 +310,90 @@ export function CameraPage() {
     )
   }, [])
 
-  async function handleSaveNewZone() {
+  const handleServicePointChange = useCallback((point: [number, number]) => {
+    setDraftServicePoint(point)
+    setIsPickingServicePoint(false)
+    if (selectedZoneIndex !== null) {
+      setDraftZones((zones) =>
+        zones.map((zone, index) =>
+          index === selectedZoneIndex
+            ? { ...zone, service_point: point }
+            : zone,
+        ),
+      )
+    }
+  }, [selectedZoneIndex])
+
+  async function handleMoveToServicePoint() {
+    if (!draftServicePoint) {
+      toast.error("Vui lòng chọn điểm phục vụ trên video")
+      return
+    }
+    if (!selectedServicePointRobotId) {
+      toast.error("Không có robot online để nhận lệnh")
+      return
+    }
+
+    setIsMovingToServicePoint(true)
+    try {
+      const calibration = await cameraCalibrationApi.get(id!)
+      if (!calibration) {
+        throw new Error("Camera chưa có ma trận homography đã áp dụng")
+      }
+
+      const [x, y] = projectPixelToWorld(
+        draftServicePoint,
+        calibration.homography,
+      )
+      if (x < -327.68 || x > 327.67 || y < -327.68 || y > 327.67) {
+        throw new Error("Tọa độ đích nằm ngoài phạm vi giao thức")
+      }
+
+      const result = await uartApi.moveToPoint({
+        robot_id: Number(selectedServicePointRobotId),
+        move_id: generateMoveId(),
+        x,
+        y,
+        theta: 0,
+      })
+      toast.success(
+        `Robot #${result.robot_id} đã nhận điểm (${x.toFixed(2)}, ${y.toFixed(2)})`,
+      )
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Không thể gửi lệnh di chuyển tới điểm phục vụ",
+      )
+    } finally {
+      setIsMovingToServicePoint(false)
+    }
+  }
+
+  function handleSaveNewZone() {
     if (!pendingPoints || !camera) return
     const trimmedName = pendingZoneName.trim()
     if (!trimmedName) { setPendingZoneNameError("Tên zone không được để trống"); return }
     const isDuplicate = camera.zones.some((z) => z.name === trimmedName)
     if (isDuplicate) { setPendingZoneNameError("Tên zone đã tồn tại"); return }
 
-    setIsSavingZone(true)
-    try {
-      const newZone: Zone = {
-        name: trimmedName,
-        points: pendingPoints as [number, number][],
-        goal_pose: null,
-      }
-      const response = await camerasApi.update(id!, { zones: [...camera.zones, newZone] })
-      toast.success(response.message)
-      invalidateCamera()
-      invalidateCameras()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Thêm zone thất bại")
-    } finally {
-      setIsSavingZone(false)
-      setZoneNameDialogOpen(false)
-      setPendingPoints(null)
-      setPendingZoneName("")
-      setPendingZoneNameError("")
+    const newZone: Zone = {
+      name: trimmedName,
+      points: pendingPoints as [number, number][],
+      service_point: null,
     }
+    setDraftZones([...camera.zones, newZone])
+    setSelectedZoneIndex(camera.zones.length)
+    setDraftZoneName(trimmedName)
+    setZoneNameError("")
+    setDraftServicePoint(null)
+    setIsEditingVertices(true)
+    setIsPickingServicePoint(true)
+    setZoneNameDialogOpen(false)
+    setPendingPoints(null)
+    setPendingZoneName("")
+    setPendingZoneNameError("")
+    toast.info("Chọn điểm phục vụ trên video rồi nhấn Xác nhận")
   }
 
   async function handleDeleteZone() {
@@ -349,7 +429,15 @@ export function CameraPage() {
   }
 
   const editingZoneName =
-    selectedZoneIndex !== null ? (camera.zones[selectedZoneIndex]?.name ?? "zone") : "zone"
+    selectedZoneIndex !== null
+      ? (
+          (isEditingVertices ? draftZones : camera.zones)[selectedZoneIndex]?.name
+          ?? "zone"
+        )
+      : "zone"
+  const selectedZoneColor = ZONE_COLORS[
+    (selectedZoneIndex ?? 0) % ZONE_COLORS.length
+  ]
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -426,10 +514,13 @@ export function CameraPage() {
                   zones={displayZones}
                   isAddingZone={isAddingZone}
                   isEditingVertices={isEditingVertices}
+                  isPickingServicePoint={isPickingServicePoint}
                   selectedZoneIndex={selectedZoneIndex}
+                  servicePoint={draftServicePoint}
                   onZoneAdd={handleZoneAdd}
                   onZonePointsChange={handleZonePointsChange}
                   onZoneSelect={handleZoneSelect}
+                  onServicePointChange={handleServicePointChange}
                 />
               </div>
 
@@ -449,7 +540,11 @@ export function CameraPage() {
                     {/* Header */}
                     <div className="flex h-14 shrink-0 items-center border-b px-4">
                       <p className="text-sm font-medium">
-                        {isAddingZone ? "Thêm zone" : `Đang sửa: ${editingZoneName}`}
+                        {isAddingZone
+                          ? "Thêm zone"
+                          : isPickingServicePoint
+                            ? `Chọn điểm phục vụ: ${editingZoneName}`
+                            : `Đang sửa: ${editingZoneName}`}
                       </p>
                     </div>
 
@@ -472,24 +567,98 @@ export function CameraPage() {
                               )}
                             </div>
 
-                            {/* Goal pose fields */}
-                            <div className="flex min-w-0 flex-col gap-2">
-                              <p className="text-xs font-medium">Goal Pose</p>
-                              <GoalPoseField
-                                label="X"
-                                value={draftGoalPose.x}
-                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, x: v }))}
-                              />
-                              <GoalPoseField
-                                label="Y"
-                                value={draftGoalPose.y}
-                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, y: v }))}
-                              />
-                              <GoalPoseField
-                                label="θ"
-                                value={draftGoalPose.theta}
-                                onChange={(v) => setDraftGoalPose((p) => ({ ...p, theta: v }))}
-                              />
+                            {/* Service point prototype */}
+                            <div className="flex min-w-0 flex-col gap-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <MapPin
+                                    className="size-3.5"
+                                    style={{ color: selectedZoneColor }}
+                                  />
+                                  <p className="text-xs font-medium">Điểm phục vụ</p>
+                                </div>
+                                <Badge variant="outline" className="text-[10px]">
+                                  UI thử nghiệm
+                                </Badge>
+                              </div>
+
+                              {draftServicePoint ? (
+                                <div
+                                  className="flex items-center gap-2 rounded-md border px-3 py-2"
+                                  style={{
+                                    borderColor: `${selectedZoneColor}4d`,
+                                    backgroundColor: `${selectedZoneColor}1a`,
+                                  }}
+                                >
+                                  <span
+                                    className="size-2 shrink-0 rounded-full"
+                                    style={{ backgroundColor: selectedZoneColor }}
+                                  />
+                                  <span className="text-xs text-muted-foreground">Pixel</span>
+                                  <span className="ml-auto text-xs">
+                                    X {draftServicePoint[0]} · Y {draftServicePoint[1]}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="rounded-md border border-dashed px-3 py-3 text-center text-xs text-muted-foreground">
+                                  Chưa chọn điểm trên video.
+                                </div>
+                              )}
+
+                              <Select
+                                value={selectedServicePointRobotId}
+                                onValueChange={setServicePointRobotId}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue
+                                    placeholder={
+                                      onlineRobots.length === 0
+                                        ? "Không có robot online"
+                                        : "Chọn robot"
+                                    }
+                                  />
+                                </SelectTrigger>
+                                <SelectContent position="popper">
+                                  {onlineRobots.map((robot) => (
+                                    <SelectItem
+                                      key={robot.robot_id}
+                                      value={String(robot.robot_id)}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span className="size-2 rounded-full bg-emerald-500" />
+                                        Robot #{robot.robot_id}
+                                      </span>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+
+                              <Button
+                                size="sm"
+                                variant={isPickingServicePoint ? "secondary" : "outline"}
+                                className="w-full"
+                                onClick={() => setIsPickingServicePoint((current) => !current)}
+                              >
+                                <Crosshair />
+                                {isPickingServicePoint
+                                  ? "Dừng chọn điểm"
+                                  : draftServicePoint ? "Chọn lại điểm" : "Chọn điểm trên video"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                className="w-full"
+                                disabled={
+                                  !draftServicePoint
+                                  || !selectedServicePointRobotId
+                                  || isMovingToServicePoint
+                                }
+                                onClick={handleMoveToServicePoint}
+                              >
+                                <Navigation />
+                                {isMovingToServicePoint
+                                  ? "Đang gửi lệnh..."
+                                  : "Test chuyển đến điểm"}
+                              </Button>
                             </div>
 
                             <Separator />
@@ -500,7 +669,11 @@ export function CameraPage() {
                         <p className="text-xs text-muted-foreground leading-relaxed">
                           {isAddingZone
                             ? "Click lên video để thêm từng điểm. Double-click để hoàn tất polygon."
-                            : "Kéo các điểm trên video để chỉnh lại vị trí của zone."}
+                            : isPickingServicePoint
+                              ? "Click một vị trí trên video để đặt điểm phục vụ cho zone."
+                              : draftServicePoint
+                                ? "Kéo marker để đổi điểm phục vụ; kéo các đỉnh để chỉnh zone."
+                                : "Kéo các điểm trên video để chỉnh lại vị trí của zone."}
                         </p>
                       </div>
                     </div>
@@ -662,8 +835,8 @@ export function CameraPage() {
             >
               Hủy
             </Button>
-            <Button disabled={!pendingZoneName.trim() || isSavingZone} onClick={handleSaveNewZone}>
-              {isSavingZone ? "Đang lưu..." : "Lưu"}
+            <Button disabled={!pendingZoneName.trim()} onClick={handleSaveNewZone}>
+              Tiếp tục
             </Button>
           </DialogFooter>
         </DialogContent>

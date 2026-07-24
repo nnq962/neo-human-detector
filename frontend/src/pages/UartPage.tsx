@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { Activity, Bot, Check, Clock3, Pencil, Send, X } from "lucide-react"
+import { Activity, Bot, Check, Clock3, Pencil, Send, Shuffle, X } from "lucide-react"
 import { toast } from "sonner"
 
 import {
+  type RobotHeartbeat,
+  type RobotHeartbeatSnapshot,
   uartApi,
-  type UartMessageRequest,
 } from "@/api/uart.api"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -73,6 +74,14 @@ const ROBOT_STATE_VIEW = {
     label: "UNKNOWN",
     className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-400",
   },
+}
+
+function generateMoveId(previous?: number) {
+  let moveId = Math.floor(Math.random() * 256)
+  while (moveId === previous) {
+    moveId = Math.floor(Math.random() * 256)
+  }
+  return moveId
 }
 
 
@@ -187,8 +196,13 @@ function UartStatusCard() {
 }
 
 
-function RobotHeartbeatCard() {
-  const { snapshot, connected } = useRobotHeartbeats()
+function RobotHeartbeatCard({
+  snapshot,
+  connected,
+}: {
+  snapshot: RobotHeartbeatSnapshot | null
+  connected: boolean
+}) {
   const robots = snapshot?.robots ?? []
   const latestHeartbeatSeconds = snapshot?.latest_heartbeat_age_seconds
 
@@ -324,38 +338,56 @@ function RobotHeartbeatCard() {
 }
 
 
-function ManualTaskCard() {
+function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
   const invalidate = useInvalidateUart()
-  const [messageType, setMessageType] = useState<"task_assign" | "task_cancel">("task_assign")
-  const [robotId, setRobotId] = useState("1")
-  const [taskId, setTaskId] = useState("0")
+  const [robotId, setRobotId] = useState("")
+  const [moveId, setMoveId] = useState(() => generateMoveId())
   const [x, setX] = useState("0")
   const [y, setY] = useState("0")
   const [theta, setTheta] = useState("0")
   const [sending, setSending] = useState(false)
+  const onlineRobots = robots.filter((robot) => robot.online)
+  const selectedRobotId = onlineRobots.some(
+    (robot) => String(robot.robot_id) === robotId,
+  )
+    ? robotId
+    : onlineRobots[0] ? String(onlineRobots[0].robot_id) : ""
 
-  async function sendMessage() {
-    const base = {
-      robot_id: Number(robotId),
-      task_id: Number(taskId),
+  async function sendMoveToPoint() {
+    const target = {
+      x: Number(x),
+      y: Number(y),
+      theta: Number(theta),
     }
-    const request: UartMessageRequest = messageType === "task_assign"
-      ? {
-          message_type: "task_assign",
-          ...base,
-          x: Number(x),
-          y: Number(y),
-          theta: Number(theta),
-        }
-      : { message_type: "task_cancel", ...base }
+    if (!selectedRobotId) {
+      toast.error("Vui lòng chọn robot")
+      return
+    }
+    if (!Object.values(target).every(Number.isFinite)) {
+      toast.error("Pose đích không hợp lệ")
+      return
+    }
+    if (
+      target.x < -327.68 || target.x > 327.67
+      || target.y < -327.68 || target.y > 327.67
+      || target.theta < -32.768 || target.theta > 32.767
+    ) {
+      toast.error("Pose đích nằm ngoài phạm vi giao thức")
+      return
+    }
 
     setSending(true)
     try {
-      const result = await uartApi.sendMessage(request)
-      toast.success(`${result.message_type} đã nhận ACK`)
+      const result = await uartApi.moveToPoint({
+        robot_id: Number(selectedRobotId),
+        move_id: moveId,
+        ...target,
+      })
+      toast.success(`Robot #${result.robot_id} đã nhận lệnh di chuyển`)
+      setMoveId((current) => generateMoveId(current))
       await invalidate()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Gửi message thất bại")
+      toast.error(error instanceof Error ? error.message : "Gửi lệnh di chuyển thất bại")
     } finally {
       setSending(false)
     }
@@ -364,116 +396,112 @@ function ManualTaskCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Gửi task thủ công</CardTitle>
+        <CardTitle>Di chuyển robot</CardTitle>
         <CardDescription>
-          Chỉ dùng khi vision Runtime đã dừng. Task Assign tạo task mới,
-          Task Cancel hủy task thủ công đã gửi trước đó.
+          Gửi robot tới pose đích bằng MoveToPoint. Lệnh này độc lập với task
+          và chỉ dùng khi vision Runtime đã dừng.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">Loại message</label>
-            <Select value={messageType} onValueChange={(value) => setMessageType(value as typeof messageType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent position="popper" className="w-fit min-w-0">
-                <SelectItem value="task_assign">Task Assign</SelectItem>
-                <SelectItem value="task_cancel">Task Cancel</SelectItem>
+            <label className="text-xs font-medium">Robot</label>
+            <Select value={selectedRobotId} onValueChange={setRobotId}>
+              <SelectTrigger>
+                <SelectValue placeholder={
+                  onlineRobots.length === 0 ? "Không có robot online" : "Chọn robot"
+                } />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {onlineRobots.map((robot) => (
+                  <SelectItem
+                    key={robot.robot_id}
+                    value={String(robot.robot_id)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="size-2 rounded-full bg-emerald-500" />
+                      Robot #{robot.robot_id}
+                    </span>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Chọn giao task mới hoặc hủy task đang theo dõi.
+              Danh sách được cập nhật từ Heartbeat; robot offline không thể chọn.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="manual-robot-id" className="text-xs font-medium">Robot ID</label>
-            <Input
-              id="manual-robot-id"
-              type="number"
-              min={0}
-              max={255}
-              className={NUMBER_INPUT_CLASS}
-              value={robotId}
-              onChange={(event) => setRobotId(event.target.value)}
-              onWheel={(event) => event.currentTarget.blur()}
-            />
+            <label className="text-xs font-medium">Move ID</label>
+            <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm">
+              <Shuffle className="size-3.5 text-muted-foreground" />
+              <span className="font-medium tabular-nums">#{moveId}</span>
+              <Badge variant="secondary" className="ml-auto text-[10px]">Tự động</Badge>
+            </div>
             <p className="text-xs text-muted-foreground">
-              ID robot nhận lệnh, giá trị từ 0 đến 255.
+              Tự sinh trong khoảng 0–255 và đổi sau mỗi lần gửi thành công.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="manual-task-id" className="text-xs font-medium">Task ID</label>
+            <label htmlFor="move-goal-x" className="text-xs font-medium">Goal X</label>
             <Input
-              id="manual-task-id"
+              id="move-goal-x"
               type="number"
-              min={0}
-              max={255}
+              step="any"
+              min={-327.68}
+              max={327.67}
               className={NUMBER_INPUT_CLASS}
-              value={taskId}
-              onChange={(event) => setTaskId(event.target.value)}
+              value={x}
+              onChange={(event) => setX(event.target.value)}
               onWheel={(event) => event.currentTarget.blur()}
             />
             <p className="text-xs text-muted-foreground">
-              ID task từ 0–255; khi cancel phải trùng task đã assign.
+              Tọa độ X của điểm đến, đơn vị mét.
             </p>
           </div>
 
-          {messageType === "task_assign" && (
-            <>
-              <div className="space-y-1.5">
-                <label htmlFor="manual-goal-x" className="text-xs font-medium">Goal X</label>
-                <Input
-                  id="manual-goal-x"
-                  type="number"
-                  step="any"
-                  className={NUMBER_INPUT_CLASS}
-                  value={x}
-                  onChange={(event) => setX(event.target.value)}
-                  onWheel={(event) => event.currentTarget.blur()}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Tọa độ X của điểm đến, đơn vị mét.
-                </p>
-              </div>
+          <div className="space-y-1.5">
+            <label htmlFor="move-goal-y" className="text-xs font-medium">Goal Y</label>
+            <Input
+              id="move-goal-y"
+              type="number"
+              step="any"
+              min={-327.68}
+              max={327.67}
+              className={NUMBER_INPUT_CLASS}
+              value={y}
+              onChange={(event) => setY(event.target.value)}
+              onWheel={(event) => event.currentTarget.blur()}
+            />
+            <p className="text-xs text-muted-foreground">
+              Tọa độ Y của điểm đến, đơn vị mét.
+            </p>
+          </div>
 
-              <div className="space-y-1.5">
-                <label htmlFor="manual-goal-y" className="text-xs font-medium">Goal Y</label>
-                <Input
-                  id="manual-goal-y"
-                  type="number"
-                  step="any"
-                  className={NUMBER_INPUT_CLASS}
-                  value={y}
-                  onChange={(event) => setY(event.target.value)}
-                  onWheel={(event) => event.currentTarget.blur()}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Tọa độ Y của điểm đến, đơn vị mét.
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="manual-goal-theta" className="text-xs font-medium">Goal Theta</label>
-                <Input
-                  id="manual-goal-theta"
-                  type="number"
-                  step="any"
-                  className={NUMBER_INPUT_CLASS}
-                  value={theta}
-                  onChange={(event) => setTheta(event.target.value)}
-                  onWheel={(event) => event.currentTarget.blur()}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Góc hướng cuối của robot, đơn vị radian.
-                </p>
-              </div>
-            </>
-          )}
+          <div className="space-y-1.5">
+            <label htmlFor="move-goal-theta" className="text-xs font-medium">Goal Theta</label>
+            <Input
+              id="move-goal-theta"
+              type="number"
+              step="any"
+              min={-32.768}
+              max={32.767}
+              className={NUMBER_INPUT_CLASS}
+              value={theta}
+              onChange={(event) => setTheta(event.target.value)}
+              onWheel={(event) => event.currentTarget.blur()}
+            />
+            <p className="text-xs text-muted-foreground">
+              Góc hướng cuối của robot, đơn vị radian.
+            </p>
+          </div>
         </div>
-        <Button onClick={sendMessage} disabled={sending}>
-          <Send /> {sending ? "Đang chờ ACK..." : "Gửi message"}
+        <Button
+          onClick={sendMoveToPoint}
+          disabled={sending || !selectedRobotId}
+        >
+          <Send /> {sending ? "Đang chờ ACK..." : "Gửi lệnh di chuyển"}
         </Button>
       </CardContent>
     </Card>
@@ -482,14 +510,16 @@ function ManualTaskCard() {
 
 
 export function UartPage() {
+  const { snapshot, connected } = useRobotHeartbeats()
+
   return (
     <div className="flex flex-col gap-6">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <UartConfigCard />
         <UartStatusCard />
       </div>
-      <RobotHeartbeatCard />
-      <ManualTaskCard />
+      <RobotHeartbeatCard snapshot={snapshot} connected={connected} />
+      <MoveToPointCard robots={snapshot?.robots ?? []} />
     </div>
   )
 }

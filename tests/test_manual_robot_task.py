@@ -3,11 +3,26 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
 
-from api.models.uart import UartMessageRequest, UartTaskAssignRequest, UartTaskCancelRequest
+from api.models.uart import (
+    UartMessageRequest,
+    UartMoveToPointRequest,
+    UartTaskAssignRequest,
+    UartTaskCancelRequest,
+)
 from api.services.manual_robot_task import ManualRobotTaskService
 from api.services.runtime import RuntimeManager
 from api.services import uart as uart_service
-from src.robot_dispatch_v2.datatypes import Ack, MessageType, TaskAssign, TaskCancel, TaskStatus, TaskStatusCode
+from src.robot_dispatch_v2.datatypes import (
+    Ack,
+    AckReasonCode,
+    AckResultCode,
+    MessageType,
+    MoveToPoint,
+    TaskAssign,
+    TaskCancel,
+    TaskStatus,
+    TaskStatusCode,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -19,6 +34,8 @@ class FakeManualUart:
         self.handlers = {}
         self.sent = []
         self.retry_outcomes = []
+        self.retry_acks = []
+        self.retry_references = []
 
     def add_handler(self, message_type, handler) -> None:
         self.handlers[int(message_type)] = handler
@@ -39,9 +56,30 @@ class FakeManualUart:
         max_retries=5,
     ) -> bool:
         self.sent.append(message)
+        self.retry_references.append(reference_id)
         if self.retry_outcomes:
             return self.retry_outcomes.pop(0)
         return True
+
+    def send_with_retry_ack(
+        self,
+        message,
+        reference_id,
+        timeout=1.0,
+        max_retries=5,
+    ):
+        """Giả lập gửi message và trả ACK đầy đủ cho API MoveToPoint."""
+        self.sent.append(message)
+        self.retry_references.append(reference_id)
+        if self.retry_acks:
+            return self.retry_acks.pop(0)
+        return Ack(
+            robot_id=message.robot_id,
+            acked_type=message.MESSAGE_TYPE,
+            reference_id=reference_id,
+            result_code=AckResultCode.ACCEPTED,
+            reason_code=AckReasonCode.NONE,
+        )
 
     def is_connected(self) -> bool:
         return self.connected
@@ -64,6 +102,18 @@ def _assign_request(task_id: int = 10) -> UartTaskAssignRequest:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def _move_request(move_id: int = 20) -> UartMoveToPointRequest:
+    """Tạo request MoveToPoint hợp lệ dùng chung cho các test."""
+    return UartMoveToPointRequest(
+        robot_id=1,
+        move_id=move_id,
+        x=1.5,
+        y=2.0,
+        theta=0.25,
+    )
+
+
 # ───────────────────────────────────────────────────────────────────────────
 def test_manual_assign_tracks_status_and_acknowledges_task_status() -> None:
     uart = FakeManualUart()
@@ -77,6 +127,8 @@ def test_manual_assign_tracks_status_and_acknowledges_task_status() -> None:
     )
 
     assert result["acknowledged"]
+    assert result["ack"]["result"] == "ACCEPTED"
+    assert result["ack"]["reason"] == "NONE"
     assert result["task"]["state"] == "assigned"
     assert isinstance(uart.sent[0], TaskAssign)
     assert service.has_active_tasks()
@@ -93,6 +145,37 @@ def test_manual_assign_tracks_status_and_acknowledges_task_status() -> None:
     assert not service.has_active_tasks()
     assert isinstance(uart.sent[-1], Ack)
     assert uart.sent[-1].acked_type == MessageType.TASK_STATUS
+
+
+# ──────────────────────────────────────────────────────────────────────────
+def test_manual_assign_exposes_rejected_ack_reason() -> None:
+    """Kiểm tra TaskAssign thủ công trả nguyên nhân khi robot từ chối."""
+    uart = FakeManualUart()
+    uart.retry_acks = [
+        Ack(
+            robot_id=1,
+            acked_type=MessageType.TASK_ASSIGN,
+            reference_id=10,
+            result_code=AckResultCode.REJECTED,
+            reason_code=AckReasonCode.ROBOT_ERROR,
+        )
+    ]
+    service = ManualRobotTaskService(uart)
+
+    try:
+        service.send(
+            _assign_request(),
+            ack_timeout_seconds=0.5,
+            max_retries=2,
+        )
+    except HTTPException as exc:
+        assert exc.status_code == 409
+        assert "ROBOT_ERROR" in exc.detail
+        assert "reason_code=2" in exc.detail
+    else:
+        raise AssertionError("TaskAssign bị từ chối phải trả chi tiết ACK")
+
+    assert service.snapshot() == []
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -129,6 +212,18 @@ def test_uart_message_discriminator_and_numeric_limits() -> None:
     )
     assert isinstance(parsed, UartTaskCancelRequest)
 
+    move = adapter.validate_python(
+        {
+            "message_type": "move_to_point",
+            "robot_id": 2,
+            "move_id": 255,
+            "x": 1.0,
+            "y": 2.0,
+            "theta": 0.5,
+        }
+    )
+    assert isinstance(move, UartMoveToPointRequest)
+
     try:
         adapter.validate_python(
             {
@@ -144,6 +239,112 @@ def test_uart_message_discriminator_and_numeric_limits() -> None:
         pass
     else:
         raise AssertionError("robot_id ngoài uint8 phải bị từ chối")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_move_to_point_api_sends_without_tracking_task() -> None:
+    """Kiểm tra API gửi MoveToPoint mà không tạo manual task."""
+    uart = FakeManualUart()
+    request = _move_request(move_id=255)
+
+    with (
+        patch("api.services.uart.uart_manager_v2", uart),
+        patch(
+            "api.services.runtime.get_runtime_status",
+            return_value={"thread_alive": False, "state": "stopped"},
+        ),
+        patch(
+            "api.services.uart.config_store.get_config_data",
+            return_value={
+                "robot_dispatch": {
+                    "ack_timeout_seconds": 0.5,
+                    "max_retries": 2,
+                }
+            },
+        ),
+        patch.object(uart_service.manual_robot_task_service, "send") as task_send,
+    ):
+        result = uart_service.send_move_to_point(request)
+
+    assert result == {
+        "message_type": "move_to_point",
+        "robot_id": 1,
+        "move_id": 255,
+        "acknowledged": True,
+        "ack": {
+            "result_code": 0,
+            "result": "ACCEPTED",
+            "reason_code": 0,
+            "reason": "NONE",
+        },
+        "target": {"x": 1.5, "y": 2.0, "theta": 0.25},
+    }
+    assert len(uart.sent) == 1
+    assert isinstance(uart.sent[0], MoveToPoint)
+    assert uart.sent[0].move_id == 255
+    assert uart.retry_references == [255]
+    task_send.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_move_to_point_api_rejects_missing_ack() -> None:
+    """Kiểm tra API phân biệt trường hợp không nhận được ACK."""
+    uart = FakeManualUart()
+    uart.retry_acks = [None]
+
+    with (
+        patch("api.services.uart.uart_manager_v2", uart),
+        patch(
+            "api.services.runtime.get_runtime_status",
+            return_value={"thread_alive": False, "state": "stopped"},
+        ),
+        patch(
+            "api.services.uart.config_store.get_config_data",
+            return_value={"robot_dispatch": {}},
+        ),
+    ):
+        try:
+            uart_service.send_move_to_point(_move_request())
+        except HTTPException as exc:
+            assert exc.status_code == 503
+            assert exc.detail == "Không nhận được ACK cho lệnh MoveToPoint."
+        else:
+            raise AssertionError("API phải báo lỗi khi MoveToPoint không được ACK")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_move_to_point_api_exposes_rejected_ack_reason() -> None:
+    """Kiểm tra API trả đúng nguyên nhân khi robot từ chối MoveToPoint."""
+    uart = FakeManualUart()
+    uart.retry_acks = [
+        Ack(
+            robot_id=1,
+            acked_type=MessageType.MOVE_TO_POINT,
+            reference_id=20,
+            result_code=AckResultCode.REJECTED,
+            reason_code=AckReasonCode.ROBOT_BUSY,
+        )
+    ]
+
+    with (
+        patch("api.services.uart.uart_manager_v2", uart),
+        patch(
+            "api.services.runtime.get_runtime_status",
+            return_value={"thread_alive": False, "state": "stopped"},
+        ),
+        patch(
+            "api.services.uart.config_store.get_config_data",
+            return_value={"robot_dispatch": {}},
+        ),
+    ):
+        try:
+            uart_service.send_move_to_point(_move_request())
+        except HTTPException as exc:
+            assert exc.status_code == 409
+            assert "ROBOT_BUSY" in exc.detail
+            assert "reason_code=1" in exc.detail
+        else:
+            raise AssertionError("API phải trả nguyên nhân ACK bị từ chối")
 
 
 # ─────────────────────────────────────────────────────────────────────────

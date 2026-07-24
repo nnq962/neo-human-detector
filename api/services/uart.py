@@ -1,10 +1,20 @@
 from fastapi import HTTPException, status
 
-from api.models.uart import UartConfig, UartConfigUpdate, UartMessageRequest
+from api.models.uart import (
+    UartConfig,
+    UartConfigUpdate,
+    UartMessageRequest,
+    UartMoveToPointRequest,
+)
 from api.services import config_store
 from api.services.manual_robot_task import (
     manual_robot_task_service,
     robot_uart_operation_lock,
+)
+from src.robot_dispatch_v2.datatypes import (
+    AckReasonCode,
+    AckResultCode,
+    MoveToPoint,
 )
 from uart_v2.uart_manager import uart_manager_v2
 
@@ -80,7 +90,7 @@ def update_uart_config(update: UartConfigUpdate) -> dict:
 
 
 def send_uart_message(request: UartMessageRequest) -> dict:
-    """Gửi task test khi vision Runtime không hoạt động."""
+    """Gửi message điều khiển thủ công khi vision Runtime không hoạt động."""
     from api.services.runtime import get_runtime_status
 
     with robot_uart_operation_lock:
@@ -95,11 +105,97 @@ def send_uart_message(request: UartMessageRequest) -> dict:
             )
 
         config = config_store.get_config_data().get("robot_dispatch", {})
+        ack_timeout_seconds = float(config.get("ack_timeout_seconds", 1.0))
+        max_retries = int(config.get("max_retries", 5))
+
+        if isinstance(request, UartMoveToPointRequest):
+            return _send_move_to_point(
+                request,
+                ack_timeout_seconds=ack_timeout_seconds,
+                max_retries=max_retries,
+            )
+
         return manual_robot_task_service.send(
             request,
-            ack_timeout_seconds=float(config.get("ack_timeout_seconds", 1.0)),
-            max_retries=int(config.get("max_retries", 5)),
+            ack_timeout_seconds=ack_timeout_seconds,
+            max_retries=max_retries,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def send_move_to_point(request: UartMoveToPointRequest) -> dict:
+    """Gửi lệnh MoveToPoint qua API chuyên dụng."""
+    return send_uart_message(request)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _send_move_to_point(
+    request: UartMoveToPointRequest,
+    *,
+    ack_timeout_seconds: float,
+    max_retries: int,
+) -> dict:
+    """Gửi MoveToPoint và chỉ báo thành công khi robot chấp nhận lệnh."""
+    if not uart_manager_v2.is_connected():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="UART V2 is not connected.",
+        )
+
+    message = MoveToPoint(
+        robot_id=request.robot_id,
+        move_id=request.move_id,
+        x=request.x,
+        y=request.y,
+        theta=request.theta,
+    )
+    ack = uart_manager_v2.send_with_retry_ack(
+        message,
+        reference_id=request.move_id,
+        timeout=ack_timeout_seconds,
+        max_retries=max_retries,
+    )
+    if ack is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Không nhận được ACK cho lệnh MoveToPoint.",
+        )
+    if ack.result_code != AckResultCode.ACCEPTED:
+        reason_name = _ack_reason_name(ack.reason_code)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Robot từ chối lệnh MoveToPoint: "
+                f"{reason_name} (reason_code={ack.reason_code})."
+            ),
+        )
+
+    return {
+        "message_type": request.message_type,
+        "robot_id": request.robot_id,
+        "move_id": request.move_id,
+        "acknowledged": True,
+        "ack": {
+            "result_code": int(ack.result_code),
+            "result": AckResultCode(ack.result_code).name,
+            "reason_code": int(ack.reason_code),
+            "reason": _ack_reason_name(ack.reason_code),
+        },
+        "target": {
+            "x": request.x,
+            "y": request.y,
+            "theta": request.theta,
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _ack_reason_name(reason_code: int) -> str:
+    """Đổi mã nguyên nhân ACK sang tên enum, có fallback cho mã lạ."""
+    try:
+        return AckReasonCode(reason_code).name
+    except ValueError:
+        return "UNKNOWN"
 
 
 def _ensure_uart_reconfigure_is_safe() -> None:

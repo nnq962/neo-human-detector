@@ -23,7 +23,7 @@ export interface RobotCoordinateValue {
   robotId: string
   x: string
   y: string
-  source: "manual" | "robot" | null
+  source: "robot" | null
 }
 
 const EMPTY_ROBOT_COORDINATE: RobotCoordinateValue = {
@@ -160,7 +160,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
               robotId: point.robot_id === null ? "" : String(point.robot_id),
               x: String(point.world[0]),
               y: String(point.world[1]),
-              source: "manual" as const,
+              source: point.robot_id === null ? null : "robot" as const,
             },
           ]),
         )
@@ -217,19 +217,22 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
   const isSelectedCoordinateSaved = Boolean(
     selectedCoordinate &&
       savedSelectedCoordinate &&
+      selectedCoordinate.source === "robot" &&
+      savedSelectedCoordinate.source === "robot" &&
       selectedCoordinate.robotId === savedSelectedCoordinate.robotId &&
       selectedCoordinate.x === savedSelectedCoordinate.x &&
       selectedCoordinate.y === savedSelectedCoordinate.y,
   )
   const canSaveSelectedCoordinate = Boolean(
     selectedCoordinate?.robotId &&
+      selectedCoordinate.source === "robot" &&
       selectedCoordinate.x.trim() &&
       selectedCoordinate.y.trim() &&
       Number.isFinite(Number(selectedCoordinate.x)) &&
       Number.isFinite(Number(selectedCoordinate.y)),
   )
   const savedPointCount = points.filter(
-    (point) => savedRobotCoordinates[point.id],
+    (point) => savedRobotCoordinates[point.id]?.source === "robot",
   ).length
   const canCalculateHomography = savedPointCount >= 4
   const calibrationQuality = calibrationPreview
@@ -302,7 +305,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
 
   function saveSelectedCoordinate() {
     if (!selectedPoint || !selectedCoordinate || !canSaveSelectedCoordinate) {
-      toast.error("Vui lòng nhập tọa độ X và Y hợp lệ.")
+      toast.error("Vui lòng lấy tọa độ hiện tại từ robot.")
       return
     }
     setSavedRobotCoordinates((current) => ({
@@ -320,7 +323,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
       image_size: videoSize,
       points: points.flatMap((point) => {
         const coordinate = savedRobotCoordinates[point.id]
-        if (!coordinate) return []
+        if (!coordinate || coordinate.source !== "robot") return []
 
         const robotId = Number(coordinate.robotId)
         return [{

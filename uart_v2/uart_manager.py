@@ -237,19 +237,41 @@ class UartManagerV2:
         timeout: float = 1.0,
         max_retries: int = 5,
     ) -> bool:
-        """Gửi 1 message quan trọng (TaskAssign, TaskCancel...), tự động gửi lại
-        nếu không nhận được ACK trong `timeout` giây, tối đa `max_retries` lần.
-        `robot_id` và `acked_type` được lấy trực tiếp từ `message` thay vì truyền tay,
-        tránh trường hợp truyền lệch với message thực sự gửi đi.
-        Trả True khi nhận ACK ACCEPTED. Trả False ngay khi nhận ACK REJECTED,
-        hoặc khi hết số lần retry mà vẫn không có ACK."""
+        """Gửi message có retry và trả ``True`` khi ACK chấp nhận."""
+        ack = self.send_with_retry_ack(
+            message,
+            reference_id=reference_id,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        return ack is not None and ack.result_code == AckResultCode.ACCEPTED
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def send_with_retry_ack(
+        self,
+        message: MessageBase,
+        reference_id: int,
+        timeout: float = 1.0,
+        max_retries: int = 5,
+    ) -> Optional[Ack]:
+        """
+        Gửi message có retry và trả ACK đầy đủ.
+
+        Trả ``None`` khi gửi lỗi hoặc hết thời gian chờ. ACK bị từ chối được trả
+        nguyên vẹn để caller đọc ``result_code`` và ``reason_code``.
+        """
         robot_id = message.robot_id
         acked_type = message.MESSAGE_TYPE
+        key = (robot_id, int(acked_type), reference_id)
+
+        # Không để ACK trễ của lệnh cũ có cùng reference ID xác nhận nhầm lệnh mới.
+        with self._lock:
+            self._received_acks.pop(key, None)
 
         for attempt in range(1, max_retries + 1):
             if not self.send_message(message):
                 LOGGER.error(f"Gửi thất bại (lỗi cổng UART) ở lần thử {attempt}.")
-                return False
+                return None
 
             ack = self.wait_for_ack(
                 robot_id,
@@ -263,7 +285,7 @@ class UartManagerV2:
                     reference_id,
                     attempt,
                 )
-                return True
+                return ack
 
             if ack is not None:
                 LOGGER.warning(
@@ -271,7 +293,7 @@ class UartManagerV2:
                     reference_id,
                     ack.reason_code,
                 )
-                return False
+                return ack
 
             LOGGER.warning(
                 "Không nhận ACK cho reference_id=%s, lần thử %s/%s.",
@@ -285,7 +307,7 @@ class UartManagerV2:
             max_retries,
             reference_id,
         )
-        return False
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     def receive_message(self) -> Optional[MessageBase]:

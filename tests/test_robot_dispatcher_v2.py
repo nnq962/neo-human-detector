@@ -18,6 +18,8 @@ from src.robot_dispatch_v2 import (
 )
 from src.robot_dispatch_v2.datatypes import (
     Ack,
+    AckReasonCode,
+    AckResultCode,
     Heartbeat,
     MessageType,
     RobotStateCode,
@@ -59,16 +61,26 @@ class FakeUart:
         self.sent.append(message)
         return True
 
-    def send_with_retry(
+    def send_with_retry_ack(
         self,
         message,
         reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
-    ) -> bool:
+    ):
+        """Giả lập retry và trả ACK đầy đủ cho dispatcher."""
         self.sent.append(message)
         outcomes = self.outcomes.get(type(message), [])
-        return outcomes.pop(0) if outcomes else True
+        accepted = outcomes.pop(0) if outcomes else True
+        if not accepted:
+            return None
+        return Ack(
+            robot_id=message.robot_id,
+            acked_type=message.MESSAGE_TYPE,
+            reference_id=reference_id,
+            result_code=AckResultCode.ACCEPTED,
+            reason_code=AckReasonCode.NONE,
+        )
 
     def emit(self, message) -> None:
         handler = self.handlers.get(int(message.MESSAGE_TYPE))

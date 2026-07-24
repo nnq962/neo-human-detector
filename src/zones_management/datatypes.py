@@ -62,6 +62,7 @@ class Zone:
     pts        : np.ndarray
     goal_pose  : Dict[str, Any]
     id         : Optional[str] = None
+    service_point: Optional[tuple[float, float]] = None
     state      : ZoneState = ZoneState.EMPTY
     enter_time : float = 0.0
     lost_time  : float = 0.0
@@ -76,7 +77,7 @@ class Zone:
         return ZoneColor.get_color(self.state)
 
     def reset_zone(self) -> None:
-        """Reset zone về trạng thái trống nhưng giữ metadata camera/goal_pose."""
+        """Reset zone về trạng thái trống nhưng giữ metadata và điểm phục vụ."""
         self.state = ZoneState.EMPTY
         self.enter_time = 0.0
         self.lost_time = 0.0

@@ -11,7 +11,6 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
@@ -153,7 +152,12 @@ export function CalibrationPointEditor({
                   <Select
                     value={selectedCoordinate.robotId}
                     onValueChange={(robotId) =>
-                      updateSelectedCoordinate({ robotId, source: null })
+                      updateSelectedCoordinate({
+                        robotId,
+                        x: "",
+                        y: "",
+                        source: null,
+                      })
                     }
                     disabled={robots.length === 0}
                   >
@@ -180,51 +184,21 @@ export function CalibrationPointEditor({
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor={`${selectedPoint.id}-robot-x`}
-                      className="text-xs font-medium text-muted-foreground"
-                    >
+                  <div className="rounded-md border bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] text-muted-foreground">
                       Tọa độ X (m)
-                    </label>
-                    <Input
-                      id={`${selectedPoint.id}-robot-x`}
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={selectedCoordinate.x}
-                      onChange={(event) =>
-                        updateSelectedCoordinate({
-                          x: event.target.value,
-                          source: "manual",
-                        })
-                      }
-                      onWheel={(event) => event.currentTarget.blur()}
-                      className="tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
+                    </p>
+                    <p className="text-sm">
+                      {selectedCoordinate.x || "—"}
+                    </p>
                   </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor={`${selectedPoint.id}-robot-y`}
-                      className="text-xs font-medium text-muted-foreground"
-                    >
+                  <div className="rounded-md border bg-muted/30 px-3 py-2">
+                    <p className="text-[11px] text-muted-foreground">
                       Tọa độ Y (m)
-                    </label>
-                    <Input
-                      id={`${selectedPoint.id}-robot-y`}
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={selectedCoordinate.y}
-                      onChange={(event) =>
-                        updateSelectedCoordinate({
-                          y: event.target.value,
-                          source: "manual",
-                        })
-                      }
-                      onWheel={(event) => event.currentTarget.blur()}
-                      className="tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
+                    </p>
+                    <p className="text-sm">
+                      {selectedCoordinate.y || "—"}
+                    </p>
                   </div>
                 </div>
 
@@ -264,13 +238,11 @@ export function CalibrationPointEditor({
                   <Bot className="size-3.5 shrink-0" />
                   {selectedCoordinate.source === "robot"
                     ? `Đã lấy pose từ Robot #${selectedRobot?.robot_id}.`
-                    : selectedCoordinate.source === "manual"
-                      ? "Tọa độ đang được nhập thủ công."
-                      : !selectedRobot
-                        ? "Chưa nhận được heartbeat từ robot."
-                        : selectedRobot.online
-                          ? `Pose mới nhất: X ${selectedRobot.x.toFixed(2)} · Y ${selectedRobot.y.toFixed(2)} m · ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s trước`
-                          : `Heartbeat đã cũ ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s; không nên dùng pose này.`}
+                    : !selectedRobot
+                      ? "Chưa nhận được heartbeat từ robot."
+                      : selectedRobot.online
+                        ? `Pose mới nhất: X ${selectedRobot.x.toFixed(2)} · Y ${selectedRobot.y.toFixed(2)} m · ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s trước`
+                        : `Heartbeat đã cũ ${selectedRobot.heartbeat_age_seconds.toFixed(1)}s; không nên dùng pose này.`}
                 </div>
               </div>
             </div>
@@ -285,8 +257,8 @@ export function CalibrationPointEditor({
                     Chưa chọn điểm calibration
                   </p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Chọn một điểm trên stream hoặc trong danh sách để nhập tọa
-                    độ robot.
+                    Chọn một điểm trên stream hoặc trong danh sách để lấy tọa
+                    độ từ robot.
                   </p>
                 </div>
               </div>

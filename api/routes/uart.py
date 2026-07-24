@@ -1,7 +1,12 @@
 from fastapi import APIRouter
 
 from api.models.response import ApiResponse
-from api.models.uart import UartConfig, UartConfigUpdate, UartMessageRequest
+from api.models.uart import (
+    UartConfig,
+    UartConfigUpdate,
+    UartMessageRequest,
+    UartMoveToPointRequest,
+)
 from api.routes.responses import error_from_exception, ok
 from api.services import uart as uart_service
 
@@ -42,6 +47,19 @@ def send_uart_message(request: UartMessageRequest):
         return ok(
             "UART message acknowledged successfully.",
             uart_service.send_uart_message(request),
+        )
+    except Exception as error:
+        return error_from_exception(error, conflict_on_value_error=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/move-to-point", response_model=ApiResponse)
+def send_move_to_point(request: UartMoveToPointRequest):
+    """Yêu cầu robot di chuyển tới pose đích và chờ ACK chấp nhận."""
+    try:
+        return ok(
+            "Robot move command acknowledged successfully.",
+            uart_service.send_move_to_point(request),
         )
     except Exception as error:
         return error_from_exception(error, conflict_on_value_error=True)

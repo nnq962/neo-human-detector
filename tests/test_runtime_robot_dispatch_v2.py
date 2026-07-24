@@ -4,8 +4,15 @@ import types
 from src.app.datatypes import RuntimeConfig
 from src.app.runtime import Runtime
 from src.app.utils import build_robot_dispatch_config
+from src.camera_initializer import Camera
+from src.media_sources import SourceMeta, SourceType
 from src.reid import ReIdConfig
 from src.robot_dispatch_v2 import RobotDispatchV2Config, RobotDispatcherV2
+from src.robot_dispatch_v2.datatypes import (
+    Ack,
+    AckReasonCode,
+    AckResultCode,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,6 +58,22 @@ class FakeUartManagerV2:
         max_retries: int = 5,
     ) -> bool:
         return True
+
+    def send_with_retry_ack(
+        self,
+        message,
+        reference_id: int,
+        timeout: float = 1.0,
+        max_retries: int = 5,
+    ):
+        """Giả lập ACK chấp nhận cho transport Runtime."""
+        return Ack(
+            robot_id=message.robot_id,
+            acked_type=message.MESSAGE_TYPE,
+            reference_id=reference_id,
+            result_code=AckResultCode.ACCEPTED,
+            reason_code=AckReasonCode.NONE,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,3 +184,58 @@ def test_runtime_rejects_reid_dispatch_when_reid_pipeline_is_disabled() -> None:
         assert "reid.enabled=true" in str(exc)
     else:
         raise AssertionError("Runtime phải từ chối cấu hình ReID không nhất quán")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_runtime_accepts_stream_matching_calibration_resolution() -> None:
+    """Kiểm tra runtime chấp nhận stream đúng độ phân giải calibration."""
+    runtime = Runtime(RuntimeConfig())
+    runtime.cameras = [
+        Camera(
+            id="cam1",
+            name="Camera 1",
+            source="rtsp://example.local/1",
+            calibration_image_size=(1920, 1080),
+        )
+    ]
+    metas = [
+        SourceMeta(
+            name="Camera 1",
+            source_type=SourceType.RTSP,
+            frame_index=1,
+            resolution=(1920, 1080),
+        )
+    ]
+
+    runtime._validate_calibration_resolutions(metas)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_runtime_rejects_stream_mismatching_calibration_resolution() -> None:
+    """Kiểm tra runtime dừng trước inference khi resolution calibration bị lệch."""
+    runtime = Runtime(RuntimeConfig())
+    runtime.cameras = [
+        Camera(
+            id="cam1",
+            name="Camera 1",
+            source="rtsp://example.local/1",
+            calibration_image_size=(1920, 1080),
+        )
+    ]
+    metas = [
+        SourceMeta(
+            name="Camera 1",
+            source_type=SourceType.RTSP,
+            frame_index=1,
+            resolution=(1280, 720),
+        )
+    ]
+
+    try:
+        runtime._validate_calibration_resolutions(metas)
+    except ValueError as exc:
+        assert "1280x720" in str(exc)
+        assert "1920x1080" in str(exc)
+        assert "calibration lại" in str(exc)
+    else:
+        raise AssertionError("Runtime phải từ chối stream lệch resolution calibration")

@@ -20,7 +20,7 @@ from src.dispatch_decision import (
     ReIdDecisionPolicy,
     ZoneOnlyDecisionPolicy,
 )
-from src.media_sources import MediaSources
+from src.media_sources import MediaSources, SourceMeta
 from src.reid import ReIdPipeline
 from src.robot_dispatch_v2 import RobotDispatcherV2, runtime_task_activity_store
 from src.visualization import (
@@ -93,6 +93,8 @@ class Runtime:
                 for frames, metas in self.media_sources:
                     if self._stop_requested.is_set() or not self.is_running:
                         break
+
+                    self._validate_calibration_resolutions(metas)
 
                     # Inference
                     detection_frames = predict_function(frames)
@@ -411,6 +413,29 @@ class Runtime:
         }
         if len(set(lengths.values())) != 1:
             raise RuntimeError(f"Runtime batch length mismatch: {lengths}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _validate_calibration_resolutions(
+        self,
+        metas: list[SourceMeta],
+    ) -> None:
+        """Chặn runtime khi stream lệch độ phân giải đã dùng để calibration."""
+        if len(metas) != len(self.cameras):
+            raise RuntimeError(
+                "Runtime media metadata length mismatch: "
+                f"metas={len(metas)}, cameras={len(self.cameras)}"
+            )
+
+        for camera, meta in zip(self.cameras, metas):
+            expected = camera.calibration_image_size
+            if expected is None or meta.resolution == expected:
+                continue
+            raise ValueError(
+                f"Camera '{camera.name}' ({camera.id}) có resolution "
+                f"{meta.resolution[0]}x{meta.resolution[1]}, không khớp "
+                f"calibration {expected[0]}x{expected[1]}. "
+                "Hãy calibration lại trước khi chạy runtime."
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     def _run_reid(

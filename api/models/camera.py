@@ -3,16 +3,14 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-class GoalPose(BaseModel):
-    x: float
-    y: float
-    theta: float
-
-
 class Zone(BaseModel):
     id: Optional[str] = None
     name: str
-    goal_pose: Optional[GoalPose] = None
+    service_point: Optional[List[int]] = Field(
+        default=None,
+        min_length=2,
+        max_length=2,
+    )
     points: List[List[int]] = Field(default_factory=list)
 
 

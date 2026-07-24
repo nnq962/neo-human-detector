@@ -3,19 +3,41 @@
 Tài liệu này mô tả giao thức nhị phân đang được định nghĩa trong
 `src/robot_dispatch_v2/datatypes.py`.
 
-## Gửi task test qua API
+## Gửi lệnh thủ công qua API
 
 FastAPI sở hữu kết nối `uart_manager_v2`. Khi vision Runtime đã dừng,
-có thể gửi trực tiếp `TaskAssign` hoặc `TaskCancel` qua:
+có thể gửi trực tiếp `TaskAssign`, `TaskCancel` hoặc `MoveToPoint` qua:
 
 ```text
 POST /api/uart/messages
 ```
 
-Service chờ ACK theo `ack_timeout_seconds`/`max_retries`, theo dõi task trong
-memory và ACK các `TaskStatus` tương ứng. API trả `409 Conflict` nếu
-Runtime đang chạy, nếu còn manual task active khi khởi động Runtime,
-hoặc khi đổi cấu hình UART trong lúc UART đang được sử dụng.
+Riêng `MoveToPoint` có thêm endpoint thuận tiện:
+
+```text
+POST /api/uart/move-to-point
+```
+
+Body:
+
+```json
+{
+  "robot_id": 1,
+  "move_id": 25,
+  "x": 1.5,
+  "y": 2.0,
+  "theta": 0.25
+}
+```
+
+`move_id` do client tự cấp trong khoảng 0-255 và độc lập với `task_id`. API
+chỉ trả thành công khi robot phản hồi ACK `ACCEPTED`.
+
+Service chờ ACK theo `ack_timeout_seconds`/`max_retries`. `TaskAssign` được
+theo dõi trong memory để xử lý `TaskStatus`; `MoveToPoint` không được đưa vào
+task registry hoặc danh sách manual task. API trả `409 Conflict` nếu Runtime
+đang chạy, nếu còn manual task active khi khởi động Runtime, hoặc khi đổi cấu
+hình UART trong lúc UART đang được sử dụng.
 
 Mục tiêu của V2 là bỏ format string/JSON khi gửi qua LoRa/UART, thay bằng các
 frame nhị phân nhỏ, có kích thước cố định theo từng loại message.

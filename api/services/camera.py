@@ -102,6 +102,36 @@ def _ensure_zone_ids(camera: dict, cameras: List[dict], ignore_camera_index: int
         zone["id"] = _generate_zone_id(existing_ids)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def _normalize_zone_fields(camera: dict) -> None:
+    """Loại bỏ goal pose cũ và chuẩn hóa field điểm phục vụ của các zone."""
+    for zone in camera.get("zones") or []:
+        zone.pop("goal_pose", None)
+        zone.setdefault("service_point", None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _validate_new_zone_service_points(
+    camera: dict,
+    current_camera: dict | None = None,
+) -> None:
+    """Từ chối zone mới chưa có điểm phục vụ pixel."""
+    current_zone_ids = {
+        str(zone.get("id"))
+        for zone in (current_camera or {}).get("zones") or []
+        if zone.get("id")
+    }
+    for zone in camera.get("zones") or []:
+        zone_id = str(zone.get("id") or "")
+        if zone_id and zone_id in current_zone_ids:
+            continue
+        if zone.get("service_point") is None:
+            raise ValueError(
+                f'Zone mới "{zone.get("name") or "không tên"}" '
+                "phải có service_point trước khi lưu."
+            )
+
+
 def _strip_runtime_fields(camera: dict) -> dict:
     return {
         key: value
@@ -264,6 +294,8 @@ def create_camera(camera: CameraCreate) -> dict:
         next_camera = dict(camera_data)
 
         next_camera["id"] = _generate_camera_id(cameras)
+        _normalize_zone_fields(next_camera)
+        _validate_new_zone_service_points(next_camera)
         _ensure_unique_camera_id(cameras, next_camera["id"])
         _ensure_zone_ids(next_camera, cameras)
 
@@ -287,6 +319,8 @@ def replace_camera(camera_id: str, camera: CameraCreate) -> dict:
         next_camera["id"] = camera_id
         if current_camera.get("calibration") is not None:
             next_camera["calibration"] = current_camera["calibration"]
+        _normalize_zone_fields(next_camera)
+        _validate_new_zone_service_points(next_camera, current_camera)
         _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
         _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 
@@ -323,6 +357,8 @@ def update_camera(camera_id: str, patch: CameraUpdate) -> dict:
                 **(current_camera.get("stream") or {}),
                 **patch_data["stream"],
             }
+        _normalize_zone_fields(next_camera)
+        _validate_new_zone_service_points(next_camera, current_camera)
         _ensure_unique_camera_id(cameras, next_camera["id"], ignore_index=index)
         _ensure_zone_ids(next_camera, cameras, ignore_camera_index=index)
 

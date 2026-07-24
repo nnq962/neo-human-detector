@@ -59,6 +59,8 @@ def _prepare_config_for_yaml(config_dict: dict) -> dict:
         for zone in config_dict["zones"]:
             if "points" in zone:
                 zone["points"] = [FlowList(point) for point in zone["points"]]
+            if zone.get("service_point") is not None:
+                zone["service_point"] = FlowList(zone["service_point"])
 
     if "cameras" in config_dict and config_dict["cameras"] is not None:
         for camera in config_dict["cameras"]:
@@ -66,6 +68,8 @@ def _prepare_config_for_yaml(config_dict: dict) -> dict:
                 for zone in camera["zones"]:
                     if "points" in zone:
                         zone["points"] = [FlowList(point) for point in zone["points"]]
+                    if zone.get("service_point") is not None:
+                        zone["service_point"] = FlowList(zone["service_point"])
 
             calibration = camera.get("calibration")
             if calibration:

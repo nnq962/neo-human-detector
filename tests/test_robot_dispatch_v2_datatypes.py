@@ -88,8 +88,8 @@ def test_send_with_retry_uses_ack_result(
             else AckReasonCode.ROBOT_ERROR
         ),
     )
-    manager._handle_received_message(ack)
     monkeypatch.setattr(manager, "send_message", Mock(return_value=True))
+    monkeypatch.setattr(manager, "wait_for_ack", Mock(return_value=ack))
 
     acknowledged = manager.send_with_retry(
         message,
@@ -99,3 +99,41 @@ def test_send_with_retry_uses_ack_result(
     )
 
     assert acknowledged is expected
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_send_with_retry_ack_preserves_rejection_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Kiểm tra transport trả nguyên ACK để caller đọc lý do robot từ chối."""
+    manager = UartManagerV2()
+    message = MoveToPoint(
+        robot_id=2,
+        move_id=201,
+        x=1.23,
+        y=-4.56,
+        theta=1.57,
+    )
+    rejected_ack = Ack(
+        robot_id=message.robot_id,
+        acked_type=MessageType.MOVE_TO_POINT,
+        reference_id=message.move_id,
+        result_code=AckResultCode.REJECTED,
+        reason_code=AckReasonCode.ROBOT_BUSY,
+    )
+    monkeypatch.setattr(manager, "send_message", Mock(return_value=True))
+    monkeypatch.setattr(
+        manager,
+        "wait_for_ack",
+        Mock(return_value=rejected_ack),
+    )
+
+    received_ack = manager.send_with_retry_ack(
+        message,
+        reference_id=message.move_id,
+        timeout=0.01,
+        max_retries=1,
+    )
+
+    assert received_ack is rejected_ack
+    assert received_ack.reason_code == AckReasonCode.ROBOT_BUSY

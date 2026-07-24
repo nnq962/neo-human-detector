@@ -135,6 +135,81 @@ cameras:
         self.assertEqual(observed_sources, ["rtsp://example.local/new"])
 
     # ─────────────────────────────────────────────────────────────────────────
+    def test_update_camera_replaces_goal_pose_with_service_point(self):
+        """Kiểm tra API chỉ lưu điểm phục vụ pixel và xóa goal pose cũ."""
+        self.config_path.write_text(
+            """
+cameras:
+- id: cam1
+  name: Camera 1
+  enabled: true
+  stream:
+    source: rtsp://example.local/1
+    protocol: tcp
+    on_demand: true
+  zones:
+  - id: zone1
+    name: Zone 1
+    goal_pose: {x: 1.0, y: 2.0, theta: 0.5}
+    points: [[1, 2], [3, 4], [5, 6]]
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        camera_service.update_camera(
+            "cam1",
+            CameraUpdate(
+                zones=[
+                    {
+                        "id": "zone1",
+                        "name": "Zone 1",
+                        "service_point": [320, 240],
+                        "points": [[1, 2], [3, 4], [5, 6]],
+                    }
+                ],
+            ),
+        )
+
+        saved_zone = self._read_config()["cameras"][0]["zones"][0]
+        self.assertNotIn("goal_pose", saved_zone)
+        self.assertEqual(saved_zone["service_point"], [320, 240])
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def test_update_camera_rejects_new_zone_without_service_point(self):
+        """Kiểm tra API không lưu zone mới khi chưa chọn điểm phục vụ."""
+        initial_config = """
+cameras:
+- id: cam1
+  name: Camera 1
+  enabled: true
+  stream:
+    source: rtsp://example.local/1
+    protocol: tcp
+    on_demand: true
+  zones: []
+""".lstrip()
+        self.config_path.write_text(initial_config, encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "phải có service_point"):
+            camera_service.update_camera(
+                "cam1",
+                CameraUpdate(
+                    zones=[
+                        {
+                            "name": "Zone mới",
+                            "service_point": None,
+                            "points": [[1, 2], [3, 4], [5, 6]],
+                        }
+                    ],
+                ),
+            )
+
+        self.assertEqual(
+            self.config_path.read_text(encoding="utf-8"),
+            initial_config,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
     def test_calibration_preview_does_not_modify_config(self):
         """Kiểm tra preview calibration không ghi thay đổi vào YAML."""
         initial_config = """

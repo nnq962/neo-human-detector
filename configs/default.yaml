@@ -54,10 +54,7 @@ cameras:
   zones:
   - id: 8xcdb
     name: ước được log bug
-    goal_pose:
-      x: 7.33074951171875
-      y: -3.6641297340393066
-      theta: -1.536806583404541
+    service_point: [767, 694]
     points:
     - [418, 802]
     - [763, 757]
@@ -65,41 +62,45 @@ cameras:
     - [439, 1080]
   - id: ecdz2
     name: Khách
-    goal_pose:
-      x: 6.459995746612549
-      y: -0.946757972240448
-      theta: -1.4464954137802124
     points:
     - [1309, 348]
     - [1444, 326]
     - [1695, 492]
     - [1555, 569]
+    service_point: null
   - id: bv5vn
     name: Thư
-    goal_pose:
-      x: 6.387284278869629
-      y: -4.164921760559082
-      theta: -3.134329319000244
     points:
     - [401, 341]
     - [556, 285]
     - [627, 456]
     - [516, 517]
     - [515, 516]
-  - id: s31gu
-    name: Khách2
-    goal_pose:
-      x: 6.849225997924805
-      y: -2.1095666885375977
-      theta: -1.527213454246521
+    service_point: null
+  - id: 9vkkd
+    name: '123'
     points:
-    - [1098, 554]
-    - [913, 614]
-    - [1109, 876]
-    - [1147, 736]
-    - [1228, 694]
-    - [1112, 572]
-    - [1087, 556]
+    - [973, 193]
+    - [1138, 293]
+    - [976, 423]
+    - [853, 355]
+    service_point: null
+  - id: lnu96
+    name: test
+    points:
+    - [902, 620]
+    - [1076, 562]
+    - [1182, 684]
+    - [989, 757]
+    service_point: null
+  - id: swuu2
+    name: center
+    service_point: [1149, 363]
+    points:
+    - [1040, 397]
+    - [1274, 319]
+    - [1423, 474]
+    - [1177, 586]
   id: gcphg
   calibration:
     image_size:
@@ -155,5 +156,13 @@ cameras:
     protocol: tcp
     on_demand: true
   enabled: true
-  zones: []
+  zones:
+  - name: Khai
+    service_point: null
+    points:
+    - [1198, 559]
+    - [1508, 510]
+    - [1542, 722]
+    - [1257, 757]
+    id: 7mgp7
   id: xzyi9
