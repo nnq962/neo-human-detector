@@ -83,7 +83,7 @@ export function CalibrationPointEditor({
               value={String(pointLayoutSize)}
               onValueChange={changePointLayout}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full" size="sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent position="popper">
@@ -123,8 +123,8 @@ export function CalibrationPointEditor({
                 </div>
                 {videoSize && (
                   <Badge variant="outline" className="text-[10px] font-normal">
-                    {Math.round(selectedPoint.x * videoSize.width)}, {" "}
-                    {Math.round(selectedPoint.y * videoSize.height)} px
+                    {Math.round(selectedPoint.x * videoSize.width)} · {" "}
+                    {Math.round(selectedPoint.y * videoSize.height)}
                   </Badge>
                 )}
               </div>
@@ -161,7 +161,7 @@ export function CalibrationPointEditor({
                     }
                     disabled={robots.length === 0}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger className="w-full" size="sm">
                       <SelectValue placeholder="Chưa có robot" />
                     </SelectTrigger>
                     <SelectContent position="popper">
@@ -269,6 +269,7 @@ export function CalibrationPointEditor({
 
       <div className="border-t bg-muted/30 p-4">
         <Button
+          size="sm"
           variant="destructive"
           className="w-full"
           onClick={resetPointPositions}

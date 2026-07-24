@@ -30,14 +30,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
         {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
+          "--normal-border": "var(--input)",
           "--border-radius": "var(--radius)",
         } as React.CSSProperties
       }
       toastOptions={{
         classNames: {
           toast: "cn-toast rounded-xl! border-2! shadow-none!",
-          default: "border-input!",
           success: "border-emerald-500/50!",
           error: "border-red-500/50!",
           warning: "border-amber-500/50!",

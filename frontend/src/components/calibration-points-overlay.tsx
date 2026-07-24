@@ -178,7 +178,7 @@ export function CalibrationPointsOverlay({
               style={selected ? { backgroundColor: SELECTED_COLOR } : undefined}
             >
               {videoSize
-                ? `${point.label} · (${Math.round(point.x * videoSize.width)}, ${Math.round(point.y * videoSize.height)}) px`
+                ? `${point.label} (${Math.round(point.x * videoSize.width)} · ${Math.round(point.y * videoSize.height)})`
                 : point.label}
             </Badge>
           </button>

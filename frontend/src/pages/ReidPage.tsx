@@ -53,7 +53,7 @@ function EditActions({
 }) {
   if (!editing) {
     return (
-      <Button variant="blue" size="sm" onClick={onEdit}>
+      <Button size="sm" variant="blue" onClick={onEdit}>
         <Pencil />
         Sửa
       </Button>
@@ -61,7 +61,7 @@ function EditActions({
   }
   return (
     <div className="flex items-center gap-2">
-      <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
+      <Button size="sm" variant="outline" onClick={onCancel} disabled={saving}>
         <X />
         Hủy
       </Button>
@@ -266,7 +266,7 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
                   value={draft.device}
                   onValueChange={(val) => setDraft((p) => ({ ...p, device: val as ReIdDevice }))}
                 >
-                  <SelectTrigger className="h-8 text-sm">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper" className="w-fit min-w-0">

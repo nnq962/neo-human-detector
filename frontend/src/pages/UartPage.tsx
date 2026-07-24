@@ -131,7 +131,7 @@ function UartConfigCard() {
           <CardTitle>Cấu hình UART V2</CardTitle>
           {editing ? (
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setEditing(false)} disabled={saving}>
+              <Button size="sm" variant="outline" onClick={() => setEditing(false)} disabled={saving}>
                 <X /> Hủy
               </Button>
               <Button size="sm" onClick={saveEdit} disabled={saving}>
@@ -139,7 +139,7 @@ function UartConfigCard() {
               </Button>
             </div>
           ) : (
-            <Button variant="blue" size="sm" onClick={startEdit}>
+            <Button size="sm" variant="blue" onClick={startEdit}>
               <Pencil /> Sửa
             </Button>
           )}
@@ -150,7 +150,7 @@ function UartConfigCard() {
           <span className="text-xs text-muted-foreground">Port</span>
           {editing ? (
             <Select value={port} onValueChange={setPort}>
-              <SelectTrigger><SelectValue placeholder="Chọn port" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Chọn port" /></SelectTrigger>
               <SelectContent position="popper" className="w-fit min-w-0">
                 {COMMON_PORTS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
               </SelectContent>
@@ -161,7 +161,7 @@ function UartConfigCard() {
           <span className="text-xs text-muted-foreground">Baudrate</span>
           {editing ? (
             <Select value={baudrate} onValueChange={setBaudrate}>
-              <SelectTrigger><SelectValue placeholder="Chọn baudrate" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Chọn baudrate" /></SelectTrigger>
               <SelectContent position="popper" className="w-fit min-w-0">
                 {COMMON_BAUDRATES.map((item) => (
                   <SelectItem key={item} value={String(item)}>{item.toLocaleString()}</SelectItem>
@@ -406,8 +406,12 @@ function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Robot</label>
-            <Select value={selectedRobotId} onValueChange={setRobotId}>
-              <SelectTrigger>
+            <Select
+              value={selectedRobotId}
+              onValueChange={setRobotId}
+              disabled={onlineRobots.length === 0}
+            >
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder={
                   onlineRobots.length === 0 ? "Không có robot online" : "Chọn robot"
                 } />
@@ -433,7 +437,7 @@ function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Move ID</label>
-            <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm">
+            <div className="flex h-8 items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm">
               <Shuffle className="size-3.5 text-muted-foreground" />
               <span className="font-medium tabular-nums">#{moveId}</span>
               <Badge variant="secondary" className="ml-auto text-[10px]">Tự động</Badge>

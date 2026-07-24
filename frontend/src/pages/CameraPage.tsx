@@ -577,27 +577,33 @@ export function CameraPage() {
                                   />
                                   <p className="text-xs font-medium">Điểm phục vụ</p>
                                 </div>
-                                <Badge variant="outline" className="text-[10px]">
-                                  UI thử nghiệm
-                                </Badge>
                               </div>
 
                               {draftServicePoint ? (
                                 <div
-                                  className="flex items-center gap-2 rounded-md border px-3 py-2"
+                                  className="flex min-w-0 items-center gap-2.5 rounded-lg border-2 bg-muted/20 px-3 py-2.5"
                                   style={{
                                     borderColor: `${selectedZoneColor}4d`,
-                                    backgroundColor: `${selectedZoneColor}1a`,
                                   }}
                                 >
                                   <span
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ backgroundColor: selectedZoneColor }}
-                                  />
-                                  <span className="text-xs text-muted-foreground">Pixel</span>
-                                  <span className="ml-auto text-xs">
-                                    X {draftServicePoint[0]} · Y {draftServicePoint[1]}
+                                    className="flex size-7 shrink-0 items-center justify-center rounded-md"
+                                    style={{
+                                      color: selectedZoneColor,
+                                      backgroundColor: `${selectedZoneColor}1a`,
+                                    }}
+                                  >
+                                    <Crosshair className="size-3.5" />
                                   </span>
+                                  <p className="min-w-0 text-xs font-medium">
+                                    Tọa độ điểm đã chọn
+                                  </p>
+                                  <Badge
+                                    variant="outline"
+                                    className="ml-auto shrink-0 text-[10px] font-normal tabular-nums"
+                                  >
+                                    {draftServicePoint[0]} · {draftServicePoint[1]}
+                                  </Badge>
                                 </div>
                               ) : (
                                 <div className="rounded-md border border-dashed px-3 py-3 text-center text-xs text-muted-foreground">
@@ -608,8 +614,9 @@ export function CameraPage() {
                               <Select
                                 value={selectedServicePointRobotId}
                                 onValueChange={setServicePointRobotId}
+                                disabled={onlineRobots.length === 0}
                               >
-                                <SelectTrigger className="w-full">
+                                <SelectTrigger className="w-full" size="sm">
                                   <SelectValue
                                     placeholder={
                                       onlineRobots.length === 0
@@ -728,8 +735,7 @@ export function CameraPage() {
                                 <div className="flex shrink-0 items-center gap-1">
                                   <Button
                                     variant="outline"
-                                    size="icon"
-                                    className="size-7"
+                                    size="icon-sm"
                                     onClick={() => handleStartEdit(index)}
                                   >
                                     <Pencil className="size-3.5" />
@@ -741,8 +747,8 @@ export function CameraPage() {
                                     <PopoverTrigger asChild>
                                       <Button
                                         variant="outline"
-                                        size="icon"
-                                        className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                                        size="icon-sm"
+                                        className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
                                       >
                                         <Trash2 className="size-3.5" />
                                       </Button>

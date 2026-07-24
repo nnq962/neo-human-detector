@@ -23,6 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
 import {
   formatCalibrationTime,
@@ -367,20 +368,23 @@ function CalibrationDetailsDialog({
           Xem ma trận và cách đánh giá
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Chi tiết ma trận H</DialogTitle>
           <DialogDescription>
             Kết quả RANSAC cho phép ánh xạ pixel sang tọa độ robot.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <ScrollArea className="min-h-0">
+          <div className="space-y-4 pr-3">
           <div className="grid grid-cols-3 overflow-hidden rounded-lg border">
             {calibrationPreview.homography.flatMap((row, rowIndex) =>
               row.map((value, columnIndex) => (
                 <div
                   key={`${rowIndex}-${columnIndex}`}
-                  className="border-b border-r p-3 text-center text-sm tabular-nums last:border-r-0"
+                  className={`p-2 text-center text-xs tabular-nums sm:p-3 sm:text-sm ${
+                    columnIndex < 2 ? "border-r" : ""
+                  } ${rowIndex < 2 ? "border-b" : ""}`}
                 >
                   {value.toFixed(5)}
                 </div>
@@ -443,7 +447,8 @@ function CalibrationDetailsDialog({
           <div className="space-y-3 rounded-lg border p-3">
             <QualityGuide />
           </div>
-        </div>
+          </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )

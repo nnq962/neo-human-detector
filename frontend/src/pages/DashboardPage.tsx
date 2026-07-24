@@ -259,7 +259,10 @@ function RobotTasksCard() {
               value={filter}
               onValueChange={(value) => setFilter(value as TaskFilter)}
             >
-              <SelectTrigger className="min-w-0 flex-1 sm:w-40 sm:flex-none">
+              <SelectTrigger
+                className="min-w-0 flex-1 sm:w-40 sm:flex-none"
+                size="sm"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent position="popper">

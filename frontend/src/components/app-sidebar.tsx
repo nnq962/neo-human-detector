@@ -94,7 +94,6 @@ export function AppSidebar() {
                     </Collapsible.Trigger>
 
                     <SidebarMenuAction
-                      showOnHover
                       title="Thêm camera"
                       className="right-7"
                       onClick={(e) => {

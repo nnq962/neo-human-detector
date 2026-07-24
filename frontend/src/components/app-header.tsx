@@ -61,8 +61,7 @@ function ThemeToggle() {
   return (
     <Button
       variant="outline"
-      size="icon"
-      className="size-8"
+      size="icon-sm"
       data-theme-toggle
       onClick={toggleTheme}
     >

@@ -177,7 +177,7 @@ function DetectionConfigCard({
                 value={draft.task}
                 onValueChange={(val) => setDraft((p) => ({ ...p, task: val as DetectionTask }))}
               >
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper" className="w-fit min-w-0">
                   {TASK_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -199,7 +199,7 @@ function DetectionConfigCard({
                 value={draft.model_size}
                 onValueChange={(val) => setDraft((p) => ({ ...p, model_size: val as DetectionModelSize }))}
               >
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper" className="w-fit min-w-0">
                   {SIZE_OPTIONS.map((o) => (
                     <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -221,7 +221,7 @@ function DetectionConfigCard({
                 value={String(draft.batch_size)}
                 onValueChange={(val) => setDraft((p) => ({ ...p, batch_size: parseInt(val) as DetectionBatchSize }))}
               >
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent position="popper" className="w-fit min-w-0">
                   {[1, 2, 4, 8].map((n) => (
                     <SelectItem key={n} value={String(n)}>{n}</SelectItem>
