@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom"
 import { useLocation } from "react-router-dom"
 import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
@@ -41,12 +42,29 @@ function useBreadcrumbs() {
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
 
+  const toggleTheme = () => {
+    const nextTheme = resolvedTheme === "dark" ? "light" : "dark"
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches
+
+    if (!document.startViewTransition || prefersReducedMotion) {
+      setTheme(nextTheme)
+      return
+    }
+
+    document.startViewTransition(() => {
+      flushSync(() => setTheme(nextTheme))
+    })
+  }
+
   return (
     <Button
       variant="outline"
       size="icon"
       className="size-8"
-      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      data-theme-toggle
+      onClick={toggleTheme}
     >
       <Sun className="scale-100 transition-transform dark:scale-0" />
       <Moon className="absolute scale-0 transition-transform dark:scale-100" />

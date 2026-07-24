@@ -21,7 +21,7 @@ const buttonVariants = cva(
         purple:
           `${raisedButtonClass} text-white before:bg-[#ce82ff] before:shadow-[0_4px_0_#a560d0] hover:before:bg-[#d996ff]`,
         outline:
-          "relative isolate bg-transparent pb-0.5 text-foreground before:absolute before:inset-x-0 before:top-0 before:bottom-0.5 before:-z-10 before:rounded-[inherit] before:border-2 before:border-border before:bg-background before:shadow-[0_2px_0_var(--border)] before:content-[''] hover:before:bg-muted active:translate-y-0.5 active:before:shadow-none aria-expanded:text-foreground aria-expanded:before:bg-muted dark:before:border-input dark:before:bg-input/30 dark:before:shadow-[0_2px_0_var(--input)] dark:hover:before:bg-input/50 dark:active:before:shadow-none",
+          "relative isolate bg-transparent pb-0.5 text-foreground before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:bottom-0.5 before:z-0 before:translate-y-0.5 before:rounded-[inherit] before:bg-border before:content-[''] after:pointer-events-none after:absolute after:inset-x-0 after:top-0 after:bottom-0.5 after:z-10 after:rounded-[inherit] after:border-2 after:border-border after:bg-background after:content-[''] after:transition-[background-color,transform] after:duration-75 hover:after:bg-muted active:after:translate-y-0.5 aria-expanded:text-foreground aria-expanded:after:bg-muted dark:before:bg-[color-mix(in_oklab,var(--foreground)_15%,var(--background))] dark:after:border-[color-mix(in_oklab,var(--foreground)_15%,var(--background))] dark:after:bg-[color-mix(in_oklab,var(--foreground)_5%,var(--background))] dark:hover:after:bg-[color-mix(in_oklab,var(--foreground)_8%,var(--background))]",
         secondary:
           `${raisedButtonClass} text-[#4b4b4b] before:bg-[#e5e5e5] before:shadow-[0_4px_0_#c4c4c4] hover:before:bg-[#eeeeee] aria-expanded:before:bg-[#e5e5e5] dark:text-white dark:before:bg-[#59616d] dark:before:shadow-[0_4px_0_#3f4650] dark:hover:before:bg-[#66707d] dark:aria-expanded:before:bg-[#59616d]`,
         ghost:
@@ -56,12 +56,34 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
-  }) {
+}) {
   const Comp = asChild ? Slot.Root : "button"
+  const outlineContent = (content: React.ReactNode) => (
+    <span
+      data-slot="button-content"
+      className="relative z-20 inline-flex items-center justify-center [gap:inherit] transition-transform duration-75 group-active/button:translate-y-0.5"
+    >
+      {content}
+    </span>
+  )
+
+  let renderedChildren = children
+
+  if (variant === "outline") {
+    renderedChildren =
+      asChild && React.isValidElement<{ children?: React.ReactNode }>(children)
+        ? React.cloneElement(
+            children,
+            undefined,
+            outlineContent(children.props.children)
+          )
+        : outlineContent(children)
+  }
 
   return (
     <Comp
@@ -70,7 +92,9 @@ function Button({
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {renderedChildren}
+    </Comp>
   )
 }
 

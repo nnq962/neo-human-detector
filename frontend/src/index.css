@@ -14,6 +14,33 @@ body::-webkit-scrollbar {
   display: none;
 }
 
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 250ms;
+  animation-timing-function: ease-in-out;
+  mix-blend-mode: normal;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .runtime-auto-start-switch[data-state="checked"] {
+    filter: none;
+    box-shadow: 0 2px 0 #4a8a00;
+  }
+
+  .runtime-auto-start-switch[data-state="unchecked"] {
+    filter: none;
+    box-shadow: 0 2px 0 #c4c4c4;
+  }
+
+  .dark .runtime-auto-start-switch[data-state="unchecked"] {
+    box-shadow: 0 2px 0 #3f4650;
+  }
+
+  .runtime-auto-start-switch:active {
+    box-shadow: none;
+  }
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', sans-serif;

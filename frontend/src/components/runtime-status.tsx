@@ -139,6 +139,13 @@ export function RuntimeStatusIndicator() {
         align="end"
         sideOffset={8}
         className="w-80 gap-0 overflow-hidden rounded-2xl border-2 border-border bg-popover p-0 shadow-none ring-0 dark:border-input"
+        onInteractOutside={(event) => {
+          const target = event.detail.originalEvent.target
+
+          if (target instanceof Element && target.closest("[data-theme-toggle]")) {
+            event.preventDefault()
+          }
+        }}
       >
 
           {/* Status */}
@@ -170,6 +177,7 @@ export function RuntimeStatusIndicator() {
               </p>
             </div>
             <Switch
+              className="runtime-auto-start-switch"
               checked={autoStart}
               disabled={updateAutoStart.isPending}
               onCheckedChange={(checked) => {
