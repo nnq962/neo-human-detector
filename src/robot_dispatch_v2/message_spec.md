@@ -138,7 +138,8 @@ Lưu ý triển khai firmware:
 | 1 | `TASK_ASSIGN` | Dispatcher -> Robot | Dispatcher giao 1 task phục vụ |
 | 2 | `TASK_STATUS` | Robot -> Dispatcher | Robot báo cáo tiến độ task |
 | 3 | `TASK_CANCEL` | Dispatcher -> Robot | Dispatcher hủy 1 task đã giao |
-| 4 | `ACK` | Hai chiều, tùy ngữ cảnh | Xác nhận đã nhận message quan trọng |
+| 4 | `ACK` | Hai chiều, tùy ngữ cảnh | Phản hồi chấp nhận hoặc từ chối message |
+| 5 | `MOVE_TO_POINT` | Dispatcher -> Robot | Yêu cầu robot di chuyển tới một pose đích |
 
 ---
 
@@ -163,6 +164,30 @@ Dùng trong `TaskStatus.status_code`.
 | 0 | `IN_PROGRESS` | Task đang được thực hiện |
 | 1 | `COMPLETED` | Task đã hoàn thành |
 | 2 | `FAILED` | Task thực hiện thất bại |
+
+### 5.3. AckResultCode
+
+Dùng trong `Ack.result_code` để cho biết bên nhận chấp nhận hay từ chối xử lý
+message. ACK có nghĩa là message đã được đọc và phân tích; `result_code` mới là
+kết quả tiếp nhận ở tầng nghiệp vụ.
+
+| Giá trị | Tên trong code | Ý nghĩa |
+|---:|---|---|
+| 0 | `ACCEPTED` | Message đã được tiếp nhận và chấp nhận xử lý |
+| 1 | `REJECTED` | Message đã được đọc nhưng bị từ chối xử lý |
+
+### 5.4. AckReasonCode
+
+Dùng trong `Ack.reason_code` để mô tả nguyên nhân chi tiết.
+
+| Giá trị | Tên trong code | Ý nghĩa |
+|---:|---|---|
+| 0 | `NONE` | Không có lỗi; thường đi cùng `ACCEPTED` |
+| 1 | `ROBOT_BUSY` | Robot đang bận |
+| 2 | `ROBOT_ERROR` | Robot đang ở trạng thái lỗi |
+| 3 | `INVALID_COMMAND` | Nội dung lệnh không hợp lệ hoặc không được hỗ trợ |
+| 4 | `OUT_OF_RANGE` | Pose hoặc tham số nằm ngoài phạm vi cho phép |
+| 5 | `DUPLICATE_REFERENCE` | Reference ID đã được dùng cho một message khác |
 
 ---
 
@@ -218,14 +243,26 @@ Khoảng biểu diễn thực tế:
 
 ### 7.1. Ack
 
-`Ack` xác nhận đã nhận thành công 1 message quan trọng. Class này dùng chung cho
-`TaskAssign`, `TaskCancel`, và `TaskStatus`; không tách ACK riêng cho từng loại
-message.
+`Ack` phản hồi kết quả tiếp nhận một message quan trọng. Class này dùng chung
+cho `TaskAssign`, `TaskCancel`, `TaskStatus` và `MoveToPoint`.
+
+`reference_id` là tên tổng quát cho định danh của message được ACK:
+
+| `acked_type` | Giá trị đặt vào `reference_id` |
+|---|---|
+| `TASK_ASSIGN` | `TaskAssign.task_id` |
+| `TASK_CANCEL` | `TaskCancel.task_id` |
+| `TASK_STATUS` | `TaskStatus.task_id` |
+| `MOVE_TO_POINT` | `MoveToPoint.move_id` |
+
+Một ACK được đối chiếu bằng bộ khóa
+`(robot_id, acked_type, reference_id)`. `reference_id`, `task_id` và `move_id`
+đều dùng `uint8`, có miền giá trị từ 0 đến 255.
 
 Format trong code:
 
 ```python
-FORMAT = "<BBBB"
+FORMAT = "<BBBBBB"
 ```
 
 Payload:
@@ -234,8 +271,10 @@ Payload:
 |---:|---:|---|---|---|
 | 0 | 1 | `message_type` | `uint8` | Cố định = `MessageType.ACK` = 4 |
 | 1 | 1 | `robot_id` | `uint8` | Robot liên quan tới ACK này |
-| 2 | 1 | `acked_type` | `uint8` | Loại message được ACK, ví dụ `TASK_ASSIGN`/`TASK_CANCEL`/`TASK_STATUS` |
-| 3 | 1 | `task_id` | `uint8` | Task cụ thể được ACK |
+| 2 | 1 | `acked_type` | `uint8` | Loại message được ACK |
+| 3 | 1 | `reference_id` | `uint8` | `task_id` hoặc `move_id`, tùy `acked_type` |
+| 4 | 1 | `result_code` | `uint8` | Xem `AckResultCode` |
+| 5 | 1 | `reason_code` | `uint8` | Xem `AckReasonCode` |
 
 Kích thước frame truyền qua UART:
 
@@ -243,12 +282,44 @@ Kích thước frame truyền qua UART:
 |---|---:|
 | Start byte `0xAA` | 1 |
 | Length | 1 |
-| Payload | 4 |
+| Payload | 6 |
 | Checksum | 2 |
-| Tổng UART frame | 8 |
+| Tổng UART frame | 10 |
 
-Ví dụ: ACK cho `TaskAssign` của `task_id=10` từ robot `1` thì
-`acked_type = MessageType.TASK_ASSIGN = 1`.
+Ví dụ ACK chấp nhận `TaskAssign` có `task_id=10` từ robot `1`:
+
+```python
+Ack(
+    robot_id=1,
+    acked_type=MessageType.TASK_ASSIGN,
+    reference_id=10,
+    result_code=AckResultCode.ACCEPTED,
+    reason_code=AckReasonCode.NONE,
+)
+```
+
+Ví dụ robot đã đọc `MoveToPoint` có `move_id=200` nhưng không thể thực hiện:
+
+```python
+Ack(
+    robot_id=1,
+    acked_type=MessageType.MOVE_TO_POINT,
+    reference_id=200,
+    result_code=AckResultCode.REJECTED,
+    reason_code=AckReasonCode.ROBOT_ERROR,
+)
+```
+
+`ACCEPTED` chỉ xác nhận robot đã chấp nhận lệnh. Nó không có nghĩa task đã hoàn
+thành hoặc robot đã tới pose đích. Lỗi phát sinh sau khi chấp nhận task vẫn được
+báo bằng `TaskStatus.FAILED`.
+
+`UartManagerV2.send_with_retry()` trả `True` khi nhận ACK `ACCEPTED`. Khi nhận
+ACK `REJECTED`, hàm trả `False` ngay và không lặp lại cùng message trong vòng
+retry hiện tại. Nếu chưa nhận ACK, hàm gửi lại theo cấu hình timeout/retry.
+
+ACK mới không tương thích nhị phân với ACK 4-byte cũ. Python và firmware phải
+được cập nhật đồng thời trước khi sử dụng schema này.
 
 ---
 
@@ -381,8 +452,8 @@ Gửi TaskStatus
 → hết timeout thì gửi lại đúng TaskStatus cũ
 ```
 
-Quy tắc stop-and-wait này là bắt buộc vì ACK hiện chỉ chứa `robot_id`,
-`acked_type` và `task_id`; chưa có `sequence_id` để phân biệt ACK của
+Quy tắc stop-and-wait này là bắt buộc vì khóa ACK chỉ chứa `robot_id`,
+`acked_type` và `reference_id`; chưa có `sequence_id` để phân biệt ACK của
 `IN_PROGRESS`, `COMPLETED` hoặc `FAILED` cho cùng một task.
 
 ---
@@ -432,6 +503,69 @@ Giá trị raw trước checksum:
 
 ---
 
+### 7.6. MoveToPoint
+
+`MoveToPoint` là message Dispatcher gửi để yêu cầu robot di chuyển tới một pose
+đích. Message dùng `move_id` riêng, không dùng `task_id`. Robot phải phản hồi
+bằng `Ack` có `acked_type=MOVE_TO_POINT` và `reference_id=move_id`.
+
+Format trong code:
+
+```python
+FORMAT = "<BBBhhh"
+```
+
+Payload:
+
+| Offset | Size | Field | Type | Mô tả |
+|---:|---:|---|---|---|
+| 0 | 1 | `message_type` | `uint8` | Cố định = `MessageType.MOVE_TO_POINT` = 5 |
+| 1 | 1 | `robot_id` | `uint8` | Robot nhận lệnh |
+| 2 | 1 | `move_id` | `uint8` | ID lệnh di chuyển, 0-255 |
+| 3 | 2 | `x` | `int16` | Vị trí x, mét -> centimet |
+| 5 | 2 | `y` | `int16` | Vị trí y, mét -> centimet |
+| 7 | 2 | `theta` | `int16` | Góc đích, radian -> milliradian |
+
+Kích thước frame truyền qua UART:
+
+| Thành phần | Byte |
+|---|---:|
+| Start byte `0xAA` | 1 |
+| Length | 1 |
+| Payload | 9 |
+| Checksum | 2 |
+| Tổng UART frame | 13 |
+
+Ví dụ:
+
+```python
+MoveToPoint(
+    robot_id=1,
+    move_id=200,
+    x=1.23,
+    y=4.56,
+    theta=1.57,
+)
+```
+
+Giá trị raw trước checksum:
+
+| Field | Giá trị logic | Giá trị raw |
+|---|---:|---:|
+| `message_type` | `MOVE_TO_POINT` | 5 |
+| `robot_id` | 1 | 1 |
+| `move_id` | 200 | 200 |
+| `x` | 1.23 m | 123 |
+| `y` | 4.56 m | 456 |
+| `theta` | 1.57 rad | 1570 |
+
+Khi Dispatcher gửi lại cùng bộ
+`(robot_id, MOVE_TO_POINT, move_id)` do mất ACK, robot không được tạo một lệnh
+di chuyển mới. Robot phải nhận diện đây là lần gửi lại và trả lại kết quả tiếp
+nhận đã lưu cho `move_id` đó.
+
+---
+
 ## 8. Lưu Ý Triển Khai Firmware
 
 - Không parse theo string, không parse JSON.
@@ -452,7 +586,12 @@ Giá trị raw trước checksum:
 - Công thức checksum hiện tại là `crc32(payload) & 0xFFFF`, không phải biến thể
   CRC-16/CCITT truyền thống.
 - `task_id` hiện tại là `uint8`, tối đa 255. Nếu cần chạy lâu với nhiều task hơn,
-  cần đổi `TaskAssign`, `TaskStatus`, `TaskCancel`, và `Ack` sang `uint16`.
+  cần đổi `TaskAssign`, `TaskStatus` và `TaskCancel` sang `uint16`.
+- `MoveToPoint.move_id` và `Ack.reference_id` là `uint8`, tối đa 255.
+- Với ACK của message liên quan tới task, đặt `task_id` vào `reference_id`; với
+  ACK của `MoveToPoint`, đặt `move_id` vào `reference_id`.
 - `Ack.acked_type` nên dùng đúng giá trị trong `MessageType`.
+- Robot phải phân biệt ACK `ACCEPTED` và `REJECTED`; khi `REJECTED`, đặt
+  `reason_code` phù hợp thay vì chỉ xác nhận đã nhận byte.
 - `TaskStatus` phải tuân theo stop-and-wait: chờ ACK trước khi gửi status tiếp
   theo cho cùng task.

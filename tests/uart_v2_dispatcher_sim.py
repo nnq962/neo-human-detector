@@ -40,7 +40,12 @@ try:
         seq += 1
         task = TaskAssign(robot_id=1, task_id=seq, x=3.0 + seq * 0.1, y=4.0, theta=1.0)
         print(f"[GỬI] TaskAssign task_id={task.task_id}, chờ ACK...")
-        acked = manager.send_with_retry(task, task_id=task.task_id, timeout=1.0, max_retries=3)
+        acked = manager.send_with_retry(
+            task,
+            reference_id=task.task_id,
+            timeout=1.0,
+            max_retries=3,
+        )
         print(f"[KẾT QUẢ] TaskAssign task_id={task.task_id} được ACK: {acked}")
         time.sleep(TASK_ASSIGN_EVERY)
 except KeyboardInterrupt:

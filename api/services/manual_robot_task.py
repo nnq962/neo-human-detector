@@ -12,6 +12,8 @@ from fastapi import HTTPException, status
 from api.models.uart import UartMessageRequest, UartTaskAssignRequest
 from src.robot_dispatch_v2.datatypes import (
     Ack,
+    AckReasonCode,
+    AckResultCode,
     MessageBase,
     MessageType,
     TaskAssign,
@@ -45,7 +47,7 @@ class ManualTaskTransport(Protocol):
     def send_with_retry(
         self,
         message: MessageBase,
-        task_id: int,
+        reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
     ) -> bool: ...
@@ -162,7 +164,9 @@ class ManualRobotTaskService:
             Ack(
                 robot_id=message.robot_id,
                 acked_type=MessageType.TASK_STATUS,
-                task_id=message.task_id,
+                reference_id=message.task_id,
+                result_code=AckResultCode.ACCEPTED,
+                reason_code=AckReasonCode.NONE,
             )
         )
         if not acknowledged:
@@ -230,7 +234,7 @@ class ManualRobotTaskService:
         )
         acknowledged = self._uart.send_with_retry(
             message,
-            task_id=request.task_id,
+            reference_id=request.task_id,
             timeout=ack_timeout_seconds,
             max_retries=max_retries,
         )
@@ -272,7 +276,7 @@ class ManualRobotTaskService:
 
         acknowledged = self._uart.send_with_retry(
             TaskCancel(robot_id=robot_id, task_id=task_id),
-            task_id=task_id,
+            reference_id=task_id,
             timeout=ack_timeout_seconds,
             max_retries=max_retries,
         )

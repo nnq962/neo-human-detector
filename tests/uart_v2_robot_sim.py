@@ -12,7 +12,15 @@ import random
 import time
 
 from uart_v2.uart_manager import UartManagerV2
-from src.robot_dispatch_v2.datatypes import Ack, Heartbeat, MessageType, RobotStateCode, TaskAssign
+from src.robot_dispatch_v2.datatypes import (
+    Ack,
+    AckReasonCode,
+    AckResultCode,
+    Heartbeat,
+    MessageType,
+    RobotStateCode,
+    TaskAssign,
+)
 
 PORT = "/tmp/ttyV1"
 ACK_DROP_RATE = 0.6  # xác suất "làm rơi" ACK, giả lập lỗi truyền/robot không kịp trả lời
@@ -30,7 +38,13 @@ def on_task_assign(msg: TaskAssign):
         print(f"    -> giả lập RỚT ACK cho task_id={msg.task_id}, không trả lời.")
         return
 
-    ack = Ack(robot_id=msg.robot_id, acked_type=MessageType.TASK_ASSIGN, task_id=msg.task_id)
+    ack = Ack(
+        robot_id=msg.robot_id,
+        acked_type=MessageType.TASK_ASSIGN,
+        reference_id=msg.task_id,
+        result_code=AckResultCode.ACCEPTED,
+        reason_code=AckReasonCode.NONE,
+    )
     ok = manager.send_message(ack)
     print(f"    -> gửi ACK cho task_id={msg.task_id}, thành công: {ok}")
 

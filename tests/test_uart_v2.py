@@ -12,7 +12,11 @@ uart_manager_v2.set_handler(MessageType.HEARTBEAT, on_heartbeat)
 
 # ---- BƯỚC 1b: Đăng ký handler để xem ACK trả về ----
 def on_ack(msg: Ack):
-    print(f"[NHẬN] ACK robot={msg.robot_id}, acked_type={msg.acked_type}, task_id={msg.task_id}")
+    print(
+        f"[NHẬN] ACK robot={msg.robot_id}, acked_type={msg.acked_type}, "
+        f"reference_id={msg.reference_id}, result={msg.result_code}, "
+        f"reason={msg.reason_code}"
+    )
 
 uart_manager_v2.set_handler(MessageType.ACK, on_ack)
 
@@ -40,7 +44,12 @@ print(f"Gửi thành công: {success}")
 # ---- BƯỚC 3b: Gửi 1 gói TaskAssign, tự động gửi lại nếu robot không ACK ----
 task = TaskAssign(robot_id=1, task_id=10, x=1.23, y=4.56, theta=1.57)
 
-acked = uart_manager_v2.send_with_retry(task, task_id=task.task_id, timeout=1.0, max_retries=3)
+acked = uart_manager_v2.send_with_retry(
+    task,
+    reference_id=task.task_id,
+    timeout=1.0,
+    max_retries=3,
+)
 print(f"TaskAssign task_id={task.task_id} được ACK: {acked}")
 
 

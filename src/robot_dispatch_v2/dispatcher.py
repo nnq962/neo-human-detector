@@ -14,6 +14,8 @@ from src.dispatch_decision import (
 )
 from src.robot_dispatch_v2.datatypes import (
     Ack,
+    AckReasonCode,
+    AckResultCode,
     Heartbeat,
     MessageBase,
     MessageType,
@@ -53,11 +55,11 @@ class UartTransport(Protocol):
     def send_with_retry(
         self,
         message: MessageBase,
-        task_id: int,
+        reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
     ) -> bool:
-        """Gửi message và thử lại cho tới khi nhận ACK hoặc hết số lần thử."""
+        """Gửi message tới khi được chấp nhận, bị từ chối hoặc hết số lần thử."""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -457,7 +459,7 @@ class RobotDispatcherV2:
 
         sent = self._uart.send_with_retry(
             message,
-            task_id=task.task_id,
+            reference_id=task.task_id,
             timeout=self._ack_timeout_seconds,
             max_retries=self._max_retries,
         )
@@ -489,7 +491,7 @@ class RobotDispatcherV2:
         message = TaskCancel(robot_id=task.robot_id, task_id=task.task_id)
         sent = self._uart.send_with_retry(
             message,
-            task_id=task.task_id,
+            reference_id=task.task_id,
             timeout=self._ack_timeout_seconds,
             max_retries=self._max_retries,
         )
@@ -523,7 +525,9 @@ class RobotDispatcherV2:
         ack = Ack(
             robot_id=message.robot_id,
             acked_type=MessageType.TASK_STATUS,
-            task_id=message.task_id,
+            reference_id=message.task_id,
+            result_code=AckResultCode.ACCEPTED,
+            reason_code=AckReasonCode.NONE,
         )
         if not self._uart.send_message(ack):
             LOGGER.warning(

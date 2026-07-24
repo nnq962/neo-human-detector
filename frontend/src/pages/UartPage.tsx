@@ -130,7 +130,7 @@ function UartConfigCard() {
               </Button>
             </div>
           ) : (
-            <Button variant="outline" size="sm" onClick={startEdit}>
+            <Button variant="blue" size="sm" onClick={startEdit}>
               <Pencil /> Sửa
             </Button>
           )}

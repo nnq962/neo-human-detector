@@ -46,7 +46,7 @@ class FakeUartManagerV2:
     def send_with_retry(
         self,
         message,
-        task_id: int,
+        reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
     ) -> bool:

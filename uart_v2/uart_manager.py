@@ -9,7 +9,12 @@ from typing import Callable, Optional
 import serial
 
 from utils import LOGGER, load_config
-from src.robot_dispatch_v2.datatypes import MessageBase, MessageType
+from src.robot_dispatch_v2.datatypes import (
+    Ack,
+    AckResultCode,
+    MessageBase,
+    MessageType,
+)
 
 
 DEFAULT_PORT = "/dev/ttyS4"
@@ -68,10 +73,11 @@ class UartManagerV2:
         # Handler chung, được gọi cho MỌI message nhận được (nếu có đăng ký)
         self._generic_handler: Optional[Callable[[MessageBase], None]] = None
 
-        # Lưu các ACK đã nhận được, key = (robot_id, acked_type, task_id), value = thời điểm nhận.
+        # Lưu các ACK đã nhận được, key = (robot_id, acked_type, reference_id),
+        # value = (ACK, thời điểm nhận).
         # Dùng cho wait_for_ack()/send_with_retry() bên dưới. Entry không ai tiêu thụ sau
         # ACK_TTL giây sẽ bị dọn (xem _prune_stale_acks_unlocked) để tránh phình vô hạn.
-        self._received_acks: dict[tuple[int, int, int], float] = {}
+        self._received_acks: dict[tuple[int, int, int], tuple[Ack, float]] = {}
 
         self._lock = threading.RLock()
 
@@ -203,26 +209,31 @@ class UartManagerV2:
                 return False
 
     # ─────────────────────────────────────────────────────────────────────────
-    def wait_for_ack(self, robot_id: int, acked_type: int, task_id: int, timeout: float = 1.0) -> bool:
-        """Chờ tối đa `timeout` giây để nhận đúng 1 ACK khớp (robot_id, acked_type, task_id).
-        Trả True nếu nhận được trong thời gian chờ, False nếu hết giờ."""
-        key = (robot_id, int(acked_type), task_id)
+    def wait_for_ack(
+        self,
+        robot_id: int,
+        acked_type: int,
+        reference_id: int,
+        timeout: float = 1.0,
+    ) -> Optional[Ack]:
+        """Chờ và trả về ACK khớp khóa tham chiếu, hoặc None nếu hết thời gian."""
+        key = (robot_id, int(acked_type), reference_id)
         deadline = time.time() + timeout
 
         while time.time() < deadline:
             with self._lock:
                 if key in self._received_acks:
-                    del self._received_acks[key]  # tiêu thụ luôn, tránh dính vào lần chờ sau
-                    return True
+                    ack, _ = self._received_acks.pop(key)
+                    return ack
             time.sleep(0.02)
 
-        return False
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     def send_with_retry(
         self,
         message: MessageBase,
-        task_id: int,
+        reference_id: int,
         timeout: float = 1.0,
         max_retries: int = 5,
     ) -> bool:
@@ -230,7 +241,8 @@ class UartManagerV2:
         nếu không nhận được ACK trong `timeout` giây, tối đa `max_retries` lần.
         `robot_id` và `acked_type` được lấy trực tiếp từ `message` thay vì truyền tay,
         tránh trường hợp truyền lệch với message thực sự gửi đi.
-        Trả True nếu cuối cùng có ACK, False nếu hết số lần retry mà vẫn không có."""
+        Trả True khi nhận ACK ACCEPTED. Trả False ngay khi nhận ACK REJECTED,
+        hoặc khi hết số lần retry mà vẫn không có ACK."""
         robot_id = message.robot_id
         acked_type = message.MESSAGE_TYPE
 
@@ -239,13 +251,40 @@ class UartManagerV2:
                 LOGGER.error(f"Gửi thất bại (lỗi cổng UART) ở lần thử {attempt}.")
                 return False
 
-            if self.wait_for_ack(robot_id, acked_type, task_id, timeout=timeout):
-                LOGGER.info(f"Nhận ACK cho task_id={task_id} sau {attempt} lần gửi.")
+            ack = self.wait_for_ack(
+                robot_id,
+                acked_type,
+                reference_id,
+                timeout=timeout,
+            )
+            if ack is not None and ack.result_code == AckResultCode.ACCEPTED:
+                LOGGER.info(
+                    "Message có reference_id=%s được chấp nhận sau %s lần gửi.",
+                    reference_id,
+                    attempt,
+                )
                 return True
 
-            LOGGER.warning(f"Không nhận ACK cho task_id={task_id}, lần thử {attempt}/{max_retries}.")
+            if ack is not None:
+                LOGGER.warning(
+                    "Message có reference_id=%s bị từ chối: reason_code=%s.",
+                    reference_id,
+                    ack.reason_code,
+                )
+                return False
 
-        LOGGER.error(f"Hết {max_retries} lần retry, task_id={task_id} không được xác nhận.")
+            LOGGER.warning(
+                "Không nhận ACK cho reference_id=%s, lần thử %s/%s.",
+                reference_id,
+                attempt,
+                max_retries,
+            )
+
+        LOGGER.error(
+            "Hết %s lần retry, reference_id=%s không được xác nhận.",
+            max_retries,
+            reference_id,
+        )
         return False
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -394,11 +433,13 @@ class UartManagerV2:
             self.latest_received_message = message
 
             # Nếu đây là 1 gói ACK, ghi nhận lại để wait_for_ack()/send_with_retry() dùng.
-            # Dùng duck-typing qua MESSAGE_TYPE thay vì import class Ack cụ thể,
-            # giữ đúng nguyên tắc: uart_manager_v2 không cần biết chi tiết từng loại message con.
-            if int(message.MESSAGE_TYPE) == int(MessageType.ACK):
-                key = (message.robot_id, int(message.acked_type), message.task_id)
-                self._received_acks[key] = now
+            if isinstance(message, Ack):
+                key = (
+                    message.robot_id,
+                    int(message.acked_type),
+                    message.reference_id,
+                )
+                self._received_acks[key] = (message, now)
                 self._prune_stale_acks_unlocked(now)
 
             specific_handler = self._handlers.get(int(message.MESSAGE_TYPE))
@@ -434,7 +475,11 @@ class UartManagerV2:
     def _prune_stale_acks_unlocked(self, now: float) -> None:
         """Dọn các ACK đã lưu quá ACK_TTL giây mà không ai wait_for_ack() tới lấy.
         Phải gọi trong lúc đang giữ self._lock."""
-        stale_keys = [key for key, received_at in self._received_acks.items() if now - received_at > ACK_TTL]
+        stale_keys = [
+            key
+            for key, (_, received_at) in self._received_acks.items()
+            if now - received_at > ACK_TTL
+        ]
         for key in stale_keys:
             del self._received_acks[key]
 

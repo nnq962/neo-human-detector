@@ -21,12 +21,15 @@ class MessageType(IntEnum):
         TASK_STATUS: Robot báo cáo tiến độ thực hiện task.
         TASK_CANCEL: Dispatcher hủy task đang giao cho robot.
         ACK: Xác nhận message.
+        MOVE_TO_POINT: Dispatcher yêu cầu robot di chuyển tới một pose đích.
     """
-    HEARTBEAT   = 0
-    TASK_ASSIGN = 1
-    TASK_STATUS = 2
-    TASK_CANCEL = 3
-    ACK = 4
+    HEARTBEAT     = 0
+    TASK_ASSIGN   = 1
+    TASK_STATUS   = 2
+    TASK_CANCEL   = 3
+    ACK            = 4
+    MOVE_TO_POINT = 5
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 class RobotStateCode(IntEnum):
@@ -56,6 +59,42 @@ class TaskStatusCode(IntEnum):
     IN_PROGRESS = 0
     COMPLETED   = 1
     FAILED      = 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+class AckResultCode(IntEnum):
+    """
+    Kết quả tiếp nhận message được robot hoặc Dispatcher trả về trong ACK.
+
+    Members:
+        ACCEPTED: Bên nhận đã tiếp nhận và chấp nhận xử lý message.
+        REJECTED: Bên nhận đã đọc được message nhưng từ chối xử lý.
+    """
+
+    ACCEPTED = 0
+    REJECTED = 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+class AckReasonCode(IntEnum):
+    """
+    Nguyên nhân chi tiết đi kèm kết quả ACK.
+
+    Members:
+        NONE: Không có lỗi; thường dùng khi message được chấp nhận.
+        ROBOT_BUSY: Robot đang bận nên không thể nhận thêm lệnh.
+        ROBOT_ERROR: Robot đang ở trạng thái lỗi.
+        INVALID_COMMAND: Nội dung lệnh không hợp lệ hoặc không được hỗ trợ.
+        OUT_OF_RANGE: Pose hoặc tham số của lệnh nằm ngoài phạm vi cho phép.
+        DUPLICATE_REFERENCE: Reference ID đã được dùng cho một message khác.
+    """
+
+    NONE                = 0
+    ROBOT_BUSY          = 1
+    ROBOT_ERROR         = 2
+    INVALID_COMMAND     = 3
+    OUT_OF_RANGE        = 4
+    DUPLICATE_REFERENCE = 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,37 +179,57 @@ class MessageBase:
 @dataclass
 class Ack(MessageBase):
     """
-    Xác nhận đã nhận thành công 1 message quan trọng.
-    Dùng CHUNG cho cả 3 trường hợp: TaskAssign, TaskCancel, TaskStatus -
-    chỉ khác nhau ở giá trị `acked_type`, không cần viết riêng 3 class ACK.
+    Phản hồi kết quả tiếp nhận một message quan trọng.
+
+    `reference_id` mang `task_id` khi ACK message liên quan tới task, hoặc mang
+    `move_id` khi ACK MoveToPoint. Kết hợp `(robot_id, acked_type, reference_id)`
+    định danh duy nhất message đang được phản hồi.
 
     Cấu trúc payload (chưa gồm CRC), little-endian:
-        message_type : uint8 (1 byte) - cố định = MessageType.ACK
-        robot_id     : uint8 (1 byte) - robot nào gửi Ack này
-        acked_type   : uint8 (1 byte) - đang ACK cho loại message nào
-                                        (MessageType.TASK_ASSIGN / TASK_CANCEL / TASK_STATUS)
-        task_id      : uint8 (1 byte) - task cụ thể được ACK
+        message_type : uint8  (1 byte) - cố định = MessageType.ACK
+        robot_id     : uint8  (1 byte) - robot liên quan tới ACK
+        acked_type   : uint8  (1 byte) - loại message đang được ACK
+        reference_id: uint8  (1 byte) - task_id hoặc move_id được tham chiếu
+        result_code  : uint8  (1 byte) - xem AckResultCode
+        reason_code  : uint8  (1 byte) - xem AckReasonCode
 
-    Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
+    Tổng payload = 6 byte, + 2 byte checksum = 8 byte/gói.
 
     """
 
     MESSAGE_TYPE = MessageType.ACK
-    FORMAT = '<BBBB'
+    FORMAT = '<BBBBBB'
 
     robot_id: int
     acked_type: int
-    task_id: int
+    reference_id: int
+    result_code: int = AckResultCode.ACCEPTED
+    reason_code: int = AckReasonCode.NONE
 
     def to_payload(self) -> bytes:
         """Đóng gói ACK thành payload nhị phân."""
-        return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.acked_type, self.task_id)
+        return struct.pack(
+            self.FORMAT,
+            self.MESSAGE_TYPE,
+            self.robot_id,
+            self.acked_type,
+            self.reference_id,
+            self.result_code,
+            self.reason_code,
+        )
 
     @classmethod
     def from_payload(cls, payload: bytes):
         """Giải mã payload ACK thành object."""
-        _, robot_id, acked_type, task_id = struct.unpack(cls.FORMAT, payload)
-        return cls(robot_id, acked_type, task_id)
+        (
+            _,
+            robot_id,
+            acked_type,
+            reference_id,
+            result_code,
+            reason_code,
+        ) = struct.unpack(cls.FORMAT, payload)
+        return cls(robot_id, acked_type, reference_id, result_code, reason_code)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +328,62 @@ class TaskAssign(MessageBase):
         """Giải mã TaskAssign và khôi phục pose đích."""
         _, robot_id, task_id, x_raw, y_raw, theta_raw = struct.unpack(cls.FORMAT, payload)
         return cls(robot_id, task_id, x_raw / 100, y_raw / 100, theta_raw / 1000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass
+class MoveToPoint(MessageBase):
+    """
+    Dispatcher yêu cầu robot di chuyển tới một pose đích.
+
+    Cấu trúc payload (chưa gồm CRC), little-endian:
+        message_type : uint8  (1 byte) - cố định = MessageType.MOVE_TO_POINT
+        robot_id     : uint8  (1 byte) - robot nhận lệnh di chuyển
+        move_id      : uint8  (1 byte) - định danh riêng của lệnh di chuyển
+        x            : int16  (2 byte) - mét -> cm (x*100)
+        y            : int16  (2 byte) - mét -> cm (y*100)
+        theta        : int16  (2 byte) - radian -> milliradian (theta*1000)
+
+    Tổng payload = 9 byte, + 2 byte checksum = 11 byte/gói.
+    Robot phản hồi bằng Ack có acked_type=MOVE_TO_POINT và
+    reference_id=move_id.
+    """
+
+    MESSAGE_TYPE = MessageType.MOVE_TO_POINT
+    FORMAT = '<BBBhhh'
+
+    robot_id: int
+    move_id: int
+    x: float
+    y: float
+    theta: float
+
+    def to_payload(self) -> bytes:
+        """Đóng gói MoveToPoint, quy đổi pose đích sang số nguyên."""
+        return struct.pack(
+            self.FORMAT,
+            self.MESSAGE_TYPE,
+            self.robot_id,
+            self.move_id,
+            round(self.x * 100),
+            round(self.y * 100),
+            round(self.theta * 1000),
+        )
+
+    @classmethod
+    def from_payload(cls, payload: bytes):
+        """Giải mã MoveToPoint và khôi phục pose đích."""
+        _, robot_id, move_id, x_raw, y_raw, theta_raw = struct.unpack(
+            cls.FORMAT,
+            payload,
+        )
+        return cls(
+            robot_id,
+            move_id,
+            x_raw / 100,
+            y_raw / 100,
+            theta_raw / 1000,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
