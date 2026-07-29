@@ -6,10 +6,13 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 readonly DEFAULT_CONFIG="${PROJECT_ROOT}/configs/default.yaml"
 readonly FRONTEND_DIST="${PROJECT_ROOT}/frontend/dist"
-readonly OPENCV_WHEEL="${PROJECT_ROOT}/wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl"
+readonly JETSON_OPENCV_WHEEL="${PROJECT_ROOT}/wheels/jp5.1.6-py38-aarch64/opencv_contrib_python-4.13.0.90-cp38-cp38-linux_aarch64.whl"
+readonly JETSON_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 
 SKIP_MODEL_SYNC=false
 CHECK_ONLY=false
+readonly RUNTIME_PLATFORM="jetson-aarch64"
+readonly PYTHON_COMMAND=(uv run --locked --no-dev --python 3.8 python)
 
 usage() {
     printf '%s\n' \
@@ -58,11 +61,22 @@ parse_arguments() {
     done
 }
 
+select_runtime() {
+    [[ "$(uname -m)" == "aarch64" ]] || die \
+        "Branch này chỉ hỗ trợ Jetson aarch64; phát hiện $(uname -m)."
+    [[ -r /etc/nv_tegra_release ]] || die \
+        "Không tìm thấy /etc/nv_tegra_release; đây có thể không phải Jetson."
+}
+
 check_required_files() {
     command -v uv >/dev/null 2>&1 || die \
-        "Không tìm thấy uv. Hãy chạy ./scripts/setup-pc.sh trước."
+        "Không tìm thấy uv. Hãy chạy script setup phù hợp trước."
+
+    [[ -x "${JETSON_PYTHON}" ]] || die \
+        "Thiếu .venv Python 3.8. Hãy chạy ./scripts/setup-jetson.sh trước."
+
     [[ -f "${DEFAULT_CONFIG}" ]] || die \
-        "Thiếu configs/default.yaml. Hãy chạy ./scripts/setup-pc.sh trước."
+        "Thiếu configs/default.yaml. Hãy chạy script setup phù hợp trước."
     [[ -r "${DEFAULT_CONFIG}" ]] || die \
         "Không có quyền đọc configs/default.yaml."
     [[ -w "${DEFAULT_CONFIG}" ]] || die \
@@ -70,16 +84,16 @@ check_required_files() {
     [[ -w "$(dirname -- "${DEFAULT_CONFIG}")" ]] || die \
         "Không có quyền ghi thư mục configs/."
     [[ -f "${FRONTEND_DIST}/index.html" ]] || die \
-        "Frontend chưa được build. Hãy chạy ./scripts/setup-pc.sh trước."
-    [[ -f "${OPENCV_WHEEL}" ]] || die \
-        "Thiếu OpenCV wheel. Hãy chạy ./scripts/setup-pc.sh trước."
+        "Frontend chưa được build. Hãy chạy script setup phù hợp trước."
+    [[ -f "${JETSON_OPENCV_WHEEL}" ]] || die \
+        "Thiếu OpenCV wheel cho ${RUNTIME_PLATFORM}. Hãy chạy script setup phù hợp trước."
 }
 
 validate_config() {
     log "Kiểm tra configs/default.yaml."
     (
         cd "${PROJECT_ROOT}"
-        uv run --locked python -c \
+        "${PYTHON_COMMAND[@]}" -c \
             'import yaml; data = yaml.safe_load(open("configs/default.yaml", encoding="utf-8")); assert isinstance(data, dict), "Config root phải là mapping YAML."'
     )
 }
@@ -93,7 +107,8 @@ sync_models() {
     log "Kiểm tra và tải model còn thiếu."
     (
         cd "${PROJECT_ROOT}"
-        uv run --locked python scripts/sync-models.py
+        "${PYTHON_COMMAND[@]}" scripts/sync-models.py \
+            --platform "${RUNTIME_PLATFORM}"
     )
 }
 
@@ -118,6 +133,7 @@ main() {
     parse_arguments "$@"
     cd "${PROJECT_ROOT}"
 
+    select_runtime
     check_required_files
     validate_config
     sync_models
@@ -129,7 +145,7 @@ main() {
     fi
 
     log "Khởi động ứng dụng tại http://0.0.0.0:9721"
-    exec uv run --locked python main.py
+    exec "${PYTHON_COMMAND[@]}" main.py
 }
 
 main "$@"

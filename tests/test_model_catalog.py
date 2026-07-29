@@ -1,5 +1,7 @@
 """Kiểm thử catalog model đọc từ manifest."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest

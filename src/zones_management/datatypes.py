@@ -6,6 +6,8 @@ như camera loader, geometry, state machine và output chỉ đọc/ghi thông q
 này để sau này mở rộng tracking/ReID/UART dễ hơn.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional

@@ -199,7 +199,9 @@ def _safe_target_path(project_root: Path, relative_path: str) -> Path:
         raise ValueError(f"Đường dẫn artifact không được tuyệt đối: {relative_path}")
 
     target = (root / relative).resolve()
-    if not target.is_relative_to(root):
+    try:
+        target.relative_to(root)
+    except ValueError:
         raise ValueError(f"Đường dẫn artifact không an toàn: {relative_path}")
     return target
 

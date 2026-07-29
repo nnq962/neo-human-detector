@@ -18,6 +18,8 @@ Lưu ý về tracking đa camera:
   cho từng camera index.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import gc
 from typing import Any, Dict, List, Optional, Tuple

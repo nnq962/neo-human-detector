@@ -68,7 +68,7 @@ def resolve_model(
     """Phân giải model ID hoặc đường dẫn config cũ thành artifact."""
     normalized_id = _normalize_model_id(model_id)
     for model in list_models(kind, weights_root, manifest_path):
-        relative_path = model.path.removeprefix("weights/")
+        relative_path = _remove_prefix(model.path, "weights/")
         if normalized_id in {model.id, relative_path}:
             return model
 
@@ -92,7 +92,7 @@ def resolve_model_path(
         weights_root=root,
         manifest_path=manifest_path,
     )
-    return str(_safe_model_path(root, artifact.path.removeprefix("weights/")))
+    return str(_safe_model_path(root, _remove_prefix(artifact.path, "weights/")))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ def model_id_from_path(
 
     value = Path(model_path).as_posix()
     if value.startswith("weights/"):
-        value = value.removeprefix("weights/")
+        value = _remove_prefix(value, "weights/")
 
     try:
         return resolve_model(
@@ -246,7 +246,9 @@ def _safe_model_path(root: Path, relative_path: str) -> Path:
         raise ValueError(f"Model path không được là tuyệt đối: {relative_path}")
 
     resolved = (root / relative).resolve()
-    if not resolved.is_relative_to(root):
+    try:
+        resolved.relative_to(root)
+    except ValueError:
         raise ValueError(f"Model path không an toàn: {relative_path}")
     return resolved
 
@@ -257,7 +259,7 @@ def _model_format(filename: str) -> str:
     lowered = filename.lower()
     if lowered.endswith(".pth.tar"):
         return "pth.tar"
-    return Path(lowered).suffix.removeprefix(".")
+    return _remove_prefix(Path(lowered).suffix, ".")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,7 +267,15 @@ def _normalize_model_id(model_id: str) -> str:
     """Chuẩn hóa model ID và từ chối path traversal."""
     normalized = Path(model_id.strip()).as_posix()
     if normalized.startswith("weights/"):
-        normalized = normalized.removeprefix("weights/")
+        normalized = _remove_prefix(normalized, "weights/")
     if not normalized or normalized.startswith("../") or "/../" in normalized:
         raise ValueError(f"model_id không hợp lệ: {model_id}")
     return normalized
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _remove_prefix(value: str, prefix: str) -> str:
+    """Loại bỏ prefix khỏi chuỗi theo cách tương thích Python 3.8."""
+    if value.startswith(prefix):
+        return value[len(prefix):]
+    return value
