@@ -1,59 +1,46 @@
-"""
-Registry model detection.
+"""Tương thích API detection với catalog model động."""
 
-File này gom toàn bộ mapping giữa cấu hình nghiệp vụ và đường dẫn model thật.
-Nhờ vậy API/service có thể validate cấu hình mà không cần import runtime YOLO.
-"""
-
-from typing import Dict, Literal, Tuple
-
-
-ModelSize = Literal["nano", "medium"]
-ModelTask = Literal["detect", "pose"]
-ModelKey  = Tuple[str, str, int]   # (model_size, task, batch_size)
-
-
-MODEL_PATHS: Dict[ModelKey, str] = {
-    ("nano", "detect", 1): "weights/person/yolo26n.pt",
-    ("nano", "detect", 2): "weights/person/yolo26n.pt",
-    ("medium", "detect", 1): "weights/person/yolo26m.pt",
-    ("medium", "detect", 2): "weights/person/yolo26m.pt",
-    ("medium", "pose",   1): "weights/person/yolo26m-pose.pt",
-    ("medium", "pose",   2): "weights/person/yolo26m-pose.pt",
-}
+from src.model_catalog import (
+    ModelArtifact,
+    find_default_model,
+    find_legacy_detection_model,
+    list_models,
+    resolve_model,
+    resolve_model_path as resolve_catalog_model_path,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def resolve_model_path(model_size: str, task: str, batch_size: int) -> str:
-    """Nguồn sự thật duy nhất cho mapping (model_size, task, batch_size) → path."""
-    model_key = (model_size, task, int(batch_size))
-    model_path = MODEL_PATHS.get(model_key)
-
-    if model_path is None:
-        raise ValueError(_build_unsupported_model_message(model_size, task, batch_size))
-
-    return model_path
+def resolve_model_path(model_id: str) -> str:
+    """Phân giải model_id detection thành đường dẫn model tuyệt đối."""
+    return resolve_catalog_model_path(model_id, kind="detection")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def validate_model_config(model_size: str, task: str, batch_size: int) -> None:
-    """Validate cấu hình model và raise ValueError nếu chưa được hỗ trợ."""
-    resolve_model_path(model_size, task, batch_size)
+def resolve_model_artifact(model_id: str) -> ModelArtifact:
+    """Phân giải model_id thành metadata detection đầy đủ."""
+    return resolve_model(model_id, kind="detection")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def supported_model_configs() -> Tuple[ModelKey, ...]:
-    """Trả danh sách cấu hình model đang hỗ trợ, dùng cho API hoặc log."""
-    return tuple(sorted(MODEL_PATHS))
+def validate_model_config(model_id: str | None) -> None:
+    """Kiểm tra model_id đã chọn tồn tại trong catalog detection."""
+    if not model_id:
+        raise ValueError("Chưa chọn detection model.")
+    resolve_model_artifact(model_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _build_unsupported_model_message(model_size: str, task: str, batch_size: int) -> str:
-    supported = ", ".join(
-        f"{s}/{t}/batch{b}"
-        for s, t, b in supported_model_configs()
-    )
-    return (
-        f"Unsupported model_size/task/batch_size: "
-        f"{model_size}/{task}/batch{int(batch_size)}. Supported: {supported}"
-    )
+def supported_models() -> tuple[ModelArtifact, ...]:
+    """Trả toàn bộ detection model hiện có trong thư mục weights."""
+    return list_models("detection")
+
+
+__all__ = [
+    "find_default_model",
+    "find_legacy_detection_model",
+    "resolve_model_artifact",
+    "resolve_model_path",
+    "supported_models",
+    "validate_model_config",
+]

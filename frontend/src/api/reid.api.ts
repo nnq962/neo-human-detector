@@ -35,7 +35,7 @@ export interface ReIdConfig {
   enabled: boolean
   zone_only: boolean
   require_occupied_zone: boolean
-  model_path: string | null
+  model_id: string | null
   device: ReIdDevice
   embedding: ReIdEmbeddingConfig
   track: ReIdTrackConfig
@@ -47,7 +47,7 @@ export interface ReIdConfigUpdate {
   enabled?: boolean
   zone_only?: boolean
   require_occupied_zone?: boolean
-  model_path?: string
+  model_id?: string
   device?: ReIdDevice
   embedding?: Partial<ReIdEmbeddingConfig>
   track?: Partial<ReIdTrackConfig>

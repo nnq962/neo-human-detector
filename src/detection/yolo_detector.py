@@ -31,7 +31,7 @@ from ultralytics.utils import IterableSimpleNamespace, YAML
 
 from src.detection.datatypes import InferenceFrame
 from src.detection.utils import parse_yolo_result
-from src.detection.model_registry import resolve_model_path
+from src.detection.model_registry import resolve_model_artifact, resolve_model_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,8 +39,7 @@ from src.detection.model_registry import resolve_model_path
 class YoloDetectorConfig:
     """Cấu hình tối thiểu để chạy YOLO detection hoặc pose."""
 
-    task       : str   = "pose"            # "detect" hoặc "pose"
-    model_size : str   = "nano"
+    model_id   : str
     batch_size : int   = 1
     conf       : float = 0.5
     tracker    : str   = "bytetrack.yaml"
@@ -57,8 +56,13 @@ class YoloDetector:
     """
 
     def __init__(self, config: YoloDetectorConfig):
+        """Khởi tạo detector từ model_id đã được catalog xác thực."""
+        if not config.model_id:
+            raise ValueError("Chưa chọn detection model.")
+
         self.config = config
-        self.model_path = resolve_model_path(config.model_size, config.task, config.batch_size)
+        self.model_artifact = resolve_model_artifact(config.model_id)
+        self.model_path = resolve_model_path(config.model_id)
         self.model = YOLO(self.model_path)
         # Tạo tất cả tracker trước khi bất kỳ frame nào được xử lý.
         # BYTETracker.__init__ gọi reset_id() làm reset BaseTrack._count (class-level).

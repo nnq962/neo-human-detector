@@ -10,20 +10,22 @@ function getWsUrl(): string {
 export function useRuntimeStatus() {
   const [status, setStatus] = useState<RuntimeStatus | null>(null)
   const [connected, setConnected] = useState(false)
-  const stoppedRef = useRef(false)
   const wsRef = useRef<WebSocket | null>(null)
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    stoppedRef.current = false
+    let disposed = false
 
     function connect() {
-      if (stoppedRef.current) return
+      if (disposed) return
       const ws = new WebSocket(getWsUrl())
       wsRef.current = ws
 
       ws.onopen = () => {
-        if (stoppedRef.current) { ws.close(); return }
+        if (disposed) {
+          ws.close()
+          return
+        }
         setConnected(true)
       }
 
@@ -31,12 +33,17 @@ export function useRuntimeStatus() {
         try {
           const msg = JSON.parse(e.data) as ApiResponse<RuntimeStatus>
           if (msg.success) setStatus(msg.data)
-        } catch {}
+        } catch {
+          // Bỏ qua message không đúng định dạng response của API.
+        }
       }
 
       ws.onclose = () => {
+        if (wsRef.current === ws) {
+          wsRef.current = null
+        }
         setConnected(false)
-        if (!stoppedRef.current) {
+        if (!disposed) {
           retryRef.current = setTimeout(connect, 3000)
         }
       }
@@ -47,9 +54,20 @@ export function useRuntimeStatus() {
     connect()
 
     return () => {
-      stoppedRef.current = true
+      disposed = true
       if (retryRef.current) clearTimeout(retryRef.current)
-      wsRef.current?.close()
+
+      const ws = wsRef.current
+      if (!ws) return
+
+      ws.onmessage = null
+      ws.onclose = null
+      ws.onerror = null
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.onopen = () => ws.close()
+      } else if (ws.readyState === WebSocket.OPEN) {
+        ws.close()
+      }
     }
   }, [])
 

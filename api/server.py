@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from api.routes import auto_start, camera, detection, mediamtx, reid, runtime, uart, websocket, zone_state_machine
+from api.routes import auto_start, camera, detection, mediamtx, models, reid, runtime, uart, websocket, zone_state_machine
 from api.routes.responses import error_response
 
 
@@ -15,6 +15,7 @@ STANDARD_RESPONSE_PREFIXES = (
     "/api/auto-start",
     "/api/detection",
     "/api/mediamtx",
+    "/api/models",
     "/api/reid",
     "/api/runtime",
     "/api/uart",
@@ -49,11 +50,22 @@ class SPAStaticFiles(StaticFiles):
 
 
 def run_startup_tasks() -> None:
+    """Khởi tạo catalog model và các dịch vụ phụ trợ khi API bắt đầu."""
     from api.services.config_store import get_config_data
     from api.services.load_cameras import sync_camera_paths, wait_for_mediamtx
     from api.services.runtime import DEFAULT_CONFIG_PATH, start_runtime
     from api.models.runtime import RuntimeCommandRequest
     from utils import LOGGER
+    from src.model_catalog import list_models
+
+    models = list_models()
+    detection_count = sum(model.kind == "detection" for model in models)
+    reid_count = sum(model.kind == "reid" for model in models)
+    LOGGER.info(
+        "Model catalog scan completed: %d detection, %d ReID.",
+        detection_count,
+        reid_count,
+    )
 
     try:
         cfg = get_config_data()
@@ -126,6 +138,7 @@ OPENAPI_TAGS = [
     {"name": "Auto Start", "description": "Runtime auto-start configuration."},
     {"name": "Detection", "description": "Detection model configuration."},
     {"name": "MediaMTX", "description": "MediaMTX integration utilities."},
+    {"name": "Models", "description": "Available AI model catalog."},
     {"name": "Cameras", "description": "Camera and zone configuration."},
     {"name": "Zone State Machine", "description": "Zone state timing configuration."},
     {"name": "ReID", "description": "Re-identification configuration."},
@@ -169,6 +182,7 @@ app.add_middleware(
 app.include_router(auto_start.router, prefix="/api/auto-start", tags=["Auto Start"])
 app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
 app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
+app.include_router(models.router, prefix="/api/models", tags=["Models"])
 app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
 app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine", tags=["Zone State Machine"],)
 app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])

@@ -65,7 +65,7 @@ class ReIdConfig(BaseModel):
     enabled: bool = False
     zone_only: bool = True
     require_occupied_zone: bool = True
-    model_path: Optional[str] = None
+    model_id: Optional[str] = None
     device: Literal["auto", "cpu", "cuda", "mps"] = "auto"
     embedding: ReIdEmbeddingConfig = Field(default_factory=ReIdEmbeddingConfig)
     track: ReIdTrackConfig = Field(default_factory=ReIdTrackConfig)
@@ -77,7 +77,7 @@ class ReIdConfigUpdate(BaseModel):
     enabled: Optional[bool] = None
     zone_only: Optional[bool] = None
     require_occupied_zone: Optional[bool] = None
-    model_path: Optional[str] = None
+    model_id: Optional[str] = None
     device: Optional[Literal["auto", "cpu", "cuda", "mps"]] = None
     embedding: Optional[ReIdEmbeddingConfigUpdate] = None
     track: Optional[ReIdTrackConfigUpdate] = None

@@ -29,7 +29,7 @@ class ReIdConfig:
     enabled               : bool          = False   # Bật/tắt toàn bộ ReID stage.
     zone_only             : bool          = True    # Chỉ ReID bbox nằm trong zone nếu True.
     require_occupied_zone : bool          = True    # Chỉ ReID bbox thuộc zone đã OCCUPIED.
-    model_path            : Optional[str] = None    # Đường dẫn weights ReID, None dùng default.
+    model_path            : Optional[str] = None    # Đường dẫn runtime đã resolve từ model_id.
     device                : str           = "auto"  # Device chạy model: auto/cpu/cuda/mps.
     embedding_batch_size  : int           = 32      # Batch size khi extract embedding từ crop.
 

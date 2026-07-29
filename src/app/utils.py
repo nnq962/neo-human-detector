@@ -19,9 +19,20 @@ from utils import load_config
 
 # ─────────────────────────────────────────────────────────────────────────────
 def build_detection_config(raw: dict) -> DetectionConfig:
+    """Đọc cấu hình detection và tương thích các khóa task/model_size cũ."""
+    from src.model_catalog import find_default_model, find_legacy_detection_model
+
+    model_id = raw.get("model_id")
+    if not model_id:
+        model_id = find_legacy_detection_model(
+            str(raw.get("task", "pose")),
+            str(raw.get("model_size", "medium")),
+        )
+    if not model_id:
+        model_id = find_default_model("detection")
+
     return DetectionConfig(
-        task       = str(raw.get("task", "pose")),
-        model_size = str(raw.get("model_size", "nano")),
+        model_id   = model_id,
         batch_size = int(raw.get("batch_size", 1)),
         conf       = float(raw.get("conf", 0.5)),
         verbose    = bool(raw.get("verbose", False)),
@@ -48,16 +59,28 @@ def build_zone_state_machine_config(raw: dict) -> ZoneStateMachineConfig:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def build_reid_config(raw: dict) -> ReIdConfig:
+    """Đọc cấu hình ReID và phân giải model_id thành đường dẫn runtime."""
+    from src.model_catalog import model_id_from_path, resolve_model_path
+
     emb     = raw.get("embedding", {})
     track   = raw.get("track", {})
     quality = raw.get("quality", {})
     gallery = raw.get("gallery", {})
 
+    model_id = raw.get("model_id")
+    model_path = raw.get("model_path")
+    if model_id:
+        model_path = resolve_model_path(str(model_id), kind="reid")
+    elif model_path:
+        migrated_id = model_id_from_path(model_path, kind="reid")
+        if migrated_id:
+            model_path = resolve_model_path(migrated_id, kind="reid")
+
     return ReIdConfig(
         enabled                   = bool(raw.get("enabled", False)),
         zone_only                 = bool(raw.get("zone_only", True)),
         require_occupied_zone     = bool(raw.get("require_occupied_zone", True)),
-        model_path                = raw.get("model_path"),
+        model_path                = model_path,
         device                    = str(raw.get("device", "auto")),
         embedding_batch_size      = int(emb.get("batch_size", 32)),
         buffer_min                = int(track.get("buffer_min", 200)),

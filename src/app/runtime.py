@@ -85,6 +85,7 @@ class Runtime:
             assert self.media_sources is not None
 
             predict_function = self.detector.track_batch
+            detection_task = self.detector.model_artifact.task or "detect"
 
             if self._stop_requested.is_set():
                 return
@@ -118,7 +119,7 @@ class Runtime:
                             zone_names, zone_counts = assign_detections_to_zones(
                                 detection_frame.detections,
                                 camera.zones,
-                                task=self.config.detection.task,
+                                task=detection_task,
                             )
 
                             # Cập nhật state machine cho mỗi zone dựa trên số lượng detection bên trong.
@@ -241,8 +242,7 @@ class Runtime:
 
         self.detector = YoloDetector(
             YoloDetectorConfig(
-                task       = det.task,
-                model_size = det.model_size,
+                model_id   = det.model_id,
                 batch_size = det.batch_size,
                 conf       = det.conf,
                 tracker    = det.tracker,
@@ -279,8 +279,7 @@ class Runtime:
         LOGGER.info("CONFIG PATH: %s", self.config.config_path)
 
         LOGGER.info("DETECTOR")
-        LOGGER.info("   → Task          : %s", det.task)
-        LOGGER.info("   → Model size    : %s", det.model_size)
+        LOGGER.info("   → Model         : %s", det.model_id)
         LOGGER.info("   → Batch size    : %d", det.batch_size)
         LOGGER.info("   → Confidence    : %.2f", det.conf)
         LOGGER.info("   → Tracker       : %s", det.tracker)

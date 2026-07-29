@@ -9,7 +9,9 @@ import {
   type ReIdQualityConfig,
   type ReIdTrackConfig,
 } from "@/api/reid.api"
+import type { ModelArtifact } from "@/api/models.api"
 import { useInvalidateReid, useReidConfig } from "@/hooks/use-reid"
+import { useModels } from "@/hooks/use-models"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,7 +40,7 @@ const DEVICE_OPTIONS = [
 
 type GeneralConfig = Pick<
   ReIdConfig,
-  "enabled" | "zone_only" | "require_occupied_zone" | "model_path" | "device"
+  "enabled" | "zone_only" | "require_occupied_zone" | "model_id" | "device"
 > & {
   embedding_batch_size: number
 }
@@ -161,12 +163,20 @@ function SliderField({ value, onChange }: { value: number; onChange: (v: number)
 
 // ── General card ──────────────────────────────────────────────────────────────
 
-function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => void }) {
+function GeneralCard({
+  config,
+  models,
+  onSaved,
+}: {
+  config: ReIdConfig
+  models: ModelArtifact[]
+  onSaved: () => void
+}) {
   const saved: GeneralConfig = {
     enabled: config.enabled,
     zone_only: config.zone_only,
     require_occupied_zone: config.require_occupied_zone,
-    model_path: config.model_path,
+    model_id: config.model_id,
     device: config.device,
     embedding_batch_size: config.embedding.batch_size,
   }
@@ -183,7 +193,7 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
         enabled: draft.enabled,
         zone_only: draft.zone_only,
         require_occupied_zone: draft.require_occupied_zone,
-        model_path: draft.model_path?.trim() || undefined,
+        model_id: draft.model_id ?? undefined,
         device: draft.device,
         embedding: { batch_size: draft.embedding_batch_size },
       })
@@ -243,18 +253,28 @@ function GeneralCard({ config, onSaved }: { config: ReIdConfig; onSaved: () => v
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 pt-4 pb-1">
             <div className="sm:col-span-2 flex flex-col gap-1.5">
               <FieldLabel
-                label="Model path"
-                desc="Đường dẫn đến file trọng số mô hình Re-ID"
+                label="Model"
+                desc="Model Re-ID được quét trực tiếp từ thư mục weights"
               />
               {editing ? (
-                <Input
-                  className="h-8 text-sm"
-                  value={draft.model_path ?? ""}
-                  onChange={(e) => setDraft((p) => ({ ...p, model_path: e.target.value }))}
-                />
+                <Select
+                  value={draft.model_id ?? undefined}
+                  onValueChange={(modelId) => setDraft((p) => ({ ...p, model_id: modelId }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Chọn Re-ID model" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {models.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.version} · {model.backend.toUpperCase()} · {model.format}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : (
                 <div className="flex h-8 items-center">
-                  <span className="text-sm text-muted-foreground truncate">{saved.model_path ?? "—"}</span>
+                  <span className="text-sm text-muted-foreground truncate">{saved.model_id ?? "—"}</span>
                 </div>
               )}
             </div>
@@ -561,6 +581,7 @@ function GalleryCard({ config, onSaved }: { config: ReIdGalleryConfig; onSaved: 
 
 export function ReidPage() {
   const { data: config, isLoading, isError, refetch } = useReidConfig()
+  const modelsQuery = useModels("reid")
   const invalidateReid = useInvalidateReid()
 
   function handleSaved() {
@@ -568,7 +589,7 @@ export function ReidPage() {
     refetch()
   }
 
-  if (isLoading) {
+  if (isLoading || modelsQuery.isLoading) {
     return (
       <div className="flex flex-col gap-6">
         <Skeleton className="h-72" />
@@ -579,7 +600,7 @@ export function ReidPage() {
     )
   }
 
-  if (isError || !config) {
+  if (isError || !config || modelsQuery.isError) {
     return (
       <Card>
         <CardHeader>
@@ -594,7 +615,7 @@ export function ReidPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <GeneralCard config={config} onSaved={handleSaved} />
+      <GeneralCard config={config} models={modelsQuery.data ?? []} onSaved={handleSaved} />
       <TrackCard config={config.track} onSaved={handleSaved} />
       <QualityCard config={config.quality} onSaved={handleSaved} />
       <GalleryCard config={config.gallery} onSaved={handleSaved} />

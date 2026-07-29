@@ -1,0 +1,13 @@
+# Artifact cần có trước khi cài Python dependencies.
+# Wheel Jetson sẽ được bổ sung thành một entry riêng khi đã build xong.
+
+schema_version: 1
+
+artifacts:
+  - id: opencv-python-pc-x86_64
+    kind: python-wheel
+    platforms: [pc-x86_64]
+    path: wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl
+    drive_id: 1sztysiIq6A9TmrQml-vX1M03RHRapuuf
+    sha256: 79323abd4caf34263538384b2af954533a951215f6fb22150fac0f584e3b6a81
+

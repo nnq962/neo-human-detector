@@ -15,8 +15,7 @@ from src.robot_dispatch_v2 import RobotDispatchV2Config
 class DetectionConfig:
     """Section [detection] trong YAML."""
 
-    task       : str   = "pose"           # "detect" hoặc "pose"
-    model_size : str   = "nano"
+    model_id   : str | None = None
     batch_size : int   = 1
     conf       : float = 0.5
     tracker    : str   = "bytetrack.yaml"

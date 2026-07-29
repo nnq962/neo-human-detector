@@ -26,6 +26,9 @@ env/
 config.json
 device.txt
 configs/rtsp.streams
+/configs/default.yaml
+/configs/default.yaml.lock
+/wheels/**/*.whl
 
 # IDE / OS files
 .DS_Store

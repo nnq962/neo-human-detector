@@ -8,6 +8,7 @@ dependencies = [
     "gdown>=5.2.2",
     "lapx>=0.9.4",
     "opencv-python",
+    "pyyaml>=6.0.3",
     "pyserial>=3.5",
     "pytz>=2026.2",
     "tensorboard>=2.14.0",
@@ -24,4 +25,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-opencv-python = { path = "../../python-wheels/opencv/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }
+opencv-python = { path = "wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }

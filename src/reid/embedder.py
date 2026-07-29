@@ -19,6 +19,7 @@ from PIL import Image
 from torch import Tensor, nn
 from torchreid.reid.models import build_model
 from torchvision import transforms
+from src.model_catalog import find_default_model, resolve_model_path
 
 
 ImageInput = Union[str, Path, Image.Image, np.ndarray]
@@ -36,10 +37,6 @@ class OSNetPersonEmbedder:
     model_name = "osnet_ain_x1_0"
     embedding_dim = 512
     input_size = (256, 128)
-    default_weights = (
-        Path(__file__).resolve().parents[2] / "weights" / "reid" / "osnet_ain_ms_d_c.pth.tar"
-    )
-
     def __init__(
         self,
         model_path: str | Path | None = None,
@@ -51,7 +48,13 @@ class OSNetPersonEmbedder:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
 
-        self.model_path = Path(model_path) if model_path else self.default_weights
+        if model_path is None:
+            default_model_id = find_default_model("reid")
+            if default_model_id is None:
+                raise FileNotFoundError("Không tìm thấy ReID model trong weights.")
+            model_path = resolve_model_path(default_model_id, kind="reid")
+
+        self.model_path = Path(model_path)
         self.device = self._pick_device(device)
         self.batch_size = batch_size
         self.transform = self._build_preprocess()

@@ -489,6 +489,7 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pyserial" },
     { name = "pytz" },
+    { name = "pyyaml" },
     { name = "tensorboard" },
     { name = "torchreid" },
     { name = "ultralytics" },
@@ -508,9 +509,10 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.124.4" },
     { name = "gdown", specifier = ">=5.2.2" },
     { name = "lapx", specifier = ">=0.9.4" },
-    { name = "opencv-python", path = "../../python-wheels/opencv/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" },
+    { name = "opencv-python", path = "wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" },
     { name = "pyserial", specifier = ">=3.5" },
     { name = "pytz", specifier = ">=2026.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "tensorboard", specifier = ">=2.14.0" },
     { name = "torchreid", specifier = ">=0.2.5" },
     { name = "ultralytics", specifier = ">=8.4.60" },
@@ -708,7 +710,7 @@ wheels = [
 [[package]]
 name = "opencv-python"
 version = "4.13.0.92"
-source = { path = "../../python-wheels/opencv/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }
+source = { path = "wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }
 dependencies = [
     { name = "numpy" },
 ]

@@ -12,12 +12,12 @@ from typing import Any
 __all__ = [
     "Detection",
     "InferenceFrame",
-    "MODEL_PATHS",
     "YoloDetector",
     "YoloDetectorConfig",
     "parse_yolo_result",
+    "resolve_model_artifact",
     "resolve_model_path",
-    "supported_model_configs",
+    "supported_models",
     "validate_model_config",
 ]
 
@@ -36,22 +36,22 @@ def __getattr__(name: str) -> Any:
         }[name]
 
     if name in {
-        "MODEL_PATHS",
+        "resolve_model_artifact",
         "resolve_model_path",
-        "supported_model_configs",
+        "supported_models",
         "validate_model_config",
     }:
         from src.detection.model_registry import (
-            MODEL_PATHS,
+            resolve_model_artifact,
             resolve_model_path,
-            supported_model_configs,
+            supported_models,
             validate_model_config,
         )
 
         return {
-            "MODEL_PATHS": MODEL_PATHS,
+            "resolve_model_artifact": resolve_model_artifact,
             "resolve_model_path": resolve_model_path,
-            "supported_model_configs": supported_model_configs,
+            "supported_models": supported_models,
             "validate_model_config": validate_model_config,
         }[name]
 

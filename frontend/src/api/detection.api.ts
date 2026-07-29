@@ -1,13 +1,8 @@
 import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } from "./client"
 
-export type DetectionTask = "detect" | "pose"
-export type DetectionModelSize = "nano" | "medium"
-export type DetectionBatchSize = 1 | 2
-
 export interface DetectionConfig {
-  task: DetectionTask
-  model_size: DetectionModelSize
-  batch_size: DetectionBatchSize
+  model_id: string | null
+  batch_size: number
   conf: number
   verbose: boolean
 }

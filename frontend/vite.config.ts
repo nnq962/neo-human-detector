@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       tsconfigPaths: true,
     },
+    optimizeDeps: {
+      include: ["fabric"],
+    },
     server: {
       host: "0.0.0.0",
       proxy: {

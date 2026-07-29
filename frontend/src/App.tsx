@@ -1,6 +1,7 @@
 import { lazy } from "react"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
+import { ConfigGuard } from "@/components/config-guard"
 import { DashboardLayout } from "@/layouts/DashboardLayout"
 
 const DashboardPage = lazy(() =>
@@ -29,29 +30,31 @@ const DetectionPage = lazy(() =>
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<DashboardLayout />}>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/cameras/:id" element={<CameraPage />} />
-          <Route
-            path="/calibration/cameras/:id"
-            element={<CameraCalibrationPage />}
-          />
-          <Route path="/uart" element={<UartPage />} />
-          <Route path="/re-id" element={<ReidPage />} />
-          <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
-          <Route path="/detection" element={<DetectionPage />} />
-        </Route>
-      </Routes>
+    <ConfigGuard>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<DashboardLayout />}>
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/cameras/:id" element={<CameraPage />} />
+            <Route
+              path="/calibration/cameras/:id"
+              element={<CameraCalibrationPage />}
+            />
+            <Route path="/uart" element={<UartPage />} />
+            <Route path="/re-id" element={<ReidPage />} />
+            <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
+            <Route path="/detection" element={<DetectionPage />} />
+          </Route>
+        </Routes>
 
-      <Toaster
-        richColors
-        position="top-center"
-        expand
-        visibleToasts={3}
-      />
-    </BrowserRouter>
+        <Toaster
+          richColors
+          position="top-center"
+          expand
+          visibleToasts={3}
+        />
+      </BrowserRouter>
+    </ConfigGuard>
   )
 }
 

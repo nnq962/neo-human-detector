@@ -1,0 +1,181 @@
+# Catalog model dùng chung cho các máy.
+#
+# - `id` là định danh ổn định được lưu trong configs/default.yaml.
+# - `path` là đường dẫn tương đối bên trong thư mục weights/.
+# - `drive_id` để null cho đến khi model đã được tải lên Google Drive.
+# - `sha256` dùng để kiểm tra file sau khi tải.
+# - PyTorch hỗ trợ batch động; mỗi file RKNN chỉ hỗ trợ đúng batch đã export.
+# - `runtime_supported: false` nghĩa là đã khai báo model nhưng runtime hiện tại
+#   chưa có detector tương ứng, vì vậy giao diện không nên cho phép lựa chọn.
+
+schema_version: 1
+
+models:
+  - id: yolo11n-detect-pytorch
+    kind: detection
+    backend: pytorch
+    version: yolo11
+    task: detect
+    variant: nano
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/yolo/yolo11/detect/yolo11n.pt
+    drive_id: 1cB_NA-uIB_ykPBUq1bb6z2dnKw5GuK78
+    sha256: 0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1
+    runtime_supported: true
+
+  - id: yolo26n-detect-pytorch
+    kind: detection
+    backend: pytorch
+    version: yolo26
+    task: detect
+    variant: nano
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/yolo/yolo26/detect/yolo26n.pt
+    drive_id: 1RFIr8ZMDz90A2aBHBiL0znH8mCQa7nMC
+    sha256: 9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef
+    runtime_supported: true
+
+  - id: yolo26m-detect-pytorch
+    kind: detection
+    backend: pytorch
+    version: yolo26
+    task: detect
+    variant: medium
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/yolo/yolo26/detect/yolo26m.pt
+    drive_id: 1sadZ0tFF8obhvLBkuGXUMweK7TaGjHSp
+    sha256: 401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7
+    runtime_supported: true
+
+  - id: yolo26m-pose-pytorch
+    kind: detection
+    backend: pytorch
+    version: yolo26
+    task: pose
+    variant: medium
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/yolo/yolo26/pose/yolo26m-pose.pt
+    drive_id: 1U0YbdIm0BNbIbmJ5tH61FWa4eo7YwUy1
+    sha256: 2fbf16367022256a226035695c5c389384c6706e8bb8ab8fcd0e7976f05443c4
+    runtime_supported: true
+
+  - id: osnet-ain-ms-d-c-pytorch
+    kind: reid
+    backend: pytorch
+    version: osnet_ain_ms_d_c
+    task: reid
+    variant: null
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/reid/osnet_ain_ms_d_c.pth.tar
+    drive_id: 1eZmRTcuEuDlMT4yRh2H6FrRpDw9azKoj
+    sha256: 2f38acc25e28cb29407635db2be315edc08d5457a904b72a9a11e427f41f3242
+    runtime_supported: true
+
+  - id: yolo26n-detect-rk3588-b1
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: detect
+    variant: nano
+    platforms: [rk3588]
+    batch_size: 1
+    path: rknn/rk3588/yolo26n-detect-b1.rknn
+    drive_id: null
+    sha256: 77a12f9f2446f760dfd8641d201be44907bf7b4dd5bfdb640865e81ce49a1de3
+    runtime_supported: false
+
+  - id: yolo26n-detect-rk3588-b2
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: detect
+    variant: nano
+    platforms: [rk3588]
+    batch_size: 2
+    path: rknn/rk3588/yolo26n-detect-b2.rknn
+    drive_id: null
+    sha256: f5c8ecd799f27c5014ddc94e68f5b699eb4ec862c6643dfd5010f16d86f76d60
+    runtime_supported: false
+
+  - id: yolo26m-detect-rk3588-b1
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: detect
+    variant: medium
+    platforms: [rk3588]
+    batch_size: 1
+    path: rknn/rk3588/yolo26m-detect-b1.rknn
+    drive_id: null
+    sha256: b3932b08d996c5438c61d5b69e0ab05b6bc5a6f4a83a0c464807638b2b6ea51a
+    runtime_supported: false
+
+  - id: yolo26m-detect-rk3588-b2
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: detect
+    variant: medium
+    platforms: [rk3588]
+    batch_size: 2
+    path: rknn/rk3588/yolo26m-detect-b2.rknn
+    drive_id: null
+    sha256: 36930590f1afa1a7c0143386bb1b5496c80942e14beed09526beeb03832363cb
+    runtime_supported: false
+
+  - id: yolo26n-pose-rk3588-b1
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: pose
+    variant: nano
+    platforms: [rk3588]
+    batch_size: 1
+    path: rknn/rk3588/yolo26n-pose-b1.rknn
+    drive_id: null
+    sha256: 889a5a91b101c141a49ca218b720d83637acada54b2eca23798dc9b404992ea4
+    runtime_supported: false
+
+  - id: yolo26n-pose-rk3588-b2
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: pose
+    variant: nano
+    platforms: [rk3588]
+    batch_size: 2
+    path: rknn/rk3588/yolo26n-pose-b2.rknn
+    drive_id: null
+    sha256: 2c9ba88dc20ddea2d4652b8f697945ebff946643579c589fe9a3069cc06072db
+    runtime_supported: false
+
+  - id: yolo26m-pose-rk3588-b1
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: pose
+    variant: medium
+    platforms: [rk3588]
+    batch_size: 1
+    path: rknn/rk3588/yolo26m-pose-b1.rknn
+    drive_id: null
+    sha256: 9e248437d1a6ecdfde3eee8564b3b2518aca654054dbf2d1de97ac741aa7b5b4
+    runtime_supported: false
+
+  - id: yolo26m-pose-rk3588-b2
+    kind: detection
+    backend: rknn
+    version: yolo26
+    task: pose
+    variant: medium
+    platforms: [rk3588]
+    batch_size: 2
+    path: rknn/rk3588/yolo26m-pose-b2.rknn
+    drive_id: null
+    sha256: dbf8c9769780772d28eaebaa07d5b9b55d279bee7c319b63846a541bf3c036ca
+    runtime_supported: false

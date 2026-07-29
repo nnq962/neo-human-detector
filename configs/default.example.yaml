@@ -1,0 +1,55 @@
+# Cấu hình mẫu an toàn cho một máy mới.
+# Sao chép file này thành configs/default.yaml rồi cập nhật theo thiết bị thực tế.
+
+auto_start: false
+
+detection:
+  model_id: yolo26m-pose-pytorch
+  batch_size: 2
+  conf: 0.5
+  verbose: false
+
+zone_state_machine:
+  confirm_enter_time: 6.0
+  confirm_exit_time: 6.0
+  pending_enter_miss_grace_time: 1.5
+
+reid:
+  enabled: false
+  zone_only: true
+  require_occupied_zone: true
+  model_id: osnet-ain-ms-d-c-pytorch
+  device: auto
+  embedding:
+    batch_size: 1
+  track:
+    buffer_min: 70
+    grace_period: 90
+    update_interval: 100
+    max_buffer_size: 1
+    gallery_cleanup_interval: 1800
+    max_reverify_misses: 10
+  quality:
+    overlap_iou_threshold: 0.25
+    overlap_ioa_threshold: 0.45
+    stable_bbox_window: 30
+    stable_center_shift_ratio: 0.2
+    stable_size_change_ratio: 0.25
+    laplacian_var_threshold: 50.0
+  gallery:
+    sim_threshold_match: 0.7
+    ema_alpha: 0.75
+    max_samples: 5
+    ttl_minutes: 10.0
+
+robot_dispatch:
+  enabled: true
+  use_reid: false
+  ack_timeout_seconds: 1.0
+  max_retries: 5
+
+uart:
+  port: /dev/ttyUSB0
+  baudrate: 115200
+
+cameras: []
