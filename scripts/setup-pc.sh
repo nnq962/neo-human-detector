@@ -10,10 +10,13 @@ readonly DEFAULT_CONFIG="${PROJECT_ROOT}/configs/default.yaml"
 readonly EXAMPLE_CONFIG="${PROJECT_ROOT}/configs/default.example.yaml"
 readonly FRONTEND_ENV="${PROJECT_ROOT}/frontend/.env"
 readonly FRONTEND_ENV_EXAMPLE="${PROJECT_ROOT}/frontend/.env.example"
+readonly SUPERVISOR_TEMPLATE="${PROJECT_ROOT}/deploy/supervisor/neo-human-detector.conf.template"
+readonly SUPERVISOR_CONFIG="/etc/supervisor/conf.d/neo-human-detector.conf"
 
 SKIP_SYSTEM_PACKAGES=false
 SKIP_FRONTEND=false
 SKIP_MODELS=false
+WITH_SUPERVISOR=false
 
 usage() {
     printf '%s\n' \
@@ -26,6 +29,7 @@ usage() {
         "  --skip-system-packages  Không chạy apt-get." \
         "  --skip-frontend         Không chạy npm ci và npm run build." \
         "  --skip-models           Không kiểm tra hoặc tải model." \
+        "  --with-supervisor       Cài và chạy ứng dụng bằng Supervisor." \
         "  -h, --help              Hiển thị trợ giúp."
 }
 
@@ -63,6 +67,9 @@ parse_arguments() {
                 ;;
             --skip-models)
                 SKIP_MODELS=true
+                ;;
+            --with-supervisor)
+                WITH_SUPERVISOR=true
                 ;;
             -h|--help)
                 usage
@@ -121,6 +128,9 @@ install_system_packages() {
         runtime_packages+=(libglib2.0-0t64 libgtk-3-0t64)
     else
         runtime_packages+=(libglib2.0-0 libgtk-3-0)
+    fi
+    if [[ "${WITH_SUPERVISOR}" == true ]]; then
+        runtime_packages+=(supervisor)
     fi
 
     log "Cài FFmpeg, GStreamer và thư viện runtime OpenCV."
@@ -294,6 +304,49 @@ verify_installation() {
     )
 }
 
+configure_supervisor() {
+    if [[ "${WITH_SUPERVISOR}" != true ]]; then
+        return
+    fi
+
+    command -v supervisorctl >/dev/null 2>&1 || die \
+        "Không tìm thấy supervisorctl. Bỏ --skip-system-packages hoặc cài supervisor."
+    [[ -f "${SUPERVISOR_TEMPLATE}" ]] || die \
+        "Thiếu Supervisor template: ${SUPERVISOR_TEMPLATE}"
+
+    local run_user
+    local user_home
+    local uv_bin
+    local uv_dir
+    local rendered_config
+    run_user="${SUDO_USER:-$(id -un)}"
+    user_home="$(getent passwd "${run_user}" | cut -d: -f6)"
+    uv_bin="$(command -v uv)"
+    uv_dir="$(dirname -- "${uv_bin}")"
+    [[ -n "${user_home}" ]] || die "Không xác định được home của user ${run_user}."
+
+    mkdir -p "${PROJECT_ROOT}/logs"
+    rendered_config="$(mktemp)"
+    sed \
+        -e "s|__PROJECT_ROOT__|${PROJECT_ROOT}|g" \
+        -e "s|__RUN_USER__|${run_user}|g" \
+        -e "s|__USER_HOME__|${user_home}|g" \
+        -e "s|__UV_DIR__|${uv_dir}|g" \
+        "${SUPERVISOR_TEMPLATE}" >"${rendered_config}"
+
+    log "Cài Supervisor config cho user ${run_user}."
+    run_as_root install -m 0644 "${rendered_config}" "${SUPERVISOR_CONFIG}"
+    rm -f "${rendered_config}"
+
+    if command -v systemctl >/dev/null 2>&1; then
+        run_as_root systemctl enable --now supervisor
+    fi
+    run_as_root supervisorctl reread
+    run_as_root supervisorctl update
+
+    log "Supervisor đã quản lý program neo-human-detector."
+}
+
 report_optional_requirements() {
     local detection_count
     detection_count="$(
@@ -342,9 +395,14 @@ main() {
     sync_models
     build_frontend
     verify_installation
+    configure_supervisor
     report_optional_requirements
 
-    log "Setup PC hoàn tất. Chạy ứng dụng bằng: uv run --locked main.py"
+    if [[ "${WITH_SUPERVISOR}" == true ]]; then
+        log "Setup PC hoàn tất. Kiểm tra app bằng: sudo supervisorctl status neo-human-detector"
+    else
+        log "Setup PC hoàn tất. Chạy ứng dụng bằng: ./scripts/run.sh"
+    fi
 }
 
 main "$@"
