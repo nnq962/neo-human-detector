@@ -50,6 +50,18 @@ models:
     sha256: 401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7
     runtime_supported: true
 
+  - id: yolo26n-pose-pytorch
+    kind: detection
+    backend: pytorch
+    version: yolo26
+    task: pose
+    variant: nano
+    platforms: [pc-x86_64, jetson-aarch64]
+    batch_size: dynamic
+    path: pytorch/yolo/yolo26/pose/yolo26n-pose.pt
+    drive_id: 1Y_VQo6zxOYcOXQDQ1HW8wiGg27Qp7egL
+    sha256: eb3bb8268828aeaf515cec23a4bfafd793944a86fe9af94ba7823609c14522a9
+
   - id: yolo26m-pose-pytorch
     kind: detection
     backend: pytorch
