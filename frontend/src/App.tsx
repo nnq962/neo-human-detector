@@ -1,4 +1,4 @@
-import { lazy } from "react"
+import { lazy, Suspense } from "react"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { ConfigGuard } from "@/components/config-guard"
@@ -27,13 +27,31 @@ const ZoneStateMachinePage = lazy(() =>
 const DetectionPage = lazy(() =>
   import("@/pages/DetectionPage").then((m) => ({ default: m.DetectionPage })),
 )
+const PublicCameraWallPage = lazy(() =>
+  import("@/pages/PublicCameraWallPage").then((m) => ({
+    default: m.PublicCameraWallPage,
+  })),
+)
 
 function App() {
   return (
-    <ConfigGuard>
-      <BrowserRouter>
+    <BrowserRouter>
+      <Suspense
+        fallback={
+          <div className="grid h-svh place-items-center bg-[#f7fbfc] text-sm text-cyan-800">
+            Đang khởi tạo màn hình...
+          </div>
+        }
+      >
         <Routes>
-          <Route element={<DashboardLayout />}>
+          <Route path="/live" element={<PublicCameraWallPage />} />
+          <Route
+            element={
+              <ConfigGuard>
+                <DashboardLayout />
+              </ConfigGuard>
+            }
+          >
             <Route path="/" element={<DashboardPage />} />
             <Route path="/cameras/:id" element={<CameraPage />} />
             <Route
@@ -46,15 +64,15 @@ function App() {
             <Route path="/detection" element={<DetectionPage />} />
           </Route>
         </Routes>
+      </Suspense>
 
-        <Toaster
-          richColors
-          position="top-center"
-          expand
-          visibleToasts={3}
-        />
-      </BrowserRouter>
-    </ConfigGuard>
+      <Toaster
+        richColors
+        position="top-center"
+        expand
+        visibleToasts={3}
+      />
+    </BrowserRouter>
   )
 }
 
