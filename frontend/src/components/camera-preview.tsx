@@ -317,6 +317,7 @@ function zoneStatesEqual(
 
 export interface CameraPreviewProps {
   src: string
+  className?: string
   reconnectKey?: number
   zones?: Zone[]
   isAddingZone?: boolean
@@ -331,6 +332,8 @@ export interface CameraPreviewProps {
   /** Bật overlay detection realtime cho camera này (subscribe WS dùng chung). */
   bboxCameraId?: string | null
   hideFaceKeypoints?: boolean
+  hideStreamBadges?: boolean
+  videoBorderRadius?: number
   onVideoSizeChange?: (size: VideoSize | null) => void
 }
 
@@ -340,6 +343,7 @@ const EMPTY_ZONES: Zone[] = []
 
 export function CameraPreview({
   src,
+  className,
   reconnectKey = 0,
   zones = EMPTY_ZONES,
   isAddingZone = false,
@@ -353,6 +357,8 @@ export function CameraPreview({
   onServicePointChange,
   bboxCameraId = null,
   hideFaceKeypoints = false,
+  hideStreamBadges = false,
+  videoBorderRadius = 0,
   onVideoSizeChange,
 }: CameraPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -1019,12 +1025,26 @@ export function CameraPreview({
   }, [src, reconnectKey, onVideoSizeChange])
 
   // ── Render ───────────────────────────────────────────────────────────────
+  const videoLayout = computeLayout(previewSize, videoSize)
+  const videoClipPath = videoBorderRadius > 0
+    ? videoLayout
+      ? `inset(${videoLayout.offsetY}px ${videoLayout.offsetX}px ${videoLayout.offsetY}px ${videoLayout.offsetX}px round ${videoBorderRadius}px)`
+      : `inset(0 round ${videoBorderRadius}px)`
+    : undefined
+
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-black">
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative h-full w-full overflow-hidden bg-black",
+        className,
+      )}
+    >
       <video
         ref={videoRef}
         autoPlay muted playsInline
         className="absolute inset-0 h-full w-full object-contain"
+        style={{ clipPath: videoClipPath }}
       />
 
       <canvas
@@ -1051,23 +1071,27 @@ export function CameraPreview({
         </div>
       )}
 
-      <div className="absolute left-3 top-3 z-20 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
-        {resolution}
-      </div>
+      {!hideStreamBadges && (
+        <>
+          <div className="absolute left-3 top-3 z-20 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+            {resolution}
+          </div>
 
-      <div className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
-        <span className="relative flex size-2">
-          {status === "live" && (
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
-          )}
-          <span className={cn("relative inline-flex size-2 rounded-full", {
-            "bg-green-400": status === "live",
-            "bg-amber-400": status === "connecting",
-            "bg-red-400": status === "error",
-          })} />
-        </span>
-        {status === "live" ? "Live" : status === "connecting" ? "Connecting" : "Error"}
-      </div>
+          <div className="absolute right-3 top-3 z-20 flex items-center gap-2 rounded-md bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+            <span className="relative flex size-2">
+              {status === "live" && (
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
+              )}
+              <span className={cn("relative inline-flex size-2 rounded-full", {
+                "bg-green-400": status === "live",
+                "bg-amber-400": status === "connecting",
+                "bg-red-400": status === "error",
+              })} />
+            </span>
+            {status === "live" ? "Live" : status === "connecting" ? "Connecting" : "Error"}
+          </div>
+        </>
+      )}
     </div>
   )
 }
