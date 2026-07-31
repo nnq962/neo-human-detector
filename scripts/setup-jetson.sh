@@ -94,8 +94,20 @@ check_platform() {
         die "Cần JetPack 5.1.6; phát hiện ${jetpack_version:-không xác định}."
     fi
 
-    grep -q '^# R35 (release), REVISION: 6.4,' /etc/nv_tegra_release || die \
-        "Cần L4T R35.6.4 của JetPack 5.1.6."
+    local l4t_version
+    l4t_version="$(
+        sed -n 's/^# R\([0-9]\+\) (release), REVISION: \([0-9.]\+\),.*$/\1.\2/p' \
+            /etc/nv_tegra_release
+    )"
+
+    case "${l4t_version}" in
+        35.6.4|35.6.5)
+            ;;
+        *)
+            die "Cần L4T R35.6.4 hoặc R35.6.5; phát hiện R${l4t_version:-không xác định}."
+            ;;
+    esac
+
     [[ -r /etc/os-release ]] || die "Không xác định được Linux distribution."
 
     # shellcheck disable=SC1091
@@ -103,7 +115,7 @@ check_platform() {
     [[ "${ID:-}" == "ubuntu" ]] || die \
         "Cần Ubuntu của JetPack; phát hiện ${ID:-unknown}."
 
-    log "Nền tảng hợp lệ: JetPack ${jetpack_version}, L4T R35.6.4 aarch64."
+    log "Nền tảng hợp lệ: JetPack ${jetpack_version}, L4T R${l4t_version} aarch64."
 }
 
 install_system_packages() {
