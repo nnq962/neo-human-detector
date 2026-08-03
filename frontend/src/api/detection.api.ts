@@ -2,7 +2,6 @@ import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } fro
 
 export interface DetectionConfig {
   model_id: string | null
-  batch_size: number
   conf: number
   verbose: boolean
 }

@@ -268,7 +268,7 @@ export function ZoneStateMachinePage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-40" />
         <Skeleton className="h-80" />
       </div>
@@ -291,7 +291,7 @@ export function ZoneStateMachinePage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <ConfigCard config={config} onSaved={handleSaved} />
 
       <Card>

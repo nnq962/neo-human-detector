@@ -20,11 +20,30 @@ export interface RuntimeStatus {
   started_at: string | null
   stopped_at: string | null
   uptime_seconds: number | null
+  batch_size: number
   cameras: RuntimeCameraStatus[]
   last_error: string | null
 }
 
+export interface RuntimeConfig {
+  auto_start: boolean
+  camera_ids: string[]
+  batch_size: number
+}
+
+export interface RuntimeConfigUpdate {
+  auto_start?: boolean
+  camera_ids?: string[]
+}
+
 export const runtimeApi = {
+  getConfig: () =>
+    apiRequest<ApiResponse<RuntimeConfig>>("/runtime/config").then(unwrapApiResponse),
+  updateConfig: (data: RuntimeConfigUpdate) =>
+    apiRequest<ApiResponse<RuntimeConfig>>("/runtime/config", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }).then(unwrapApiResponse),
   start: () =>
     apiRequest<ApiResponse<RuntimeStatus>>("/runtime/start", { method: "POST" }).then(unwrapApiResponse),
   stop: () =>

@@ -25,8 +25,6 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 
-const BATCH_OPTIONS = [1, 2, 4, 8]
-
 function FieldLabel({ label, desc }: { label: string; desc?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -164,30 +162,6 @@ function DetectionConfigCard({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <FieldLabel label="Batch size" desc="Số camera/frame xử lý song song" />
-            {editing ? (
-              <Select
-                value={String(draft.batch_size)}
-                onValueChange={(batchSize) => setDraft((current) => ({
-                  ...current,
-                  batch_size: Number(batchSize),
-                }))}
-              >
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent position="popper">
-                  {BATCH_OPTIONS.map((batchSize) => (
-                    <SelectItem key={batchSize} value={String(batchSize)}>
-                      {batchSize}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-8 items-center text-sm">{value.batch_size}</div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
             <FieldLabel
               label="Confidence threshold"
               desc="Ngưỡng tin cậy tối thiểu để chấp nhận detection"
@@ -304,7 +278,7 @@ export function DetectionPage() {
 
   if (configQuery.isLoading || modelsQuery.isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-64" />
         <Skeleton className="h-64" />
       </div>
@@ -326,7 +300,7 @@ export function DetectionPage() {
 
   const models = modelsQuery.data ?? []
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <DetectionConfigCard
         config={configQuery.data}
         models={models}

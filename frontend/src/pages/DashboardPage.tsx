@@ -93,6 +93,7 @@ const CameraCell = memo(function CameraCell({ camera }: { camera: Camera }) {
     <div className="relative aspect-video overflow-hidden rounded-lg ring-1 ring-border">
       <CameraPreview
         src={camera.webrtc_address ?? ""}
+        cameraId={camera.id}
         zones={camera.zones}
         bboxCameraId={camera.id}
         hideFaceKeypoints={true}
@@ -434,7 +435,7 @@ export function DashboardPage() {
   const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
 
       {/* Camera grid */}
       <Card>

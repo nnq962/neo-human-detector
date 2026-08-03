@@ -19,17 +19,21 @@ from src.robot_dispatch_v2.datatypes import (
 class FakeUartManagerV2:
     """UART manager giả để kiểm tra lifecycle Runtime mà không mở serial thật."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, connect_success: bool = True) -> None:
+        """Khởi tạo UART giả với kết quả kết nối có thể cấu hình."""
+        self.connect_success = connect_success
         self.reconfigure_calls = []
         self.additional_handlers = {}
         self.closed = False
 
     def reconfigure(self, *, port=None, baudrate=None) -> bool:
+        """Ghi nhận cấu hình và trả kết quả kết nối giả lập."""
         self.reconfigure_calls.append((port, baudrate))
-        return True
+        return self.connect_success
 
     def connect(self) -> bool:
-        return True
+        """Trả kết quả kết nối giả lập."""
+        return self.connect_success
 
     def close(self) -> None:
         self.closed = True
@@ -168,6 +172,25 @@ def test_runtime_builds_reid_decision_engine_when_enabled() -> None:
             sys.modules.pop("uart_v2.uart_manager", None)
         else:
             sys.modules["uart_v2.uart_manager"] = previous_module
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_runtime_skips_robot_dispatcher_when_uart_is_unavailable() -> None:
+    """Kiểm tra runtime dùng degraded mode khi không kết nối được UART."""
+    fake_uart = FakeUartManagerV2(connect_success=False)
+    runtime = Runtime(
+        RuntimeConfig(
+            robot_dispatch=RobotDispatchV2Config(enabled=True),
+        ),
+        robot_uart=fake_uart,
+    )
+
+    dispatcher = runtime._build_robot_dispatcher(
+        {"uart": {"port": "/dev/ttyUSB-missing", "baudrate": 115200}},
+    )
+
+    assert dispatcher is None
+    assert fake_uart.reconfigure_calls == [("/dev/ttyUSB-missing", 115200)]
 
 
 # ────────────────────────────────────────────────────────────────────────
