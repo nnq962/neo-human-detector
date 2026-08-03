@@ -3,6 +3,7 @@ from api.services import config_store
 from src.detection.model_registry import (
     find_default_model,
     find_legacy_detection_model,
+    resolve_model_artifact,
     validate_model_config,
 )
 
@@ -37,6 +38,21 @@ def validate_detection_config(config: dict) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _validate_runtime_batch(config: dict, app_config: dict) -> None:
+    """Kiểm tra model detection khớp batch camera runtime đã chọn."""
+    batch_size = len((app_config.get("runtime") or {}).get("camera_ids") or [])
+    if batch_size == 0:
+        return
+
+    artifact = resolve_model_artifact(config.get("model_id"))
+    if isinstance(artifact.batch_size, int) and artifact.batch_size != batch_size:
+        raise ValueError(
+            f"Model {artifact.id} chỉ hỗ trợ batch {artifact.batch_size}, "
+            f"không hỗ trợ {batch_size} camera runtime đã chọn."
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def get_detection_config() -> dict:
     """Đọc và chuẩn hóa cấu hình Detection hiện tại."""
     config = config_store.get_config_data()
@@ -56,6 +72,7 @@ def update_detection_config(update: DetectionConfigUpdate) -> dict:
             detection_config.update(update_data)
             detection_config = normalize_detection_config(detection_config)
             validate_detection_config(detection_config)
+            _validate_runtime_batch(detection_config, config)
             config["detection"] = detection_config
             return detection_config
 
@@ -72,6 +89,7 @@ def replace_detection_config(config: DetectionConfig) -> dict:
 
     def mutate(app_config: dict) -> dict:
         """Ghi section Detection đã chuẩn hóa."""
+        _validate_runtime_batch(detection_config, app_config)
         app_config["detection"] = detection_config
         return detection_config
 
@@ -85,6 +103,7 @@ def delete_detection_config() -> dict:
 
     def mutate(app_config: dict) -> dict:
         """Ghi cấu hình Detection mặc định."""
+        _validate_runtime_batch(detection_config, app_config)
         app_config["detection"] = detection_config
         return detection_config
 

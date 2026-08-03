@@ -6,13 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from api.routes import auto_start, camera, detection, mediamtx, models, reid, runtime, uart, websocket, zone_state_machine
+from api.routes import camera, detection, mediamtx, models, reid, runtime, uart, websocket, zone_state_machine
 from api.routes.responses import error_response
 
 
 STANDARD_RESPONSE_PREFIXES = (
     "/api/cameras",
-    "/api/auto-start",
     "/api/detection",
     "/api/mediamtx",
     "/api/models",
@@ -95,7 +94,7 @@ def run_startup_tasks() -> None:
     except Exception as e:
         LOGGER.error(f"Failed to initialize UART V2: {e}")
 
-    if cfg.get("auto_start") is True:
+    if (cfg.get("runtime") or {}).get("auto_start") is True:
         try:
             start_runtime(RuntimeCommandRequest(config_path=DEFAULT_CONFIG_PATH, preview=False))
             LOGGER.info("Runtime auto-start requested from config.")
@@ -135,7 +134,6 @@ async def lifespan(app: FastAPI):
 
 
 OPENAPI_TAGS = [
-    {"name": "Auto Start", "description": "Runtime auto-start configuration."},
     {"name": "Detection", "description": "Detection model configuration."},
     {"name": "MediaMTX", "description": "MediaMTX integration utilities."},
     {"name": "Models", "description": "Available AI model catalog."},
@@ -179,7 +177,6 @@ app.add_middleware(
 )
 
 # ────────────────────────────────────────────────────────────────
-app.include_router(auto_start.router, prefix="/api/auto-start", tags=["Auto Start"])
 app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
 app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
 app.include_router(models.router, prefix="/api/models", tags=["Models"])

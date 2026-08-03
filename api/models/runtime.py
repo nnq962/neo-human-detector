@@ -1,6 +1,6 @@
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 RuntimeState = Literal["stopped", "starting", "running", "stopping", "error"]
@@ -14,6 +14,39 @@ RuntimeTaskState = Literal[
     "FAILED",
     "CANCELED",
 ]
+ALLOWED_RUNTIME_BATCH_SIZES = frozenset({1, 2, 4})
+
+
+class RuntimeSettings(BaseModel):
+    """Cấu hình vòng đời và danh sách camera của runtime."""
+
+    auto_start: bool = False
+    camera_ids: List[str] = Field(default_factory=list)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    @field_validator("camera_ids")
+    @classmethod
+    def validate_camera_ids(cls, values: List[str]) -> List[str]:
+        """Chuẩn hóa ID camera và từ chối giá trị rỗng hoặc trùng nhau."""
+        normalized = [value.strip() for value in values]
+        if any(not value for value in normalized):
+            raise ValueError("Camera ID không được để trống.")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Danh sách camera runtime không được chứa ID trùng nhau.")
+        return normalized
+
+    # ─────────────────────────────────────────────────────────────────────────
+    @property
+    def batch_size(self) -> int:
+        """Trả batch size được suy ra từ số camera đã chọn."""
+        return len(self.camera_ids)
+
+
+class RuntimeSettingsUpdate(BaseModel):
+    """Các trường runtime cho phép cập nhật một phần."""
+
+    auto_start: Optional[bool] = None
+    camera_ids: Optional[List[str]] = None
 
 
 class RuntimeCommandRequest(BaseModel):
@@ -39,6 +72,7 @@ class RuntimeStatus(BaseModel):
     started_at: Optional[str] = None
     stopped_at: Optional[str] = None
     uptime_seconds: Optional[float] = None
+    batch_size: int = 0
     cameras: List[RuntimeCameraStatus] = Field(default_factory=list)
     last_error: Optional[str] = None
 

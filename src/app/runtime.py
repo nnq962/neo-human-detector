@@ -14,6 +14,7 @@ from src.app.runtime_state import build_camera_detection_payload, runtime_state
 from src.app.utils import build_runtime_config
 from src.camera_initializer import Camera, load_cameras_from_config
 from src.detection.datatypes import InferenceFrame
+from src.detection.model_registry import resolve_model_artifact
 from src.detection.yolo_detector import YoloDetector, YoloDetectorConfig
 from src.dispatch_decision import (
     DispatchDecisionEngine,
@@ -222,15 +223,36 @@ class Runtime:
     # ── setup ─────────────────────────────────────────────────────────────────
     def _prepare(self) -> None:
         cfg = load_config(self.config.config_path)
-        self.cameras = load_cameras_from_config(cfg, warn_on_empty_zones=False)
+        selected_camera_ids = self.config.camera_ids
+        if len(selected_camera_ids) not in {1, 2, 4}:
+            raise ValueError("Runtime yêu cầu chọn đúng 1, 2 hoặc 4 camera.")
 
-        if not self.cameras:
-            raise RuntimeError("Không có camera enabled hợp lệ.")
+        self.cameras = load_cameras_from_config(
+            cfg,
+            camera_ids=selected_camera_ids,
+            warn_on_empty_zones=False,
+        )
+
+        loaded_camera_ids = tuple(camera.id for camera in self.cameras)
+        if loaded_camera_ids != selected_camera_ids:
+            raise ValueError(
+                "Danh sách camera runtime chứa camera không tồn tại hoặc đã bị tắt."
+            )
 
         det = self.config.detection
         if len(self.cameras) != det.batch_size:
             raise ValueError(
                 f"Số camera ({len(self.cameras)}) phải khớp batch_size ({det.batch_size})."
+            )
+
+        model_artifact = resolve_model_artifact(det.model_id)
+        if (
+            isinstance(model_artifact.batch_size, int)
+            and model_artifact.batch_size != det.batch_size
+        ):
+            raise ValueError(
+                f"Model {model_artifact.id} chỉ hỗ trợ batch "
+                f"{model_artifact.batch_size}, không hỗ trợ batch {det.batch_size}."
             )
 
         self.media_sources = MediaSources(
@@ -305,7 +327,8 @@ class Runtime:
 
         robot = self.config.robot_dispatch
         LOGGER.info("ROBOT DISPATCH")
-        LOGGER.info("   → Enabled       : %s", robot.enabled)
+        LOGGER.info("   → Configured    : %s", robot.enabled)
+        LOGGER.info("   → Active        : %s", self.robot_dispatcher is not None)
         LOGGER.info("   → Use ReID      : %s", robot.use_reid)
         LOGGER.info("   → ACK timeout   : %.2fs", robot.ack_timeout_seconds)
         LOGGER.info("   → Max retries   : %d", robot.max_retries)
@@ -345,8 +368,8 @@ class Runtime:
             self.is_running = False
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _build_robot_dispatcher(self, cfg: dict) -> RobotDispatcherV2:
-        """Kết nối UART nhị phân và tạo RobotDispatcherV2."""
+    def _build_robot_dispatcher(self, cfg: dict) -> Optional[RobotDispatcherV2]:
+        """Tạo dispatcher nếu UART sẵn sàng, ngược lại chạy degraded mode."""
         robot_config = self.config.robot_dispatch
         if robot_config.use_reid and not self.config.reid.enabled:
             raise ValueError(
@@ -370,7 +393,11 @@ class Runtime:
             connected = robot_uart.connect()
 
         if not connected:
-            raise RuntimeError("Không thể kết nối UART V2 cho robot dispatcher.")
+            LOGGER.warning(
+                "Không thể kết nối UART V2; runtime vẫn chạy nhưng robot "
+                "dispatcher bị vô hiệu hóa. Hãy restart runtime sau khi UART kết nối lại."
+            )
+            return None
 
         policy = (
             ReIdDecisionPolicy()

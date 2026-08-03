@@ -591,7 +591,7 @@ export function ReidPage() {
 
   if (isLoading || modelsQuery.isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-72" />
         <Skeleton className="h-64" />
         <Skeleton className="h-64" />
@@ -614,7 +614,7 @@ export function ReidPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <GeneralCard config={config} models={modelsQuery.data ?? []} onSaved={handleSaved} />
       <TrackCard config={config.track} onSaved={handleSaved} />
       <QualityCard config={config.quality} onSaved={handleSaved} />

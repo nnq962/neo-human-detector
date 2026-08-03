@@ -15,6 +15,8 @@ import { camerasApi, type Camera, type Zone } from "@/api/cameras.api"
 import { cameraCalibrationApi } from "@/api/camera-calibration.api"
 import { uartApi } from "@/api/uart.api"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
+import { useRuntimeConfig } from "@/hooks/use-runtime-config"
+import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { EditCameraDialog } from "@/components/edit-camera-dialog"
 import { CameraPreview } from "@/components/camera-preview"
 import { Badge } from "@/components/ui/badge"
@@ -114,6 +116,8 @@ export function CameraPage() {
   const invalidateCameras = useInvalidateCameras()
   const { data: camera, isLoading, isError } = useCamera(id!)
   const { snapshot: robotSnapshot } = useRobotHeartbeats()
+  const { data: runtimeConfig } = useRuntimeConfig()
+  const { status: runtimeStatus } = useRuntimeStatus()
 
   // Camera-level dialogs
   const [editOpen, setEditOpen]     = useState(false)
@@ -417,7 +421,7 @@ export function CameraPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-48" />
         <Skeleton className="h-[500px]" />
       </div>
@@ -438,12 +442,17 @@ export function CameraPage() {
   const selectedZoneColor = ZONE_COLORS[
     (selectedZoneIndex ?? 0) % ZONE_COLORS.length
   ]
+  const isActiveInRuntime = Boolean(
+    runtimeStatus?.is_running
+    && runtimeStatus.cameras.some((item) => item.id === camera.id),
+  )
+  const isSelectedForRuntime = runtimeConfig?.camera_ids.includes(camera.id) ?? false
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
 
         {/* Camera info */}
         <Card>
@@ -466,10 +475,25 @@ export function CameraPage() {
             <div className="grid grid-cols-2 gap-4">
               <InfoRow label="Tên" value={camera.name} />
               <InfoRow
-                label="Trạng thái"
+                label="Trạng thái stream"
                 value={
                   <Badge variant={camera.enabled ? "default" : "secondary"}>
-                    {camera.enabled ? "Enabled" : "Disabled"}
+                    {camera.enabled ? "Sẵn sàng" : "Đã tắt"}
+                  </Badge>
+                }
+              />
+              <InfoRow
+                label="AI Runtime"
+                value={
+                  <Badge
+                    variant={isActiveInRuntime ? "default" : "secondary"}
+                    className={isActiveInRuntime ? "bg-emerald-600" : undefined}
+                  >
+                    {isActiveInRuntime
+                      ? "Đang chạy"
+                      : isSelectedForRuntime
+                        ? "Được chọn cho lần chạy tới"
+                        : "Chưa được chọn"}
                   </Badge>
                 }
               />
@@ -511,6 +535,7 @@ export function CameraPage() {
               >
                 <CameraPreview
                   src={camera.webrtc_address ?? ""}
+                  cameraId={camera.id}
                   zones={displayZones}
                   isAddingZone={isAddingZone}
                   isEditingVertices={isEditingVertices}

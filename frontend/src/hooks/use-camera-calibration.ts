@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import {
@@ -94,6 +95,7 @@ export function formatCalibrationTime(value: string) {
 }
 
 export function useCameraCalibration(cameraId: string, enabled: boolean) {
+  const queryClient = useQueryClient()
   const { snapshot: robotSnapshot, connected: robotsConnected } =
     useRobotHeartbeats()
   const [pointLayoutSize, setPointLayoutSize] = useState(2)
@@ -135,6 +137,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     cameraCalibrationApi.get(cameraId)
       .then((calibration) => {
         if (cancelled) return
+        queryClient.setQueryData(["camera-calibration", cameraId], calibration)
 
         if (!calibration) {
           setPointLayoutSize(2)
@@ -191,7 +194,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     return () => {
       cancelled = true
     }
-  }, [cameraId, enabled])
+  }, [cameraId, enabled, queryClient])
 
   const selectedPoint =
     points.find((point) => point.id === selectedPointId) ?? null
@@ -386,6 +389,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
         ransac_threshold_m: calibrationPreview.ransac_threshold_m,
         accept_warning: acceptWarning,
       })
+      queryClient.setQueryData(["camera-calibration", cameraId], calibration)
       setAppliedCalibration(calibration)
       setCalibrationPreview(savedCalibrationToPreview(calibration))
       setHasUnappliedChanges(false)
@@ -419,6 +423,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     setIsDeletingCalibration(true)
     try {
       await cameraCalibrationApi.delete(cameraId)
+      queryClient.setQueryData(["camera-calibration", cameraId], null)
       setAppliedCalibration(null)
       setHasUnappliedChanges(false)
       setIsDeleteCalibrationOpen(false)

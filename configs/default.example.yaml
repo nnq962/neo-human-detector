@@ -1,11 +1,12 @@
 # Cấu hình mẫu an toàn cho một máy mới.
 # Sao chép file này thành configs/default.yaml rồi cập nhật theo thiết bị thực tế.
 
-auto_start: false
+runtime:
+  auto_start: false
+  camera_ids: []
 
 detection:
   model_id: yolo26m-pose-pytorch
-  batch_size: 2
   conf: 0.5
   verbose: false
 

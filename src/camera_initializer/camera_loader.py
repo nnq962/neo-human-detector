@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import numpy as np
 
@@ -42,6 +42,7 @@ class Camera:
 def load_cameras_from_config(
     config: Mapping[str, Any],
     *,
+    camera_ids: Optional[Iterable[str]] = None,
     enabled_only: bool = True,
     warn_on_empty_zones: bool = True,
 ) -> List[Camera]:
@@ -50,6 +51,18 @@ def load_cameras_from_config(
     if not isinstance(cameras_data, list):
         LOGGER.warning("Config field 'cameras' không phải list, bỏ qua.")
         return []
+
+    if camera_ids is not None:
+        camera_by_id = {
+            str(camera.get("id")): camera
+            for camera in cameras_data
+            if isinstance(camera, Mapping) and camera.get("id")
+        }
+        cameras_data = [
+            camera_by_id[camera_id]
+            for camera_id in camera_ids
+            if camera_id in camera_by_id
+        ]
 
     cameras: List[Camera] = []
     seen_camera_ids: Set[str] = set()

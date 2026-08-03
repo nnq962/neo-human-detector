@@ -48,6 +48,7 @@ class RuntimeConfig:
     """Config tổng hợp cho Runtime."""
 
     config_path       : str                    = "configs/test.yaml"
+    camera_ids        : tuple[str, ...]        = field(default_factory=tuple)
     detection         : DetectionConfig        = field(default_factory=DetectionConfig)
     preview           : PreviewConfig          = field(default_factory=PreviewConfig)
     zone_state_machine: ZoneStateMachineConfig = field(default_factory=ZoneStateMachineConfig)

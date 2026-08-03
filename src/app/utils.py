@@ -18,8 +18,8 @@ from utils import load_config
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def build_detection_config(raw: dict) -> DetectionConfig:
-    """Đọc cấu hình detection và tương thích các khóa task/model_size cũ."""
+def build_detection_config(raw: dict, *, batch_size: int) -> DetectionConfig:
+    """Đọc cấu hình detection và gắn batch theo số camera runtime."""
     from src.model_catalog import find_default_model, find_legacy_detection_model
 
     model_id = raw.get("model_id")
@@ -33,7 +33,7 @@ def build_detection_config(raw: dict) -> DetectionConfig:
 
     return DetectionConfig(
         model_id   = model_id,
-        batch_size = int(raw.get("batch_size", 1)),
+        batch_size = batch_size,
         conf       = float(raw.get("conf", 0.5)),
         verbose    = bool(raw.get("verbose", False)),
     )
@@ -121,9 +121,15 @@ def build_runtime_config(
 ) -> RuntimeConfig:
     """Đọc YAML và tạo RuntimeConfig đầy đủ."""
     cfg = load_config(config_path)
+    runtime = cfg.get("runtime", {})
+    camera_ids = tuple(str(value) for value in runtime.get("camera_ids", []))
     return RuntimeConfig(
         config_path        = config_path,
-        detection          = build_detection_config(cfg.get("detection", {})),
+        camera_ids         = camera_ids,
+        detection          = build_detection_config(
+            cfg.get("detection", {}),
+            batch_size=len(camera_ids),
+        ),
         preview            = build_preview_config(cfg.get("preview", {}), show=show),
         zone_state_machine = build_zone_state_machine_config(cfg.get("zone_state_machine", {})),
         reid               = build_reid_config(cfg.get("reid", {})),

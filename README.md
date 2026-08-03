@@ -232,11 +232,12 @@ zone, detection, ReID và UART trực tiếp trên giao diện web.
 Một số trường chính:
 
 ```yaml
-auto_start: false
+runtime:
+  auto_start: false
+  camera_ids: [camera-a, camera-b]
 
 detection:
   model_id: yolo26m-pose-pytorch
-  batch_size: 2
   conf: 0.5
 
 reid:
@@ -250,7 +251,9 @@ uart:
 cameras: []
 ```
 
-`detection.batch_size` phải khớp số camera được đưa vào một detection batch.
+Batch detection được suy ra từ số phần tử trong `runtime.camera_ids`. Runtime
+chỉ hỗ trợ lựa chọn 1, 2 hoặc 4 camera; danh sách `cameras` vẫn có thể chứa nhiều
+camera hơn để quản lý và xem stream độc lập.
 
 ## Artifact và model
 

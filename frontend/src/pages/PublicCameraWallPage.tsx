@@ -140,6 +140,7 @@ function CameraWallItem({
       <div className="relative z-10 h-full w-full overflow-hidden rounded-2xl">
         <CameraPreview
           src={camera.webrtc_address ?? ""}
+          cameraId={camera.id}
           className="bg-transparent"
           zones={camera.zones}
           bboxCameraId={camera.id}

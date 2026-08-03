@@ -19,6 +19,18 @@ ZONE_ID_LENGTH = 5
 ZONE_ID_ALPHABET = string.ascii_lowercase + string.digits
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def _remove_camera_from_runtime(config: dict, camera_id: str) -> None:
+    """Loại camera khỏi runtime và tắt auto-start nếu lựa chọn bị thay đổi."""
+    runtime = config.setdefault("runtime", {"auto_start": False, "camera_ids": []})
+    camera_ids = runtime.setdefault("camera_ids", [])
+    if camera_id not in camera_ids:
+        return
+
+    runtime["camera_ids"] = [value for value in camera_ids if value != camera_id]
+    runtime["auto_start"] = False
+
+
 def _model_dump(model, **kwargs) -> dict:
     return model.model_dump(**kwargs)
 
@@ -327,6 +339,8 @@ def replace_camera(camera_id: str, camera: CameraCreate) -> dict:
         sync_required = _stream_config_changed(current_camera, next_camera)
 
         cameras[index] = next_camera
+        if not next_camera.get("enabled", True):
+            _remove_camera_from_runtime(config, camera_id)
         return {
             "camera": next_camera,
             "sync_required": sync_required,
@@ -365,6 +379,8 @@ def update_camera(camera_id: str, patch: CameraUpdate) -> dict:
         sync_required = _stream_config_changed(current_camera, next_camera)
 
         cameras[index] = next_camera
+        if not next_camera.get("enabled", True):
+            _remove_camera_from_runtime(config, camera_id)
         return {
             "camera": next_camera,
             "sync_required": sync_required,
@@ -383,6 +399,7 @@ def delete_camera(camera_id: str) -> dict:
         cameras = _get_cameras(config)
         index = _find_camera_index(cameras, camera_id)
         camera = cameras.pop(index)
+        _remove_camera_from_runtime(config, camera_id)
         return camera
 
     deleted_camera = config_store.update_config_data(mutate)

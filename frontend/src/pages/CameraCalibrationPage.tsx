@@ -37,7 +37,7 @@ export function CameraCalibrationPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <Skeleton className="h-20 rounded-xl" />
         <Skeleton className="h-[560px] rounded-xl" />
       </div>
@@ -55,7 +55,7 @@ export function CameraCalibrationPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <CalibrationSummaryCard camera={camera} calibration={calibration} />
 
       <Card className="gap-0 py-0">
@@ -74,6 +74,7 @@ export function CameraCalibrationPage() {
             >
               <CameraPreview
                 src={camera.webrtc_address ?? ""}
+                cameraId={camera.id}
                 onVideoSizeChange={calibration.setVideoSize}
               />
               <CalibrationPointsOverlay

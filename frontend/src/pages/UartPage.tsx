@@ -517,8 +517,8 @@ export function UartPage() {
   const { snapshot, connected } = useRobotHeartbeats()
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <UartConfigCard />
         <UartStatusCard />
       </div>

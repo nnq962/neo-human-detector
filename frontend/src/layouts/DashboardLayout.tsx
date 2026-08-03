@@ -13,7 +13,7 @@ export function DashboardLayout() {
       <main className="flex min-w-0 min-h-screen flex-1 flex-col">
         <AppHeader />
 
-        <div className="flex-1 p-6">
+        <div className="flex-1 p-4">
           <Suspense
             fallback={
               <div className="flex h-full items-center justify-center">
