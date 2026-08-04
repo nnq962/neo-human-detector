@@ -67,7 +67,7 @@ export function CameraCalibrationPage() {
         </CardHeader>
 
         <CardContent className="p-0 pb-4">
-          <div className="flex flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="flex w-full flex-col overflow-hidden lg:grid lg:grid-cols-[minmax(0,56rem)_minmax(20rem,1fr)]">
             <div
               ref={videoPanelRef}
               className="relative aspect-video w-full min-w-0 self-start overflow-hidden bg-black"

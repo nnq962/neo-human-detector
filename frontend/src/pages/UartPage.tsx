@@ -1,10 +1,9 @@
 import { useState } from "react"
-import { Activity, Bot, Check, Clock3, Pencil, Send, Shuffle, X } from "lucide-react"
+import { Check, Pencil, Send, Shuffle, X } from "lucide-react"
 import { toast } from "sonner"
 
 import {
   type RobotHeartbeat,
-  type RobotHeartbeatSnapshot,
   uartApi,
 } from "@/api/uart.api"
 import { Button } from "@/components/ui/button"
@@ -26,20 +25,11 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   useInvalidateUart,
   useUartConfig,
   useUartStatus,
 } from "@/hooks/use-uart"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
-import { cn } from "@/lib/utils"
 
 
 const COMMON_PORTS = [
@@ -56,25 +46,6 @@ const COMMON_BAUDRATES = [
 
 const NUMBER_INPUT_CLASS =
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-
-const ROBOT_STATE_VIEW = {
-  IDLE: {
-    label: "IDLE",
-    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  },
-  SERVING: {
-    label: "SERVING",
-    className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
-  },
-  ERROR: {
-    label: "ERROR",
-    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
-  },
-  UNKNOWN: {
-    label: "UNKNOWN",
-    className: "border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-400",
-  },
-}
 
 function generateMoveId(previous?: number) {
   let moveId = Math.floor(Math.random() * 256)
@@ -190,148 +161,6 @@ function UartStatusCard() {
         {status?.last_error && (
           <div className="text-destructive @sm:col-span-3">{status.last_error}</div>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-
-function RobotHeartbeatCard({
-  snapshot,
-  connected,
-}: {
-  snapshot: RobotHeartbeatSnapshot | null
-  connected: boolean
-}) {
-  const robots = snapshot?.robots ?? []
-  const latestHeartbeatSeconds = snapshot?.latest_heartbeat_age_seconds
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle>Robot & Heartbeat</CardTitle>
-            <CardDescription>
-              Tổng quan robot và gói Heartbeat mới nhất nhận qua UART V2.
-            </CardDescription>
-          </div>
-          <Badge variant={connected ? "secondary" : "outline"} className="gap-1.5">
-            <span className="relative flex size-2">
-              <span
-                className={`absolute inline-flex size-full animate-ping rounded-full opacity-75 ${connected ? "bg-emerald-500" : "bg-amber-500"}`}
-              />
-              <span
-                className={`relative inline-flex size-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`}
-              />
-            </span>
-            {connected ? "Đang cập nhật" : "Đang kết nối"}
-          </Badge>
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-            <div className="flex size-9 items-center justify-center rounded-md bg-background ring-1 ring-border">
-              <Bot className="size-4 text-violet-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Tổng robot</p>
-              <p className="text-lg font-semibold leading-tight">{snapshot?.total ?? 0}</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-            <div className="flex size-9 items-center justify-center rounded-md bg-background ring-1 ring-border">
-              <Activity className="size-4 text-emerald-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Đang online</p>
-              <p className="text-lg font-semibold leading-tight">
-                {snapshot?.online ?? 0}/{snapshot?.total ?? 0}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-            <div className="flex size-9 items-center justify-center rounded-md bg-background ring-1 ring-border">
-              <Clock3 className="size-4 text-blue-500" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Heartbeat gần nhất</p>
-              <p className="text-lg font-semibold leading-tight">
-                {latestHeartbeatSeconds == null
-                  ? "Chưa nhận"
-                  : `${Math.floor(latestHeartbeatSeconds)}s trước`}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-lg border">
-          <Table className="table-fixed">
-            <TableHeader className="bg-muted/40">
-              <TableRow>
-                <TableHead className="w-40">Robot</TableHead>
-                <TableHead className="w-28">Trạng thái</TableHead>
-                <TableHead className="w-40">Heartbeat</TableHead>
-                <TableHead className="w-56">Pose</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {robots.map((robot) => {
-                const stateView = ROBOT_STATE_VIEW[robot.state]
-
-                return (
-                  <TableRow key={robot.robot_id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`size-2 rounded-full ${robot.online ? "bg-emerald-500" : "bg-zinc-400"}`}
-                        />
-                        <span className="truncate font-medium">Robot #{robot.robot_id}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={stateView.className}>
-                        {stateView.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        <p className="truncate">{new Date(robot.heartbeat_timestamp * 1000).toLocaleTimeString("vi-VN", { hour12: false })}</p>
-                        <p className={cn("truncate", robot.online ? "text-xs text-emerald-600" : "text-xs text-muted-foreground")}>
-                          {Math.floor(robot.heartbeat_age_seconds)} giây trước
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="secondary" className="font-normal tabular-nums">
-                          {robot.x.toFixed(2)}
-                        </Badge>
-                        <Badge variant="secondary" className="font-normal tabular-nums">
-                          {robot.y.toFixed(2)}
-                        </Badge>
-                        <Badge variant="secondary" className="font-normal tabular-nums">
-                          {robot.theta.toFixed(2)}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {robots.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                    Chưa nhận được Heartbeat từ robot.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
       </CardContent>
     </Card>
   )
@@ -514,7 +343,7 @@ function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
 
 
 export function UartPage() {
-  const { snapshot, connected } = useRobotHeartbeats()
+  const { snapshot } = useRobotHeartbeats()
 
   return (
     <div className="flex flex-col gap-4">
@@ -522,7 +351,6 @@ export function UartPage() {
         <UartConfigCard />
         <UartStatusCard />
       </div>
-      <RobotHeartbeatCard snapshot={snapshot} connected={connected} />
       <MoveToPointCard robots={snapshot?.robots ?? []} />
     </div>
   )

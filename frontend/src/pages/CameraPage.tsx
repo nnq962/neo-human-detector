@@ -6,7 +6,15 @@ import {
   type CSSProperties,
 } from "react"
 import { useParams, useNavigate } from "react-router-dom"
-import { Crosshair, MapPin, Navigation, Pencil, Plus, Trash2 } from "lucide-react"
+import {
+  Crosshair,
+  MapPin,
+  Navigation,
+  Pencil,
+  Plus,
+  Trash2,
+  Zap,
+} from "lucide-react"
 import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCamera } from "@/hooks/use-camera"
@@ -19,6 +27,7 @@ import { useRuntimeConfig } from "@/hooks/use-runtime-config"
 import { useRuntimeStatus } from "@/hooks/use-runtime-status"
 import { EditCameraDialog } from "@/components/edit-camera-dialog"
 import { CameraPreview } from "@/components/camera-preview"
+import type { VideoSize } from "@/components/camera-preview/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -109,6 +118,12 @@ function generateMoveId(): number {
   return Math.floor(Math.random() * 256)
 }
 
+function generateZoneName(zones: Zone[]): string {
+  let index = zones.length + 1
+  while (zones.some((zone) => zone.name === `Zone ${index}`)) index += 1
+  return `Zone ${index}`
+}
+
 export function CameraPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -156,6 +171,7 @@ export function CameraPage() {
   const [isDeletingZone, setIsDeletingZone] = useState(false)
   const videoPanelRef = useRef<HTMLDivElement>(null)
   const [videoPanelHeight, setVideoPanelHeight] = useState<number | null>(null)
+  const [videoSize, setVideoSize] = useState<VideoSize | null>(null)
 
   const isInteracting = isAddingZone || isEditingVertices
   const displayZones  = isEditingVertices ? draftZones : (camera?.zones ?? [])
@@ -307,6 +323,33 @@ export function CameraPage() {
     setPendingZoneName("")
     setZoneNameDialogOpen(true)
   }, [])
+
+  function handleQuickZoneAdd() {
+    if (!camera || !videoSize?.width || !videoSize.height) {
+      toast.error("Video chưa sẵn sàng để tạo zone nhanh")
+      return
+    }
+
+    const insetX = Math.round(videoSize.width * 0.25)
+    const insetY = Math.round(videoSize.height * 0.25)
+    const points: [number, number][] = [
+      [insetX, insetY],
+      [videoSize.width - insetX, insetY],
+      [videoSize.width - insetX, videoSize.height - insetY],
+      [insetX, videoSize.height - insetY],
+    ]
+    const name = generateZoneName(camera.zones)
+    const newZone: Zone = { name, points, service_point: null }
+
+    setDraftZones([...camera.zones, newZone])
+    setSelectedZoneIndex(camera.zones.length)
+    setDraftZoneName(name)
+    setZoneNameError("")
+    setDraftServicePoint(null)
+    setIsEditingVertices(true)
+    setIsPickingServicePoint(false)
+    toast.info("Đã tạo zone hình chữ nhật. Chọn điểm phục vụ rồi xác nhận.")
+  }
 
   const handleZonePointsChange = useCallback((index: number, points: number[][]) => {
     setDraftZones((prev) =>
@@ -522,11 +565,11 @@ export function CameraPage() {
         {/* Video + zone management */}
         <Card>
           <CardHeader>
-            <CardTitle>Hiển thị camera</CardTitle>
+            <CardTitle>Cấu hình zones</CardTitle>
           </CardHeader>
 
           <CardContent className="p-0">
-            <div className="flex flex-col overflow-hidden md:grid md:grid-cols-[minmax(0,1fr)_16rem]">
+            <div className="flex w-full flex-col overflow-hidden md:grid md:grid-cols-[minmax(0,56rem)_minmax(16rem,1fr)]">
 
               {/* Video */}
               <div
@@ -546,6 +589,7 @@ export function CameraPage() {
                   onZonePointsChange={handleZonePointsChange}
                   onZoneSelect={handleZoneSelect}
                   onServicePointChange={handleServicePointChange}
+                  onVideoSizeChange={setVideoSize}
                 />
               </div>
 
@@ -727,10 +771,21 @@ export function CameraPage() {
                     {/* Normal header */}
                     <div className="flex h-14 shrink-0 items-center justify-between border-b px-4">
                       <span className="text-sm font-medium">Zones ({camera.zones.length})</span>
-                      <Button size="sm" variant="outline" onClick={() => setIsAddingZone(true)}>
-                        <Plus />
-                        Thêm
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button size="sm" variant="outline" onClick={() => setIsAddingZone(true)}>
+                          <Plus />
+                          Thêm
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="blue"
+                          disabled={!videoSize?.width || !videoSize.height}
+                          onClick={handleQuickZoneAdd}
+                        >
+                          <Zap />
+                          Thêm nhanh
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Zone list */}

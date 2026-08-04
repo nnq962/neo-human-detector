@@ -118,8 +118,8 @@ function DetectionConfigCard({
       </CardHeader>
 
       <CardContent>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2 flex flex-col gap-1.5">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+          <div className="flex min-w-0 flex-col gap-1.5">
             <FieldLabel
               label="Model"
               desc="Danh sách được quét trực tiếp từ thư mục weights"
@@ -188,7 +188,7 @@ function DetectionConfigCard({
             )}
           </div>
 
-          <div className="sm:col-span-2 flex items-center justify-between gap-4 border-t pt-4">
+          <div className="flex items-center justify-between gap-4 border-t pt-4 lg:col-span-2">
             <FieldLabel label="Verbose" desc="In thêm thông tin debug khi inference" />
             {editing ? (
               <Switch
