@@ -12,7 +12,12 @@ import {
   XCircle,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
@@ -35,6 +40,7 @@ import type {
   RobotTaskStatus,
 } from "@/api/robot-tasks.api"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
+import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
 import { useRobotTasks } from "@/hooks/use-robot-tasks"
 import { cn } from "@/lib/utils"
 
@@ -175,10 +181,14 @@ function formatTaskAge(value: string) {
   return `${hours} giờ trước`
 }
 
-function RobotTasksCard() {
+function RobotOperationsCard() {
   const [filter, setFilter] = useState<TaskFilter>("all")
-  const { snapshot, connected } = useRobotTasks()
+  const { snapshot } = useRobotTasks()
+  const { snapshot: robotSnapshot, connected: robotsConnected } =
+    useRobotHeartbeats()
   const tasks = snapshot?.tasks ?? []
+  const robots = robotSnapshot?.robots ?? []
+  const onlineRobotCount = robots.filter((robot) => robot.online).length
 
   const activeCount = snapshot?.active ?? 0
   const completedCount = snapshot?.completed ?? 0
@@ -232,27 +242,15 @@ function RobotTasksCard() {
   ]
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <CardTitle>Robot tasks</CardTitle>
-              <Badge
-                variant={connected ? "secondary" : "outline"}
-                className="gap-1.5"
-              >
-                <span
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    connected ? "bg-emerald-500" : "bg-amber-500",
-                  )}
-                />
-                {connected ? "Realtime" : snapshot ? "Snapshot" : "Đang tải"}
-              </Badge>
+              <CardTitle>Robot & Tasks</CardTitle>
             </div>
             <p className="text-sm text-muted-foreground">
-              Theo dõi task assign, trạng thái thực thi và yêu cầu hủy.
+              Theo dõi robot sẵn sàng và tiến trình thực thi task tại cùng một nơi.
             </p>
           </div>
           <div className="flex w-full sm:w-auto">
@@ -278,7 +276,69 @@ function RobotTasksCard() {
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <section className="rounded-xl border bg-muted/20 p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="grid size-8 place-items-center rounded-lg bg-background text-violet-500 ring-1 ring-border">
+                <Bot className="size-4" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Trạng thái robot</p>
+                <p className="text-xs text-muted-foreground">
+                  Khả dụng theo tín hiệu heartbeat
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-col items-end gap-1.5 min-[380px]:flex-row min-[380px]:items-center sm:gap-2">
+              <Badge
+                variant={robotsConnected ? "secondary" : "outline"}
+                className="gap-1.5"
+              >
+                <span
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    robotsConnected ? "bg-emerald-500" : "bg-amber-500",
+                  )}
+                />
+                {onlineRobotCount}/{robots.length} online
+              </Badge>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+            {robots.length > 0 ? (
+              robots.map((robot) => (
+                <div
+                  key={robot.robot_id}
+                  className={cn(
+                    "flex h-9 w-full items-center gap-2 rounded-lg border px-3 text-sm font-medium sm:w-auto",
+                    robot.online
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                      : "bg-background text-muted-foreground",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      robot.online ? "bg-emerald-500" : "bg-zinc-400",
+                    )}
+                  />
+                  Robot #{robot.robot_id}
+                  <span className="ml-auto text-xs font-normal opacity-75 sm:ml-0">
+                    {robot.online ? "Online" : "Offline"}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="py-1 text-xs text-muted-foreground">
+                Chưa nhận được heartbeat từ robot.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 lg:grid-cols-4">
           {summaries.map((summary) => {
             const Icon = summary.icon
             return (
@@ -369,16 +429,16 @@ function RobotTasksCard() {
           </Table>
         </div>
 
-        <div className="grid gap-3 lg:hidden">
+        <div className="grid min-w-0 gap-3 lg:hidden">
           {visibleTasks.map((task) => (
-            <div key={task.uid} className="rounded-lg border p-3">
-              <div className="flex items-start justify-between gap-3">
+            <div key={task.uid} className="min-w-0 rounded-lg border p-3">
+              <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <div className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
                     <Bot className="size-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
+                    <p className="break-words text-sm font-medium sm:truncate">
                       {task.task_id === null
                         ? "Task chưa cấp ID"
                         : `Task #${task.task_id}`}
@@ -391,7 +451,9 @@ function RobotTasksCard() {
                     </p>
                   </div>
                 </div>
-                <TaskStatusBadge status={task.status} />
+                <div className="shrink-0">
+                  <TaskStatusBadge status={task.status} />
+                </div>
               </div>
 
               <div className="my-3 border-t" />
@@ -432,10 +494,11 @@ function RobotTasksCard() {
 
 export function DashboardPage() {
   const { data: cameras = [], isLoading: camerasLoading } = useCameras()
-  const gridCols = cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
+  const singleCamera = cameras.length === 1
+  const gridCols = singleCamera ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
 
       {/* Camera grid */}
       <Card>
@@ -451,7 +514,13 @@ export function DashboardPage() {
           ) : cameras.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Chưa có camera nào.</p>
           ) : (
-            <div className={cn("grid gap-4", gridCols)}>
+            <div
+              className={cn(
+                "grid gap-4",
+                gridCols,
+                singleCamera && "mx-auto w-full max-w-4xl",
+              )}
+            >
               {cameras.map((cam) => (
                 <CameraCell key={cam.id} camera={cam} />
               ))}
@@ -460,7 +529,7 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      <RobotTasksCard />
+      <RobotOperationsCard />
 
     </div>
   )

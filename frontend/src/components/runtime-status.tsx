@@ -9,7 +9,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
@@ -246,11 +245,8 @@ export function RuntimeStatusIndicator() {
                 Chưa có camera sẵn sàng.
               </div>
             ) : (
-              <ScrollArea
-                className="rounded-xl border-2 border-border bg-muted/10 dark:border-input"
-                style={{ height: Math.min(availableCameras.length * 48 + 12, 188) }}
-              >
-                <div className="space-y-1.5 p-1.5 pr-3">
+              <div className="rounded-xl border-2 border-border bg-muted/10 p-1.5 dark:border-input">
+                <div className="space-y-1.5">
                   {availableCameras.map((camera) => {
                     const selected = selectedCameraIds.includes(camera.id)
                     const selectionFull = !selected && selectedCameraIds.length >= batchSize
@@ -269,6 +265,10 @@ export function RuntimeStatusIndicator() {
                         aria-pressed={selected}
                         onClick={() => toggleCamera(camera.id)}
                       >
+                        <Camera className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                          {camera.name}
+                        </span>
                         <span className={cn(
                           "grid size-5 shrink-0 place-items-center rounded-md border-2",
                           selected
@@ -277,15 +277,11 @@ export function RuntimeStatusIndicator() {
                         )}>
                           {selected && <Check className="size-3.5" />}
                         </span>
-                        <Camera className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                          {camera.name}
-                        </span>
                       </button>
                     )
                   })}
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </div>
 
