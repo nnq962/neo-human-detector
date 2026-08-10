@@ -10,14 +10,15 @@ export function usePreviewSize(containerRef: RefObject<HTMLElement | null>) {
     const container = containerRef.current
     if (!container) return
 
-    const update = () => {
-      const bounds = container.getBoundingClientRect()
+    const update = (entry?: ResizeObserverEntry) => {
+      const width = entry?.contentRect.width ?? container.clientWidth
+      const height = entry?.contentRect.height ?? container.clientHeight
       setPreviewSize({
-        width: Math.round(bounds.width),
-        height: Math.round(bounds.height),
+        width: Math.round(width),
+        height: Math.round(height),
       })
     }
-    const observer = new ResizeObserver(update)
+    const observer = new ResizeObserver(([entry]) => update(entry))
     update()
     observer.observe(container)
     return () => observer.disconnect()

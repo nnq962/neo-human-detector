@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { ConfigGuard } from "@/components/config-guard"
 import { DashboardLayout } from "@/layouts/DashboardLayout"
+import { PublicCameraWallPage } from "@/pages/PublicCameraWallPage"
 
 const DashboardPage = lazy(() =>
   import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
@@ -27,12 +28,6 @@ const ZoneStateMachinePage = lazy(() =>
 const DetectionPage = lazy(() =>
   import("@/pages/DetectionPage").then((m) => ({ default: m.DetectionPage })),
 )
-const PublicCameraWallPage = lazy(() =>
-  import("@/pages/PublicCameraWallPage").then((m) => ({
-    default: m.PublicCameraWallPage,
-  })),
-)
-
 function App() {
   return (
     <BrowserRouter>
