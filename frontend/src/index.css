@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/space-grotesk";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -38,6 +39,26 @@ body::-webkit-scrollbar {
 
   .runtime-auto-start-switch:active {
     box-shadow: none;
+  }
+}
+
+@keyframes robot-info-scroll {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(var(--robot-info-scroll-distance));
+  }
+}
+
+@keyframes zone-info-scroll {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(var(--zone-info-scroll-distance));
   }
 }
 

@@ -28,6 +28,9 @@ const POSE_KP_BORDER = "#1e1e1e"
 const POSE_HIP_CENTER_COLOR = "#ff0000"
 const DETECTION_LABEL_FONT = '11px "Times New Roman", serif'
 const DETECTION_LABEL_LINE_HEIGHT = 15
+const HUD_BBOX_BORDER_COLOR = "rgba(224, 242, 254, 0.82)"
+const HUD_BBOX_GRID_COLOR = "rgba(224, 242, 254, 0.28)"
+const HUD_BBOX_CORNER_COLOR = "#f8fdff"
 
 const COCO_SKELETON: [number, number, "left" | "right" | "center"][] = [
   [0, 1, "right"], [0, 2, "left"], [1, 3, "right"], [2, 4, "left"],
@@ -85,6 +88,78 @@ function drawPoseHipCenter(
   )
 }
 
+function drawHudBoundingBox(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  if (width <= 0 || height <= 0) return
+
+  const shortestSide = Math.min(width, height)
+  const gridSpacing = Math.max(18, Math.min(34, shortestSide / 6))
+  const cornerLength = Math.max(11, Math.min(30, shortestSide * 0.13))
+  const cornerInset = 1.5
+
+  context.save()
+
+  context.beginPath()
+  context.rect(x, y, width, height)
+  context.clip()
+
+  const background = context.createLinearGradient(x, y, x, y + height)
+  background.addColorStop(0, "rgba(56, 189, 248, 0.19)")
+  background.addColorStop(1, "rgba(3, 105, 161, 0.27)")
+  context.fillStyle = background
+  context.fillRect(x, y, width, height)
+
+  context.beginPath()
+  for (let gridX = x + gridSpacing; gridX < x + width; gridX += gridSpacing) {
+    context.moveTo(gridX, y)
+    context.lineTo(gridX, y + height)
+  }
+  for (let gridY = y + gridSpacing; gridY < y + height; gridY += gridSpacing) {
+    context.moveTo(x, gridY)
+    context.lineTo(x + width, gridY)
+  }
+  context.lineWidth = 1
+  context.strokeStyle = HUD_BBOX_GRID_COLOR
+  context.stroke()
+  context.restore()
+
+  context.save()
+  context.lineWidth = 1.5
+  context.strokeStyle = HUD_BBOX_BORDER_COLOR
+  context.strokeRect(x, y, width, height)
+
+  context.beginPath()
+  context.moveTo(x + cornerLength, y + cornerInset)
+  context.lineTo(x + cornerInset, y + cornerInset)
+  context.lineTo(x + cornerInset, y + cornerLength)
+
+  context.moveTo(x + width - cornerLength, y + cornerInset)
+  context.lineTo(x + width - cornerInset, y + cornerInset)
+  context.lineTo(x + width - cornerInset, y + cornerLength)
+
+  context.moveTo(x + cornerInset, y + height - cornerLength)
+  context.lineTo(x + cornerInset, y + height - cornerInset)
+  context.lineTo(x + cornerLength, y + height - cornerInset)
+
+  context.moveTo(x + width - cornerLength, y + height - cornerInset)
+  context.lineTo(x + width - cornerInset, y + height - cornerInset)
+  context.lineTo(x + width - cornerInset, y + height - cornerLength)
+
+  context.lineWidth = 4
+  context.lineCap = "square"
+  context.lineJoin = "miter"
+  context.strokeStyle = HUD_BBOX_CORNER_COLOR
+  context.shadowColor = "rgba(186, 230, 253, 0.75)"
+  context.shadowBlur = 6
+  context.stroke()
+  context.restore()
+}
+
 function drawDetections(
   context: CanvasRenderingContext2D,
   detections: DetectionPayload[],
@@ -101,9 +176,13 @@ function drawDetections(
     const canvasX2 = offsetX + x2 * scale
     const canvasY2 = offsetY + y2 * scale
 
-    context.lineWidth = 2
-    context.strokeStyle = color
-    context.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1)
+    drawHudBoundingBox(
+      context,
+      canvasX1,
+      canvasY1,
+      canvasX2 - canvasX1,
+      canvasY2 - canvasY1,
+    )
 
     const labels: string[] = []
     if (detection.track_id != null) {
