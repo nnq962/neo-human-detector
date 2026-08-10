@@ -234,16 +234,12 @@ const LIVE_BADGE_STYLE: CSSProperties = {
   boxShadow: [
     "0 24.72px 32.26px 0 rgba(0, 229, 141, 0.19)",
     "0 42px 107px 0 rgba(0, 229, 141, 0.34)",
-    "inset 0 1px 4px 2px rgba(217, 255, 240, 1)",
-    "inset 0 1px 18px 2px rgba(217, 255, 240, 1)",
   ].join(", "),
 }
 
 const LIVE_BADGE_BORDER_STYLE: CSSProperties = {
-  background: [
-    "linear-gradient(180deg, rgba(0, 166, 62, 0.3) 0%, rgba(0, 201, 81, 0.3) 100%)",
-    "radial-gradient(63.87% 50% at 52.08% 100%, #fff 0%, rgba(255, 255, 255, 0) 100%)",
-  ].join(", "),
+  background:
+    "linear-gradient(180deg, rgba(0, 166, 62, 0.55) 0%, rgba(0, 201, 81, 0.55) 100%)",
   WebkitMask:
     "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
   WebkitMaskComposite: "xor",
