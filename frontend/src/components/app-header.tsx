@@ -4,6 +4,7 @@ import { useTheme } from "next-themes"
 import { Moon, Sun } from "lucide-react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import { HardwareMetricsIndicator } from "@/components/hardware-metrics-indicator"
 import { RuntimeStatusIndicator } from "@/components/runtime-status"
 import { cn } from "@/lib/utils"
 import { useCameras } from "@/hooks/use-cameras"
@@ -100,6 +101,7 @@ export function AppHeader() {
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-3">
+        <HardwareMetricsIndicator />
         <RuntimeStatusIndicator />
         <ThemeToggle />
       </div>
