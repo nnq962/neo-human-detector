@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -523,6 +524,9 @@ export function PublicCameraWallPage() {
   const [runtimeSummaries, setRuntimeSummaries] = useState<
     Record<string, RuntimeCameraSummary>
   >({})
+  const [cameraStreamActive, setCameraStreamActive] = useState<
+    Record<string, boolean>
+  >({})
   const formattedDateTime = formatDateTime(now)
 
   const enabledCameras = useMemo(
@@ -539,6 +543,9 @@ export function PublicCameraWallPage() {
     effectiveSelectedIds.includes(camera.id)
   ).slice(0, MAX_VISIBLE_CAMERAS)
   const activeCamera = visibleCameras[0] ?? null
+  const activeCameraCount = visibleCameras.filter(
+    (camera) => cameraStreamActive[camera.id] === true,
+  ).length
   const detectedPersonCount = visibleCameras.reduce(
     (total, camera) =>
       total + (runtimeSummaries[camera.id]?.detectionCount ?? 0),
@@ -598,6 +605,16 @@ export function PublicCameraWallPage() {
     )
   }), [])
 
+  const updateCameraStreamActive = useCallback(
+    (cameraId: string, active: boolean) => {
+      setCameraStreamActive((current) => {
+        if (current[cameraId] === active) return current
+        return { ...current, [cameraId]: active }
+      })
+    },
+    [],
+  )
+
   return (
     <main
       className="relative flex h-svh w-full items-center justify-center overflow-hidden bg-[#0d1212]"
@@ -655,8 +672,8 @@ export function PublicCameraWallPage() {
               <MetricCard
                 icon={<Radio className="size-7" strokeWidth={2.2} />}
                 iconClassName="bg-[#f0fdf4] text-[#31c86a]"
-                label="Cam hoạt động"
-                value="02"
+                label="Camera hoạt động"
+                value={String(activeCameraCount).padStart(2, "0")}
               />
               <MetricCard
                 icon={<Users className="size-7" strokeWidth={2.2} />}
@@ -699,6 +716,9 @@ export function PublicCameraWallPage() {
                           hideFaceKeypoints
                           hideStreamBadges
                           videoBorderRadius={14}
+                          onVideoSizeChange={(size) =>
+                            updateCameraStreamActive(camera.id, size !== null)
+                          }
                         />
                         <div
                           className="pointer-events-none absolute top-3 left-3 z-50 flex h-[38px] w-[122px] items-center justify-center gap-[10px] rounded-[100px] border border-transparent px-[12px] py-[8px] text-sm font-medium text-white"

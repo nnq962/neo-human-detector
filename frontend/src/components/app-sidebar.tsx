@@ -30,6 +30,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarRail,
 } from "@/components/ui/sidebar"
 import { useCameras } from "@/hooks/use-cameras"
 import { AddCameraDialog } from "@/components/add-camera-dialog"
@@ -52,12 +53,26 @@ export function AppSidebar() {
 
   return (
     <>
-      <Sidebar>
-        <SidebarHeader className="p-4">
-          <div className="flex items-center gap-2">
-            <Video className="size-5 shrink-0" />
-            <span className="text-sm font-semibold">Neo Human Detector</span>
-          </div>
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                size="lg"
+                tooltip="Neo Human Detector"
+              >
+                <Link to="/">
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+                    <Video className="size-4" />
+                  </div>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">Neo Human Detector</span>
+                  </div>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarHeader>
 
         <SidebarContent>
@@ -67,7 +82,11 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/"}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/"}
+                    tooltip="Dashboard"
+                  >
                     <Link to="/">
                       <LayoutDashboard />
                       <span>Dashboard</span>
@@ -81,12 +100,13 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         isActive={pathname.startsWith("/cameras")}
                         className="pr-14"
+                        title="Cameras"
                       >
                         <Camera />
                         <span>Cameras</span>
                         <ChevronRight
                           className={cn(
-                            "absolute right-2 transition-transform duration-200",
+                            "absolute right-2 transition-transform duration-200 group-data-[collapsible=icon]:hidden",
                             cameraOpen && "rotate-90"
                           )}
                         />
@@ -138,12 +158,13 @@ export function AppSidebar() {
                     <Collapsible.Trigger asChild>
                       <SidebarMenuButton
                         isActive={pathname.startsWith("/calibration")}
+                        title="Calibration"
                       >
                         <Crosshair />
                         <span>Calibration</span>
                         <ChevronRight
                           className={cn(
-                            "ml-auto transition-transform duration-200",
+                            "ml-auto transition-transform duration-200 group-data-[collapsible=icon]:hidden",
                             calibrationOpen && "rotate-90"
                           )}
                         />
@@ -182,7 +203,11 @@ export function AppSidebar() {
 
                 {navItems.map((item) => (
                   <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={pathname === item.url}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === item.url}
+                      tooltip={item.title}
+                    >
                       <Link to={item.url}>
                         <item.icon />
                         <span>{item.title}</span>
@@ -195,9 +220,12 @@ export function AppSidebar() {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="p-4 text-xs text-muted-foreground">
-          v0.1.0
+        <SidebarFooter>
+          <p className="px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            v0.1.0
+          </p>
         </SidebarFooter>
+        <SidebarRail />
       </Sidebar>
 
       <AddCameraDialog open={addDialogOpen} onOpenChange={setAddDialogOpen} />
