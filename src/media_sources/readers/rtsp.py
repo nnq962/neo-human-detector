@@ -4,6 +4,7 @@ import platform
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import cv2
 import numpy as np
@@ -65,6 +66,7 @@ class RtspReader(BaseReader):
     def open(self) -> "RtspReader":
         """Mở stream và ưu tiên backend GStreamer phù hợp với nền tảng."""
         url = self._source
+        log_url = self._mask_url_for_log(url)
         self._jetson_acceleration_enabled = self._should_use_jetson_acceleration()
         if (
             self._use_gstreamer
@@ -87,7 +89,7 @@ class RtspReader(BaseReader):
             )
 
         self._stop_reconnect.clear()
-        LOGGER.info("Đang kết nối stream: %s", url)
+        LOGGER.info("Đang kết nối stream: %s", log_url)
         cap, backend = self._open_cap(url)
         self._cap = cap
         self._backend = backend
@@ -152,7 +154,10 @@ class RtspReader(BaseReader):
             return image
 
         if not self._reconnect:
-            LOGGER.warning("RTSP mất kết nối, không reconnect: %s", self._source)
+            LOGGER.warning(
+                "RTSP mất kết nối, không reconnect: %s",
+                self._mask_url_for_log(self._source),
+            )
             return None
 
         return self._reconnect_and_read()
@@ -179,12 +184,14 @@ class RtspReader(BaseReader):
                 LOGGER.error(
                     "RTSP bỏ cuộc sau %d lần reconnect: %s",
                     self._max_reconnect_attempts,
-                    self._source,
+                    self._mask_url_for_log(self._source),
                 )
                 return None
 
             LOGGER.warning(
-                "RTSP mất kết nối, thử lại lần %d: %s", attempt, self._source
+                "RTSP mất kết nối, thử lại lần %d: %s",
+                attempt,
+                self._mask_url_for_log(self._source),
             )
             if self._cap is not None:
                 self._cap.release()
@@ -204,7 +211,7 @@ class RtspReader(BaseReader):
                     "RTSP reconnect thành công (lần %d, backend=%s): %s",
                     attempt,
                     backend,
-                    self._source,
+                    self._mask_url_for_log(self._source),
                 )
                 image = self._read_capture_once()
                 if image is not None:
@@ -228,7 +235,8 @@ class RtspReader(BaseReader):
             if result is not None:
                 return result
             LOGGER.warning(
-                "GStreamer pipeline không thành công, fallback sang FFMPEG: %s", url
+                "GStreamer pipeline không thành công, fallback sang FFMPEG: %s",
+                self._mask_url_for_log(url),
             )
         return self._open_ffmpeg(url)
 
@@ -250,11 +258,10 @@ class RtspReader(BaseReader):
     def _open_gstreamer(self, url: str) -> tuple[cv2.VideoCapture, str] | None:
         """Thử lần lượt h264 → h265; warm-up với timeout ngắn để detect codec nhanh.
 
-        Dùng _WARMUP_TIMEOUT_MS thay vì None để tránh block vô hạn khi codec sai
-        (GStreamer không có frame → pull_sample() block đến internal TCP timeout ~30s).
-        Sau khi confirm frame thì apply production read_timeout_ms.
+        Dùng số lần warm-up hữu hạn để phát hiện codec sai. GStreamer không hỗ trợ
+        CAP_PROP_*_TIMEOUT_MSEC của OpenCV, vì vậy timeout chỉ được dùng khi
+        fallback qua FFMPEG.
         """
-        _WARMUP_TIMEOUT_MS = 500  # mỗi lần cap.read() chờ tối đa 500ms
         acceleration_modes = (
             (True, False) if self._jetson_acceleration_enabled else (False,)
         )
@@ -267,22 +274,15 @@ class RtspReader(BaseReader):
                         jetson_accelerated=jetson_accelerated,
                     ),
                     cv2.CAP_GSTREAMER,
-                    self._open_timeout_ms,
-                    _WARMUP_TIMEOUT_MS,
+                    None,
+                    None,
                 )
                 if not cap.isOpened():
                     cap.release()
                     continue
-                for _ in range(20):  # max 10s tổng (20 × 500ms)
+                for _ in range(20):
                     ok, frame = cap.read()
                     if ok and frame is not None:
-                        if self._read_timeout_ms is not None and hasattr(
-                            cv2, "CAP_PROP_READ_TIMEOUT_MSEC"
-                        ):
-                            cap.set(
-                                cv2.CAP_PROP_READ_TIMEOUT_MSEC,
-                                float(self._read_timeout_ms),
-                            )
                         backend = "Jetson-HW" if jetson_accelerated else "software"
                         return cap, f"GStreamer/{backend}/{codec}"
                 cap.release()
@@ -290,7 +290,7 @@ class RtspReader(BaseReader):
                 LOGGER.warning(
                     "Jetson hardware decode không thành công; "
                     "thử lại bằng GStreamer software decoder: %s",
-                    url,
+                    self._mask_url_for_log(url),
                 )
         return None
 
@@ -327,6 +327,24 @@ class RtspReader(BaseReader):
             f"! {decode_convert} "
             f"! appsink sync=false async=false drop=true max-buffers=1"
         )
+
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _mask_url_for_log(url: str) -> str:
+        """Che mật khẩu trong URL stream trước khi ghi log."""
+        try:
+            parts = urlsplit(url)
+            if not parts.netloc or "@" not in parts.netloc:
+                return url
+            userinfo, host = parts.netloc.rsplit("@", 1)
+            username = userinfo.split(":", 1)[0]
+            masked_netloc = f"{username}:***@{host}" if ":" in userinfo else f"{username}@{host}"
+            return urlunsplit(
+                (parts.scheme, masked_netloc, parts.path, parts.query, parts.fragment)
+            )
+        except ValueError:
+            return "<URL stream không hợp lệ hoặc chứa thông tin xác thực>"
 
     # ─────────────────────────────────────────────────────────────────────────
 

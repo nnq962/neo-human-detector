@@ -154,3 +154,13 @@ def test_hardware_failure_falls_back_to_software_gstreamer(monkeypatch) -> None:
     assert "avdec_h264" in opened_pipelines[2]
     assert captures[0].released
     assert captures[1].released
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_mask_url_for_log_hides_rtsp_password() -> None:
+    """URL log phải giữ địa chỉ stream nhưng không để lộ mật khẩu."""
+    url = "rtsp://admin:secret%40value@10.70.22.210:554/Streaming/channels/101"
+
+    assert RtspReader._mask_url_for_log(url) == (
+        "rtsp://admin:***@10.70.22.210:554/Streaming/channels/101"
+    )
