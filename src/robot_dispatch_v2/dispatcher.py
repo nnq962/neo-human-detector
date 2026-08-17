@@ -37,6 +37,7 @@ from utils import LOGGER
 
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
 DEFAULT_MAX_RETRIES = 5
+BACKGROUND_DISPATCH_INTERVAL_SECONDS = 0.25
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ class RobotDispatcherV2:
         max_retries: int = DEFAULT_MAX_RETRIES,
         register_handlers: bool = True,
         register_heartbeat_handler: bool = True,
+        background_ack: bool = False,
     ) -> None:
         """Khởi tạo dispatcher và tùy chọn đăng ký các UART handler cần thiết."""
         self._uart = uart
@@ -121,15 +123,21 @@ class RobotDispatcherV2:
         self._ack_timeout_seconds = ack_timeout_seconds
         self._max_retries = max_retries
         self._register_heartbeat_handler = register_heartbeat_handler
+        self._background_ack = background_ack
 
         self._pending_assignments: dict[str, _PendingAssignment] = {}
         self._pending_cancellations: set[str] = set()
         self._lock = threading.RLock()
+        self._background_stop = threading.Event()
+        self._background_wakeup = threading.Event()
+        self._background_thread: Optional[threading.Thread] = None
         self._handlers_registered = False
         self._registered_with_add_handler = False
 
         if register_handlers:
             self.register_uart_handlers()
+        if self._background_ack:
+            self._start_background_worker()
 
     # ─────────────────────────────────────────────────────────────────────────
     @property
@@ -178,6 +186,8 @@ class RobotDispatcherV2:
         Dispatcher không đóng UART transport vì vòng đời kết nối thuộc về bên
         đã truyền transport vào constructor, thường là Runtime.
         """
+        self._stop_background_worker()
+
         with self._lock:
             if not self._handlers_registered:
                 return
@@ -263,6 +273,10 @@ class RobotDispatcherV2:
             if waiting_for_cancel:
                 return False
 
+            if self._background_ack:
+                self._schedule_background_dispatch()
+                return False
+
             return self._try_assign(pending)
 
         if decision.action is DispatchAction.TASK_CANCEL:
@@ -277,6 +291,10 @@ class RobotDispatcherV2:
                 self._pending_assignments.pop(decision.zone_id, None)
                 self._pending_cancellations.add(decision.zone_id)
 
+            if self._background_ack:
+                self._schedule_background_dispatch()
+                return False
+
             return self._try_cancel(decision.zone_id)
 
         LOGGER.warning("Bỏ qua dispatch action không được hỗ trợ: %s", decision.action)
@@ -290,6 +308,14 @@ class RobotDispatcherV2:
         Cancel luôn được thử trước assign để tránh giao task mới trong khi task
         cũ của một zone vẫn chưa hủy xong. Trả số decision hoàn tất trong tick.
         """
+        if self._background_ack:
+            self._schedule_background_dispatch()
+            return 0
+        return self._run_pending_once()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _run_pending_once(self) -> int:
+        """Thử một lượt cancel rồi assign cho các decision đang chờ."""
         with self._lock:
             cancellation_zone_ids = list(self._pending_cancellations)
             assignments = list(self._pending_assignments.values())
@@ -311,6 +337,50 @@ class RobotDispatcherV2:
                 completed_count += 1
 
         return completed_count
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _start_background_worker(self) -> None:
+        """Khởi động worker chuyên chờ ACK để không chặn thread Runtime."""
+        with self._lock:
+            if self._background_thread is not None:
+                return
+            self._background_stop.clear()
+            self._background_thread = threading.Thread(
+                target=self._background_loop,
+                name="robot-dispatch-ack",
+                daemon=True,
+            )
+            self._background_thread.start()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _stop_background_worker(self) -> None:
+        """Yêu cầu worker dừng và chờ ngắn trước khi gỡ UART handler."""
+        if not self._background_ack:
+            return
+        self._background_stop.set()
+        self._background_wakeup.set()
+
+        with self._lock:
+            thread = self._background_thread
+            self._background_thread = None
+
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _schedule_background_dispatch(self) -> None:
+        """Đánh thức worker để xử lý decision đang chờ sớm nhất có thể."""
+        self._background_wakeup.set()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _background_loop(self) -> None:
+        """Xử lý ACK/retry nền tuần tự, ưu tiên cancel như đường đồng bộ cũ."""
+        while not self._background_stop.is_set():
+            self._background_wakeup.wait(BACKGROUND_DISPATCH_INTERVAL_SECONDS)
+            self._background_wakeup.clear()
+            if self._background_stop.is_set():
+                return
+            self._run_pending_once()
 
     # ─────────────────────────────────────────────────────────────────────────
     def on_heartbeat(self, message: Heartbeat) -> None:

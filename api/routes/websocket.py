@@ -42,7 +42,7 @@ async def _require_private_websocket(websocket: WebSocket) -> bool:
         return False
 
     token = websocket.cookies.get(SESSION_COOKIE_NAME)
-    if not settings.password_hash or not auth_service.is_session_valid(token):
+    if not settings.password or not auth_service.is_session_valid(token):
         await websocket.accept()
         await websocket.close(code=4401, reason="Phiên đăng nhập không hợp lệ.")
         return False

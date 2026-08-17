@@ -40,7 +40,7 @@ def get_session(request: Request) -> SessionStatus:
             or auth_service.is_session_valid(request.cookies.get(SESSION_COOKIE_NAME))
         ),
         enabled=settings.enabled,
-        configured=bool(settings.password_hash),
+        configured=bool(settings.password),
     )
 
 
@@ -98,5 +98,5 @@ def logout(request: Request, response: Response) -> SessionStatus:
     return SessionStatus(
         authenticated=not settings.enabled,
         enabled=settings.enabled,
-        configured=bool(settings.password_hash),
+        configured=bool(settings.password),
     )

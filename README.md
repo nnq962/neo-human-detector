@@ -56,7 +56,7 @@ VITE_API_BASE_URL=http://127.0.0.1:9721
   same-origin tại port `9721`.
 
 Mật khẩu quản trị không nằm trong frontend env hoặc JavaScript bundle. Setup sẽ
-yêu cầu nhập mật khẩu và chỉ ghi hash scrypt vào `configs/default.yaml`. Với môi
+yêu cầu nhập mật khẩu và ghi trực tiếp vào `configs/default.yaml`. Với môi
 trường cài đặt không tương tác, truyền mật khẩu qua secret environment
 `NEO_CONFIG_PASSWORD` khi chạy setup.
 
@@ -238,7 +238,7 @@ Một số trường chính:
 web:
   auth:
     enabled: true
-    password_hash: 'scrypt$...'
+    password: 'mat-khau-quan-tri'
     session_ttl_seconds: 28800
   allowed_origins:
     - http://127.0.0.1:5173
@@ -263,11 +263,14 @@ uart:
 cameras: []
 ```
 
-Đổi mật khẩu quản trị mà không lưu plaintext:
+Đổi mật khẩu quản trị:
 
 ```bash
 uv run --locked python scripts/set-web-password.py
 ```
+
+Khi nâng cấp từ bản dùng `password_hash`, hãy chạy lệnh trên để đặt lại
+`web.auth.password`. Hash cũ không thể chuyển ngược thành mật khẩu gốc.
 
 Đổi hash sẽ vô hiệu hóa các session hiện có trong process API.
 
@@ -510,8 +513,8 @@ nano frontend/.env
 
 ## Bảo mật và file local
 
-- Không commit `configs/default.yaml`; file này có thể chứa RTSP credential và
-  thông tin thiết bị. Mật khẩu quản trị chỉ được lưu dưới dạng hash scrypt.
+- Không commit `configs/default.yaml`; file này có thể chứa RTSP credential,
+  thông tin thiết bị và mật khẩu quản trị dạng plaintext.
 - Không commit `frontend/.env`.
 - Không commit wheel hoặc weights trực tiếp; chúng được tải qua manifest.
 - Google Drive artifact phải được chia sẻ ở chế độ người có link có thể xem.

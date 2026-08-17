@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Camera, Check, Cpu, Play, RotateCcw, Square } from "lucide-react"
+import { Camera, Check, Cpu, Gauge, Play, RotateCcw, Square, Timer } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { runtimeApi, type RuntimeStatus } from "@/api/runtime.api"
@@ -59,6 +60,15 @@ function getStatusSub(displayState: RuntimeDisplayState, status: RuntimeStatus |
     case "stopping":
       return "Đang đóng tài nguyên runtime"
   }
+}
+
+function formatInferenceMetric(value: RuntimeStatus["performance"]["yolo"]): string {
+  if (value === null) return "Chưa có mẫu"
+  return `${value.last_ms.toFixed(1)} ms · TB ${value.average_ms.toFixed(1)} ms`
+}
+
+function formatCameraFps(fps: number | null): string {
+  return fps === null ? "Chưa có mẫu" : `${fps.toFixed(1)} FPS`
 }
 
 function sameCameraIds(left: string[], right: string[]): boolean {
@@ -205,7 +215,52 @@ export function RuntimeStatusIndicator() {
           </div>
         </div>
 
-        <div className="flex max-h-[min(36rem,calc(100vh-5rem))] flex-col gap-4 overflow-y-auto p-3 sm:p-4">
+        <ScrollArea className="h-[min(28rem,calc(100vh-5rem))]">
+          <div className="flex flex-col gap-4 p-3 sm:p-4">
+          <div className="rounded-xl border-2 border-border bg-muted/30 p-3 dark:border-input">
+            <div className="flex items-start gap-2">
+              <Timer className="mt-0.5 size-4 shrink-0 text-cyan-600 dark:text-cyan-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold">Thời gian suy luận model</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Mới nhất · trung bình 120 lần chạy gần nhất
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border bg-background px-2.5 py-2">
+                <p className="text-[11px] font-medium text-muted-foreground">YOLO / batch</p>
+                <p className="mt-0.5 text-xs font-semibold tabular-nums">
+                  {formatInferenceMetric(runtimeStatus?.performance.yolo ?? null)}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-background px-2.5 py-2">
+                <p className="text-[11px] font-medium text-muted-foreground">ReID / embedding batch</p>
+                <p className="mt-0.5 text-xs font-semibold tabular-nums">
+                  {formatInferenceMetric(runtimeStatus?.performance.reid ?? null)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 border-t pt-3">
+              <div className="flex items-center gap-2">
+                <Gauge className="size-3.5 text-cyan-600 dark:text-cyan-400" />
+                <p className="text-[11px] font-medium text-muted-foreground">FPS từng camera</p>
+              </div>
+              {runtimeStatus?.cameras.length ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {runtimeStatus.cameras.map((camera) => (
+                    <div key={camera.id} className="min-w-0 rounded-lg border bg-background px-2.5 py-2">
+                      <p className="truncate text-[11px] font-medium text-muted-foreground">{camera.name}</p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums">{formatCameraFps(camera.fps)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">Runtime chưa có camera đang chạy.</p>
+              )}
+            </div>
+          </div>
+
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div>
@@ -344,7 +399,8 @@ export function RuntimeStatusIndicator() {
               Restart
             </Button>
           </div>
-        </div>
+          </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )

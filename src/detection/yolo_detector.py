@@ -32,6 +32,8 @@ from ultralytics.utils import IterableSimpleNamespace, YAML
 from src.detection.datatypes import InferenceFrame
 from src.detection.utils import parse_yolo_result
 from src.detection.model_registry import resolve_model_artifact, resolve_model_path
+from src.performance import ModelInferenceMetrics
+import time
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +66,7 @@ class YoloDetector:
         self.model_artifact = resolve_model_artifact(config.model_id)
         self.model_path = resolve_model_path(config.model_id)
         self.model = YOLO(self.model_path)
+        self._inference_metrics = ModelInferenceMetrics()
         # Tạo tất cả tracker trước khi bất kỳ frame nào được xử lý.
         # BYTETracker.__init__ gọi reset_id() làm reset BaseTrack._count (class-level).
         # Nếu tạo lazy, mỗi camera mới tạo tracker sẽ reset counter về 0 → ID restart.
@@ -73,7 +76,7 @@ class YoloDetector:
 
     def predict_batch(self, frames: List[np.ndarray]) -> List[InferenceFrame]:
         """Chạy inference trên batch frame và trả danh sách InferenceFrame."""
-        results = self.model.predict(**self._build_predict_kwargs(frames))
+        results = self._predict(frames)
         return [self._parse_result(r, i) for i, r in enumerate(results)]
 
     def track_batch(self, frames: List[np.ndarray]) -> List[InferenceFrame]:
@@ -90,7 +93,7 @@ class YoloDetector:
                 f"{self.config.batch_size}; mỗi camera phải có đúng một tracker tương ứng."
             )
 
-        results = self.model.predict(**self._build_predict_kwargs(frames))
+        results = self._predict(frames)
         output = []
         for i, (result, frame) in enumerate(zip(results, frames)):
             track_id_by_index = self._apply_tracker(i, result, frame)
@@ -118,6 +121,11 @@ class YoloDetector:
             self._trackers.clear()
             _release_torch_memory()
 
+    # ─────────────────────────────────────────────────────────────────────────
+    def get_inference_metrics(self) -> dict | None:
+        """Trả thời gian YOLO theo batch từ tối đa 120 lần gần nhất."""
+        return self._inference_metrics.snapshot()
+
     # ── private ───────────────────────────────────────────────────────────────
 
     def _apply_tracker(
@@ -139,6 +147,23 @@ class YoloDetector:
         # STrack.result = [x1, y1, x2, y2, track_id, score, cls, idx].
         # Cột -1 (idx) = vị trí detection gốc; cột 4 = track_id.
         return {int(track[-1]): int(track[4]) for track in tracks}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _predict(self, frames: List[np.ndarray]):
+        """Chạy YOLO và đo riêng thời gian inference, không gồm ByteTrack."""
+        self._synchronize_cuda()
+        started_at = time.perf_counter()
+        results = self.model.predict(**self._build_predict_kwargs(frames))
+        self._synchronize_cuda()
+        self._inference_metrics.record((time.perf_counter() - started_at) * 1000)
+        return results
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _synchronize_cuda(self) -> None:
+        """Chờ CUDA hoàn tất khi model YOLO thực sự chạy trên GPU."""
+        device = getattr(self.model, "device", None)
+        if getattr(device, "type", None) == "cuda":
+            torch.cuda.synchronize(device)
 
     @staticmethod
     def _build_trackers(config: "YoloDetectorConfig") -> "Dict[int, BYTETracker]":

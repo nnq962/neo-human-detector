@@ -263,23 +263,22 @@ configure_web_auth() {
         printf '%s\n' "${NEO_CONFIG_PASSWORD}" \
             | uv run --locked python scripts/set-web-password.py --password-stdin
         remove_legacy_frontend_password
-        log "Đã cập nhật password hash từ NEO_CONFIG_PASSWORD."
+        log "Đã cập nhật password từ NEO_CONFIG_PASSWORD."
         return
     fi
 
     if uv run --locked python -c \
-        'from api.services.auth import load_auth_settings; raise SystemExit(0 if load_auth_settings().password_hash else 1)'; then
+        'from api.services.auth import load_auth_settings; raise SystemExit(0 if load_auth_settings().password else 1)'; then
         remove_legacy_frontend_password
-        log "Password hash quản trị đã được cấu hình."
+        log "Password quản trị đã được cấu hình."
         return
     fi
 
     if [[ -n "${legacy_password}" && "${legacy_password}" != "change-me" ]]; then
         printf '%s\n' "${legacy_password}" \
-            | uv run --locked python scripts/set-web-password.py \
-                --password-stdin --migrate-legacy
+            | uv run --locked python scripts/set-web-password.py --password-stdin
         remove_legacy_frontend_password
-        log "Đã chuyển mật khẩu frontend cũ sang password hash backend."
+        log "Đã chuyển mật khẩu frontend cũ sang backend."
         return
     fi
 

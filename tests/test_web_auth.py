@@ -20,8 +20,6 @@ from api.services.auth import (
     InvalidCredentialsError,
     LoginRateLimitedError,
     auth_service,
-    hash_password,
-    verify_password,
 )
 
 
@@ -67,11 +65,11 @@ class FakeWebSocket:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _settings(password_hash: str, *, ttl: int = 60) -> AuthSettings:
+def _settings(password: str, *, ttl: int = 60) -> AuthSettings:
     """Tạo cấu hình auth gọn dùng cho unit test."""
     return AuthSettings(
         enabled=True,
-        password_hash=password_hash,
+        password=password,
         session_ttl_seconds=ttl,
         max_login_failures=2,
         login_window_seconds=30,
@@ -110,24 +108,12 @@ def _request(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_scrypt_hash_never_contains_plaintext() -> None:
-    """Kiểm tra hash scrypt xác minh được mà không chứa plaintext."""
-    password = "mat-khau-rieng"
-    encoded = hash_password(password, salt=b"0123456789abcdef")
-
-    assert password not in encoded
-    assert verify_password(password, encoded)
-    assert not verify_password("sai-mat-khau", encoded)
-    assert not verify_password(password, "hash-khong-hop-le")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 def test_session_expires_and_password_change_revokes_it(monkeypatch) -> None:
-    """Kiểm tra session hết hạn và bị thu hồi khi password hash đổi."""
+    """Kiểm tra session hết hạn và bị thu hồi khi mật khẩu đổi."""
     clock = FakeClock()
     service = AuthService(clock=clock)
-    first_hash = hash_password("mat-khau-1")
-    current_settings = _settings(first_hash, ttl=10)
+    first_password = "mat-khau-1"
+    current_settings = _settings(first_password, ttl=10)
     monkeypatch.setattr(
         "api.services.auth.load_auth_settings",
         lambda: current_settings,
@@ -137,10 +123,10 @@ def test_session_expires_and_password_change_revokes_it(monkeypatch) -> None:
     assert ttl == 10
     assert service.is_session_valid(token)
 
-    current_settings = _settings(hash_password("mat-khau-2"), ttl=10)
+    current_settings = _settings("mat-khau-2", ttl=10)
     assert not service.is_session_valid(token)
 
-    current_settings = _settings(first_hash, ttl=10)
+    current_settings = _settings(first_password, ttl=10)
     token, _ = service.create_session("mat-khau-1", "client-1")
     clock.advance(11)
     assert not service.is_session_valid(token)
@@ -151,7 +137,7 @@ def test_login_rate_limit_blocks_repeated_failures(monkeypatch) -> None:
     """Kiểm tra client bị khóa tạm thời sau nhiều lần nhập sai."""
     clock = FakeClock()
     service = AuthService(clock=clock)
-    settings = _settings(hash_password("mat-khau-dung"))
+    settings = _settings("mat-khau-dung")
     monkeypatch.setattr("api.services.auth.load_auth_settings", lambda: settings)
 
     with pytest.raises(InvalidCredentialsError):
@@ -170,7 +156,7 @@ def test_login_rate_limit_blocks_repeated_failures(monkeypatch) -> None:
 def test_private_websocket_rejects_invalid_session_with_auth_code(monkeypatch) -> None:
     """Kiểm tra WebSocket riêng tư trả code 4401 cho session sai."""
     websocket = FakeWebSocket(token="khong-hop-le")
-    settings = _settings(hash_password("mat-khau-test"))
+    settings = _settings("mat-khau-test")
     monkeypatch.setattr("api.routes.websocket.load_auth_settings", lambda: settings)
     monkeypatch.setattr("api.routes.websocket.is_origin_allowed", lambda *args, **kwargs: True)
     monkeypatch.setattr(
@@ -189,7 +175,7 @@ def test_private_websocket_rejects_invalid_session_with_auth_code(monkeypatch) -
 def test_private_websocket_allows_valid_session(monkeypatch) -> None:
     """Kiểm tra WebSocket riêng tư đi tiếp khi Origin và session hợp lệ."""
     websocket = FakeWebSocket(token="hop-le")
-    settings = _settings(hash_password("mat-khau-test"))
+    settings = _settings("mat-khau-test")
     monkeypatch.setattr("api.routes.websocket.load_auth_settings", lambda: settings)
     monkeypatch.setattr("api.routes.websocket.is_origin_allowed", lambda *args, **kwargs: True)
     monkeypatch.setattr(
@@ -215,7 +201,7 @@ def test_http_auth_and_public_camera_boundary(tmp_path: Path, monkeypatch) -> No
             "web": {
                 "auth": {
                     "enabled": True,
-                    "password_hash": hash_password("mat-khau-test"),
+                    "password": "mat-khau-test",
                     "session_ttl_seconds": 60,
                 }
             },

@@ -352,6 +352,11 @@ class RuntimeManager:
             "uptime_seconds": uptime_seconds,
             "batch_size": len(self._runtime.cameras) if self._runtime else 0,
             "cameras": self._camera_statuses_unlocked(),
+            "performance": (
+                self._runtime.get_performance_metrics()
+                if self._runtime is not None
+                else {"yolo": None, "reid": None}
+            ),
             "last_error": self._last_error,
         }
 
@@ -361,7 +366,7 @@ class RuntimeManager:
         if self._runtime is None:
             return []
 
-        fps_tracker = getattr(self._runtime, "_fps_tracker", {}) or {}
+        camera_fps = getattr(self._runtime, "_camera_fps", {}) or {}
         cameras = []
 
         for camera in self._runtime.cameras:
@@ -369,7 +374,7 @@ class RuntimeManager:
                 zone.name: getattr(zone.state, "value", str(zone.state))
                 for zone in camera.zones
             }
-            fps = fps_tracker.get(camera.id)
+            fps = camera_fps.get(camera.id)
             cameras.append({
                 "id": camera.id,
                 "name": camera.name,

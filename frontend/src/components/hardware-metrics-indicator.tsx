@@ -12,6 +12,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { notifyAuthenticationRequired } from "@/lib/auth-events"
 import { cn } from "@/lib/utils"
 
@@ -298,8 +299,8 @@ export function HardwareMetricsIndicator() {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] p-3">
-        <PopoverHeader>
+      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0">
+        <PopoverHeader className="border-b p-3">
           <div className="flex items-center justify-between gap-3">
             <PopoverTitle>Phần cứng hệ thống</PopoverTitle>
             <span className={cn("size-2 rounded-full", connected ? "bg-green-500" : "bg-muted-foreground")} />
@@ -309,42 +310,46 @@ export function HardwareMetricsIndicator() {
           </PopoverDescription>
         </PopoverHeader>
 
-        {metrics ? (
-          <div className="grid gap-2.5">
-            <MetricCard
-              icon={Cpu}
-              label="CPU"
-              value={metrics.cpu.name ?? "Không xác định"}
-              detail={`${metrics.cpu.physical_cores ?? "—"} physical · ${metrics.cpu.logical_cores ?? "—"} logical · Load ${metrics.cpu.load_average?.[0] ?? "—"}`}
-              usage={metrics.cpu.usage_percent}
-              className="border-sky-500/20 bg-sky-500/5 dark:bg-sky-500/10"
-              iconClassName="text-sky-600 dark:text-sky-400"
-              indicatorClassName="bg-sky-500"
-            />
-            <CpuCoreUsageGrid cores={metrics.cpu.cores} />
-            <MetricCard
-              icon={MemoryStick}
-              label="Bộ nhớ"
-              value={`${formatBytes(metrics.memory.used_bytes)} / ${formatBytes(metrics.memory.total_bytes)}`}
-              detail={`${formatBytes(metrics.memory.available_bytes)} available`}
-              usage={metrics.memory.usage_percent}
-              className="border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10"
-              iconClassName="text-emerald-600 dark:text-emerald-400"
-              indicatorClassName="bg-emerald-500"
-            />
-            {metrics.gpus.length > 0 ? (
-              metrics.gpus.map((gpu) => <GpuMetricCard key={gpu.index} gpu={gpu} />)
-            ) : (
-              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                Không phát hiện GPU telemetry trên thiết bị này.
+        <ScrollArea className="h-[min(28rem,calc(100vh-5rem))]">
+          <div className="p-3">
+            {metrics ? (
+              <div className="grid gap-2.5">
+                <MetricCard
+                  icon={Cpu}
+                  label="CPU"
+                  value={metrics.cpu.name ?? "Không xác định"}
+                  detail={`${metrics.cpu.physical_cores ?? "—"} physical · ${metrics.cpu.logical_cores ?? "—"} logical · Load ${metrics.cpu.load_average?.[0] ?? "—"}`}
+                  usage={metrics.cpu.usage_percent}
+                  className="border-sky-500/20 bg-sky-500/5 dark:bg-sky-500/10"
+                  iconClassName="text-sky-600 dark:text-sky-400"
+                  indicatorClassName="bg-sky-500"
+                />
+                <CpuCoreUsageGrid cores={metrics.cpu.cores} />
+                <MetricCard
+                  icon={MemoryStick}
+                  label="Bộ nhớ"
+                  value={`${formatBytes(metrics.memory.used_bytes)} / ${formatBytes(metrics.memory.total_bytes)}`}
+                  detail={`${formatBytes(metrics.memory.available_bytes)} available`}
+                  usage={metrics.memory.usage_percent}
+                  className="border-emerald-500/20 bg-emerald-500/5 dark:bg-emerald-500/10"
+                  iconClassName="text-emerald-600 dark:text-emerald-400"
+                  indicatorClassName="bg-emerald-500"
+                />
+                {metrics.gpus.length > 0 ? (
+                  metrics.gpus.map((gpu) => <GpuMetricCard key={gpu.index} gpu={gpu} />)
+                ) : (
+                  <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                    Không phát hiện GPU telemetry trên thiết bị này.
+                  </div>
+                )}
               </div>
+            ) : (
+              <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+                Đang kết nối WebSocket `/ws/metrics`…
+              </p>
             )}
           </div>
-        ) : (
-          <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-            Đang kết nối WebSocket `/ws/metrics`…
-          </p>
-        )}
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )

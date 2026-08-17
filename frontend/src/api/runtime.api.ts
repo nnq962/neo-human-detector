@@ -11,6 +11,19 @@ export interface RuntimeCameraStatus {
   zone_states: Record<string, string>
 }
 
+export interface RuntimeInferenceMetric {
+  last_ms: number
+  average_ms: number
+  min_ms: number
+  max_ms: number
+  sample_count: number
+}
+
+export interface RuntimePerformanceStatus {
+  yolo: RuntimeInferenceMetric | null
+  reid: RuntimeInferenceMetric | null
+}
+
 export interface RuntimeStatus {
   state: RuntimeState
   is_running: boolean
@@ -22,6 +35,7 @@ export interface RuntimeStatus {
   uptime_seconds: number | null
   batch_size: number
   cameras: RuntimeCameraStatus[]
+  performance: RuntimePerformanceStatus
   last_error: string | null
 }
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import OrderedDict
 import gc
 from pathlib import Path
+import time
 from typing import Literal, Sequence, Union
 
 import numpy as np
@@ -20,6 +21,7 @@ from torch import Tensor, nn
 from torchreid.reid.models import build_model
 from torchvision import transforms
 from src.model_catalog import find_default_model, resolve_model_path
+from src.performance import ModelInferenceMetrics
 
 
 ImageInput = Union[str, Path, Image.Image, np.ndarray]
@@ -59,6 +61,7 @@ class OSNetPersonEmbedder:
         self.batch_size = batch_size
         self.transform = self._build_preprocess()
         self.model = self._load_model(verbose=verbose)
+        self._inference_metrics = ModelInferenceMetrics()
 
     def close(self) -> None:
         """Release model references and cached accelerator memory."""
@@ -121,11 +124,20 @@ class OSNetPersonEmbedder:
                 [self._preprocess_image(image, color_format) for image in chunk],
                 dim=0,
             ).to(self.device)
+            self._synchronize_cuda()
+            started_at = time.perf_counter()
             features = self.model(batch)
+            self._synchronize_cuda()
+            self._inference_metrics.record((time.perf_counter() - started_at) * 1000)
             features = F.normalize(features, p=2, dim=1)
             outputs.append(features.cpu())
 
         return torch.cat(outputs, dim=0)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def get_inference_metrics(self) -> dict | None:
+        """Trả thời gian forward OSNet theo tối đa 120 batch embedding gần nhất."""
+        return self._inference_metrics.snapshot()
 
     def _load_model(self, *, verbose: bool) -> nn.Module:
         """Load OSNet model và nạp checkpoint tương thích."""
@@ -198,6 +210,12 @@ class OSNetPersonEmbedder:
     def _preprocess_image(self, image: ImageInput, color_format: ColorFormat) -> Tensor:
         """Chuyển input image sang tensor model-ready."""
         return self.transform(self._to_pil_image(image, color_format))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _synchronize_cuda(self) -> None:
+        """Chờ CUDA hoàn tất khi OSNet đang chạy trên GPU."""
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
 
     @staticmethod
     def _to_pil_image(image: ImageInput, color_format: ColorFormat) -> Image.Image:

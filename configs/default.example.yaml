@@ -8,7 +8,7 @@ runtime:
 web:
   auth:
     enabled: true
-    password_hash: ''
+    password: ''
     session_ttl_seconds: 28800
     max_login_failures: 5
     login_window_seconds: 60

@@ -33,6 +33,9 @@ const ZoneStateMachinePage = lazy(() =>
 const DetectionPage = lazy(() =>
   import("@/pages/DetectionPage").then((m) => ({ default: m.DetectionPage })),
 )
+const RobotDispatchPage = lazy(() =>
+  import("@/pages/RobotDispatchPage").then((m) => ({ default: m.RobotDispatchPage })),
+)
 function App() {
   return (
     <BrowserRouter>
@@ -60,6 +63,7 @@ function App() {
             />
             <Route path="/uart" element={<UartPage />} />
             <Route path="/re-id" element={<ReidPage />} />
+            <Route path="/robot-dispatch" element={<RobotDispatchPage />} />
             <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
             <Route path="/detection" element={<DetectionPage />} />
           </Route>

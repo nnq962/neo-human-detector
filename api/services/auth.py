@@ -14,11 +14,6 @@ from typing import Callable, Deque
 from api.services import config_store
 
 
-SCRYPT_N = 2**14
-SCRYPT_R = 8
-SCRYPT_P = 1
-SCRYPT_KEY_LENGTH = 32
-SALT_LENGTH = 16
 DEFAULT_SESSION_TTL_SECONDS = 8 * 60 * 60
 DEFAULT_MAX_LOGIN_FAILURES = 5
 DEFAULT_LOGIN_WINDOW_SECONDS = 60
@@ -48,7 +43,7 @@ class AuthSettings:
     """Cấu hình xác thực đã được chuẩn hóa từ YAML."""
 
     enabled: bool
-    password_hash: str
+    password: str
     session_ttl_seconds: int
     max_login_failures: int
     login_window_seconds: int
@@ -63,49 +58,6 @@ class SessionRecord:
 
     expires_at: float
     credential_fingerprint: str
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def hash_password(password: str, *, salt: bytes | None = None) -> str:
-    """Băm mật khẩu bằng scrypt và trả chuỗi có đủ tham số kiểm tra."""
-    if not password:
-        raise ValueError("Mật khẩu không được để trống.")
-
-    password_salt = salt or secrets.token_bytes(SALT_LENGTH)
-    digest = hashlib.scrypt(
-        password.encode("utf-8"),
-        salt=password_salt,
-        n=SCRYPT_N,
-        r=SCRYPT_R,
-        p=SCRYPT_P,
-        dklen=SCRYPT_KEY_LENGTH,
-    )
-    return (
-        f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}"
-        f"${password_salt.hex()}${digest.hex()}"
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def verify_password(password: str, encoded_hash: str) -> bool:
-    """Kiểm tra mật khẩu với chuỗi scrypt, trả ``False`` nếu hash hỏng."""
-    try:
-        algorithm, raw_n, raw_r, raw_p, raw_salt, raw_digest = encoded_hash.split("$")
-        if algorithm != "scrypt":
-            return False
-        expected = bytes.fromhex(raw_digest)
-        actual = hashlib.scrypt(
-            password.encode("utf-8"),
-            salt=bytes.fromhex(raw_salt),
-            n=int(raw_n),
-            r=int(raw_r),
-            p=int(raw_p),
-            dklen=len(expected),
-        )
-    except (TypeError, ValueError):
-        return False
-
-    return hmac.compare_digest(actual, expected)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,7 +91,7 @@ def load_auth_settings() -> AuthSettings:
 
     return AuthSettings(
         enabled=auth_config.get("enabled", True) is True,
-        password_hash=str(auth_config.get("password_hash") or "").strip(),
+        password=str(auth_config.get("password") or ""),
         session_ttl_seconds=_positive_int(
             auth_config.get("session_ttl_seconds"),
             DEFAULT_SESSION_TTL_SECONDS,
@@ -174,9 +126,9 @@ def is_origin_allowed(origin: str | None, *, scheme: str, host: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _credential_fingerprint(password_hash: str) -> str:
-    """Tạo dấu vân tay để vô hiệu phiên cũ khi password hash thay đổi."""
-    return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()
+def _credential_fingerprint(password: str) -> str:
+    """Tạo dấu vân tay để vô hiệu phiên cũ khi mật khẩu thay đổi."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 class AuthService:
@@ -196,9 +148,9 @@ class AuthService:
         settings = load_auth_settings()
         if not settings.enabled:
             raise AuthenticationConfigurationError("Xác thực web đang bị tắt.")
-        if not settings.password_hash:
+        if not settings.password:
             raise AuthenticationConfigurationError(
-                "Chưa cấu hình password_hash cho xác thực web."
+                "Chưa cấu hình password cho xác thực web."
             )
 
         now = self._clock()
@@ -208,7 +160,7 @@ class AuthService:
             if blocked_until > now:
                 raise LoginRateLimitedError(max(1, int(blocked_until - now + 0.999)))
 
-        if not verify_password(password, settings.password_hash):
+        if not hmac.compare_digest(password, settings.password):
             self._record_failure(client_id, settings, now)
             raise InvalidCredentialsError("Mật khẩu chưa chính xác.")
 
@@ -216,7 +168,7 @@ class AuthService:
         token_digest = self._token_digest(token)
         record = SessionRecord(
             expires_at=now + settings.session_ttl_seconds,
-            credential_fingerprint=_credential_fingerprint(settings.password_hash),
+            credential_fingerprint=_credential_fingerprint(settings.password),
         )
         with self._lock:
             self._sessions[token_digest] = record
@@ -227,12 +179,12 @@ class AuthService:
 
     # ─────────────────────────────────────────────────────────────────────────
     def is_session_valid(self, token: str | None) -> bool:
-        """Kiểm tra token còn hạn và còn khớp password hash hiện hành."""
+        """Kiểm tra token còn hạn và còn khớp mật khẩu hiện hành."""
         if not token:
             return False
 
         settings = load_auth_settings()
-        if not settings.enabled or not settings.password_hash:
+        if not settings.enabled or not settings.password:
             return False
 
         now = self._clock()
@@ -243,7 +195,7 @@ class AuthService:
             if record is None:
                 return False
             if record.credential_fingerprint != _credential_fingerprint(
-                settings.password_hash
+                settings.password
             ):
                 self._sessions.pop(token_digest, None)
                 return False

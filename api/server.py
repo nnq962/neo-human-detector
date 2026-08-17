@@ -14,6 +14,7 @@ from api.routes import (
     models,
     public,
     reid,
+    robot_dispatch,
     runtime,
     uart,
     websocket,
@@ -30,6 +31,7 @@ STANDARD_RESPONSE_PREFIXES = (
     "/api/mediamtx",
     "/api/models",
     "/api/reid",
+    "/api/robot-dispatch",
     "/api/runtime",
     "/api/uart",
     "/api/zone-state-machine",
@@ -175,6 +177,7 @@ OPENAPI_TAGS = [
     {"name": "Cameras", "description": "Camera and zone configuration."},
     {"name": "Zone State Machine", "description": "Zone state timing configuration."},
     {"name": "ReID", "description": "Re-identification configuration."},
+    {"name": "Robot Dispatch", "description": "Automatic robot dispatch configuration."},
     {"name": "Runtime", "description": "Application runtime lifecycle."},
     {"name": "UART", "description": "UART serial configuration."},
 ]
@@ -198,7 +201,7 @@ async def require_authenticated_api(request: Request, call_next):
     settings = load_auth_settings()
     if not settings.enabled:
         return await call_next(request)
-    if not settings.password_hash:
+    if not settings.password:
         return error_response(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Xác thực web chưa được cấu hình.",
@@ -270,6 +273,7 @@ app.include_router(models.router, prefix="/api/models", tags=["Models"])
 app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
 app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine", tags=["Zone State Machine"],)
 app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])
+app.include_router(robot_dispatch.router, prefix="/api/robot-dispatch", tags=["Robot Dispatch"])
 app.include_router(runtime.router, prefix="/api/runtime", tags=["Runtime"])
 app.include_router(uart.router, prefix="/api/uart", tags=["UART"])
 app.include_router(websocket.router)

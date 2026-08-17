@@ -38,10 +38,12 @@ class ReIdPipeline:
         embedding_function: EmbeddingFunction,
         gallery: IdentityGallery | None = None,
         close_callback: Callable[[], None] | None = None,
+        metrics_provider: Callable[[], dict | None] | None = None,
     ):
         self.config = config or ReIdConfig()
         self.gallery = gallery or IdentityGallery(self.config)
         self._close_callback = close_callback
+        self._metrics_provider = metrics_provider
         self.manager = ReIdTrackManager(
             gallery=self.gallery,
             embedding_function=embedding_function,
@@ -60,18 +62,27 @@ class ReIdPipeline:
         )
 
         def embedding_function(crop: np.ndarray) -> np.ndarray:
+            """Trích xuất embedding numpy từ crop BGR cho track manager."""
             return embedder.extract_embedding(crop, color_format="bgr").detach().cpu().numpy()
 
         return cls(
             config=config,
             embedding_function=embedding_function,
             close_callback=embedder.close,
+            metrics_provider=embedder.get_inference_metrics,
         )
 
     def close(self) -> None:
         if self._close_callback is not None:
             self._close_callback()
             self._close_callback = None
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def get_inference_metrics(self) -> dict | None:
+        """Trả metric forward của model ReID nếu pipeline có embedder thực."""
+        if self._metrics_provider is None:
+            return None
+        return self._metrics_provider()
 
     # ── primary API ───────────────────────────────────────────────────────────
     def process(

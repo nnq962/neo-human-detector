@@ -16,6 +16,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   detection: "Detection",
   "zone-state-machine": "Zone State Machine",
   "re-id": "Re-ID",
+  "robot-dispatch": "Robot Dispatch",
   uart: "UART",
 }
 

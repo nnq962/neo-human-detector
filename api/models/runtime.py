@@ -63,6 +63,23 @@ class RuntimeCameraStatus(BaseModel):
     zone_states: Dict[str, str] = Field(default_factory=dict)
 
 
+class RuntimeInferenceMetric(BaseModel):
+    """Thống kê thời gian inference của một model trong runtime."""
+
+    last_ms: float
+    average_ms: float
+    min_ms: float
+    max_ms: float
+    sample_count: int
+
+
+class RuntimePerformanceStatus(BaseModel):
+    """Các metric inference hiện có của runtime."""
+
+    yolo: Optional[RuntimeInferenceMetric] = None
+    reid: Optional[RuntimeInferenceMetric] = None
+
+
 class RuntimeStatus(BaseModel):
     state: RuntimeState
     is_running: bool
@@ -74,6 +91,7 @@ class RuntimeStatus(BaseModel):
     uptime_seconds: Optional[float] = None
     batch_size: int = 0
     cameras: List[RuntimeCameraStatus] = Field(default_factory=list)
+    performance: RuntimePerformanceStatus = Field(default_factory=RuntimePerformanceStatus)
     last_error: Optional[str] = None
 
 
