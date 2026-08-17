@@ -1,13 +1,14 @@
 import { flushSync } from "react-dom"
 import { useLocation } from "react-router-dom"
 import { useTheme } from "next-themes"
-import { Moon, Sun } from "lucide-react"
+import { LogOut, Moon, Sun } from "lucide-react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { HardwareMetricsIndicator } from "@/components/hardware-metrics-indicator"
 import { RuntimeStatusIndicator } from "@/components/runtime-status"
 import { cn } from "@/lib/utils"
 import { useCameras } from "@/hooks/use-cameras"
+import { authApi, notifyAuthenticationRequired } from "@/api/auth.api"
 
 const SEGMENT_LABELS: Record<string, string> = {
   cameras: "Cameras",
@@ -76,6 +77,15 @@ function ThemeToggle() {
 export function AppHeader() {
   const breadcrumbs = useBreadcrumbs()
 
+  const logout = async () => {
+    try {
+      const session = await authApi.logout()
+      if (!session.authenticated) notifyAuthenticationRequired()
+    } catch {
+      notifyAuthenticationRequired()
+    }
+  }
+
   return (
     <header className="sticky top-0 z-40 flex h-14 min-w-0 items-center gap-3 border-b-2 border-input bg-background px-4">
       <SidebarTrigger />
@@ -104,6 +114,15 @@ export function AppHeader() {
         <HardwareMetricsIndicator />
         <RuntimeStatusIndicator />
         <ThemeToggle />
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Đăng xuất"
+          title="Đăng xuất"
+          onClick={logout}
+        >
+          <LogOut />
+        </Button>
       </div>
     </header>
   )

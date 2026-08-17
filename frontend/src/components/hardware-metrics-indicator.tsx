@@ -12,6 +12,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { notifyAuthenticationRequired } from "@/lib/auth-events"
 import { cn } from "@/lib/utils"
 
 type CoreMetric = {
@@ -90,10 +91,14 @@ function useHardwareMetrics() {
           // Bỏ qua payload không đúng định dạng và chờ snapshot kế tiếp.
         }
       }
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (socketRef.current === socket) socketRef.current = null
         setConnected(false)
-        if (!disposed) retryRef.current = setTimeout(connect, RETRY_DELAY_MS)
+        if (!disposed && event.code === 4401) {
+          notifyAuthenticationRequired()
+        } else if (!disposed) {
+          retryRef.current = setTimeout(connect, RETRY_DELAY_MS)
+        }
       }
       socket.onerror = () => socket.close()
     }

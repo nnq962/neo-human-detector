@@ -57,6 +57,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getPolygonValidationError } from "@/lib/zone-validation"
 
 function maskRtspPassword(url: string): string {
   return url.replace(/^(rtsp:\/\/[^:]+):([^@]+)@/, "$1:***@")
@@ -114,18 +115,19 @@ function projectPixelToWorld(
   return [worldX, worldY]
 }
 
-function generateMoveId(): number {
-  return Math.floor(Math.random() * 256)
-}
-
 function generateZoneName(zones: Zone[]): string {
   let index = zones.length + 1
   while (zones.some((zone) => zone.name === `Zone ${index}`)) index += 1
   return `Zone ${index}`
 }
 
-export function CameraPage() {
+export function CameraPageRoute() {
   const { id } = useParams<{ id: string }>()
+  return <CameraPage key={id} cameraId={id ?? ""} />
+}
+
+function CameraPage({ cameraId }: { cameraId: string }) {
+  const id = cameraId
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const invalidateCameras = useInvalidateCameras()
@@ -190,26 +192,6 @@ export function CameraPage() {
     return () => observer.disconnect()
   }, [camera])
 
-  useEffect(() => {
-    setEditOpen(false)
-    setDeleteOpen(false)
-    setIsAddingZone(false)
-    setIsEditingVertices(false)
-    setSelectedZoneIndex(null)
-    setDraftZones([])
-    setIsConfirming(false)
-    setIsPickingServicePoint(false)
-    setDraftServicePoint(null)
-    setDraftZoneName("")
-    setZoneNameError("")
-    setPendingPoints(null)
-    setZoneNameDialogOpen(false)
-    setPendingZoneName("")
-    setPendingZoneNameError("")
-    setDeletingZoneId(null)
-    setIsDeletingZone(false)
-  }, [id])
-
   function invalidateCamera() {
     queryClient.invalidateQueries({ queryKey: ["cameras", id] })
   }
@@ -272,6 +254,13 @@ export function CameraPage() {
   async function handleConfirmEdit() {
     if (!isEditingVertices || selectedZoneIndex === null) return
 
+    const editedZone = draftZones[selectedZoneIndex]
+    const validationError = getPolygonValidationError(editedZone?.points ?? [])
+    if (validationError) {
+      toast.error(validationError)
+      return
+    }
+
     const trimmedName = draftZoneName.trim()
     if (!trimmedName) {
       setZoneNameError("Tên zone không được để trống")
@@ -317,12 +306,17 @@ export function CameraPage() {
     }
   }
 
-  const handleZoneAdd = useCallback((points: number[][]) => {
+  const handleZoneAdd = (points: number[][]) => {
+    const validationError = getPolygonValidationError(points)
+    if (validationError) {
+      toast.error(validationError)
+      return
+    }
     setIsAddingZone(false)
     setPendingPoints(points)
     setPendingZoneName("")
     setZoneNameDialogOpen(true)
-  }, [])
+  }
 
   function handleQuickZoneAdd() {
     if (!camera || !videoSize?.width || !videoSize.height) {
@@ -398,7 +392,6 @@ export function CameraPage() {
 
       const result = await uartApi.moveToPoint({
         robot_id: Number(selectedServicePointRobotId),
-        move_id: generateMoveId(),
         x,
         y,
         theta: 0,
@@ -419,6 +412,11 @@ export function CameraPage() {
 
   function handleSaveNewZone() {
     if (!pendingPoints || !camera) return
+    const validationError = getPolygonValidationError(pendingPoints)
+    if (validationError) {
+      setPendingZoneNameError(validationError)
+      return
+    }
     const trimmedName = pendingZoneName.trim()
     if (!trimmedName) { setPendingZoneNameError("Tên zone không được để trống"); return }
     const isDuplicate = camera.zones.some((z) => z.name === trimmedName)

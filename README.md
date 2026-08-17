@@ -48,18 +48,17 @@ Nội dung:
 
 ```dotenv
 VITE_API_BASE_URL=http://127.0.0.1:9721
-VITE_CONFIG_PASSWORD=your-password
 ```
 
-- `VITE_CONFIG_PASSWORD` là mật khẩu mở giao diện cấu hình.
 - Khi chạy `npm run dev`, `VITE_API_BASE_URL` là địa chỉ backend mà Vite proxy
   request API và WebSocket tới.
 - Khi chạy bản production bằng `scripts/run.sh`, frontend sử dụng API
   same-origin tại port `9721`.
 
-> Mật khẩu frontend được đóng vào JavaScript bundle. Đây chỉ là lớp xác minh
-> nhẹ để tránh người dùng thông thường mở nhầm trang cấu hình, không thay thế
-> xác thực bằng backend.
+Mật khẩu quản trị không nằm trong frontend env hoặc JavaScript bundle. Setup sẽ
+yêu cầu nhập mật khẩu và chỉ ghi hash scrypt vào `configs/default.yaml`. Với môi
+trường cài đặt không tương tác, truyền mật khẩu qua secret environment
+`NEO_CONFIG_PASSWORD` khi chạy setup.
 
 ### 3. Khởi động MediaMTX
 
@@ -101,10 +100,11 @@ Script sẽ:
 5. Kiểm tra SHA-256 của wheel.
 6. Tạo `configs/default.yaml` từ file example nếu chưa có.
 7. Đồng bộ Python dependencies từ `uv.lock`.
-8. Tải các model PC còn thiếu và kiểm tra SHA-256.
-9. Cài frontend dependencies và build frontend.
-10. Kiểm tra OpenCV có `GStreamer: YES`.
-11. Tùy chọn cài Supervisor nếu truyền `--with-supervisor`.
+8. Cấu hình password hash quản trị nếu chưa có.
+9. Tải các model PC còn thiếu và kiểm tra SHA-256.
+10. Cài frontend dependencies và build frontend.
+11. Kiểm tra OpenCV có `GStreamer: YES`.
+12. Tùy chọn cài Supervisor nếu truyền `--with-supervisor`.
 
 Các file được tạo/tải tại máy local và không được push lên Git:
 
@@ -159,6 +159,9 @@ Mở từ máy khác trong cùng mạng:
 ```text
 http://<IP-của-thiết-bị>:9721
 ```
+
+Dashboard và các API cấu hình yêu cầu đăng nhập. Màn hình `/live` là public theo
+thiết kế và không yêu cầu mật khẩu.
 
 Dừng ứng dụng bằng `Ctrl+C`.
 
@@ -232,6 +235,15 @@ zone, detection, ReID và UART trực tiếp trên giao diện web.
 Một số trường chính:
 
 ```yaml
+web:
+  auth:
+    enabled: true
+    password_hash: 'scrypt$...'
+    session_ttl_seconds: 28800
+  allowed_origins:
+    - http://127.0.0.1:5173
+    - http://localhost:5173
+
 runtime:
   auto_start: false
   camera_ids: [camera-a, camera-b]
@@ -250,6 +262,14 @@ uart:
 
 cameras: []
 ```
+
+Đổi mật khẩu quản trị mà không lưu plaintext:
+
+```bash
+uv run --locked python scripts/set-web-password.py
+```
+
+Đổi hash sẽ vô hiệu hóa các session hiện có trong process API.
 
 Batch detection được suy ra từ số phần tử trong `runtime.camera_ids`. Runtime
 chỉ hỗ trợ lựa chọn 1, 2 hoặc 4 camera; danh sách `cameras` vẫn có thể chứa nhiều
@@ -389,9 +409,13 @@ Sau đó hard refresh trình duyệt bằng `Ctrl+Shift+R`.
 Backend:
 
 ```bash
-uv run --locked --with pytest python -m pytest -q \
-  tests/test_model_catalog.py \
-  tests/test_config_store.py
+uv run --locked python -m pytest -q
+```
+
+Kiểm tra UART thật được tách khỏi pytest để không tự mở serial khi collect test:
+
+```bash
+uv run --locked python scripts/manual-uart-v2.py
 ```
 
 Kiểm tra các module setup và model catalog:
@@ -407,7 +431,7 @@ Frontend:
 
 ```bash
 cd frontend
-npm run build
+npm run check
 ```
 
 Preflight đầy đủ:
@@ -487,12 +511,16 @@ nano frontend/.env
 ## Bảo mật và file local
 
 - Không commit `configs/default.yaml`; file này có thể chứa RTSP credential và
-  thông tin thiết bị.
+  thông tin thiết bị. Mật khẩu quản trị chỉ được lưu dưới dạng hash scrypt.
 - Không commit `frontend/.env`.
 - Không commit wheel hoặc weights trực tiếp; chúng được tải qua manifest.
 - Google Drive artifact phải được chia sẻ ở chế độ người có link có thể xem.
 - Khi thay artifact, cần cập nhật cả `drive_id` và `sha256`.
-- `VITE_CONFIG_PASSWORD` không phải cơ chế xác thực bảo mật cấp backend.
+- Dashboard dùng session ngẫu nhiên lưu phía server và cookie `HttpOnly`,
+  `SameSite=Strict`; các request ghi và WebSocket riêng tư được kiểm tra Origin.
+- `/live` và `/api/public/*` là public theo thiết kế. Chúng có thể hiển thị danh
+  sách camera, WHEP stream, zone, bbox, calibration và vị trí/trạng thái robot;
+  không trả RTSP source hoặc cho phép sửa cấu hình.
 
 ## Cấu trúc liên quan đến setup
 
@@ -511,6 +539,7 @@ mediamtx/
 
 scripts/
 ├── run.sh
+├── set-web-password.py
 ├── setup-pc.sh
 ├── sync-artifacts.py
 └── sync-models.py

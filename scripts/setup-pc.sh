@@ -221,34 +221,72 @@ prepare_frontend_env() {
         "Thiếu frontend env mẫu: ${FRONTEND_ENV_EXAMPLE}"
 
     if [[ ! -e "${FRONTEND_ENV}" ]]; then
-        if [[ -n "${VITE_API_BASE_URL:-}" && -n "${VITE_CONFIG_PASSWORD:-}" ]]; then
+        if [[ -n "${VITE_API_BASE_URL:-}" ]]; then
             (
                 umask 077
-                printf 'VITE_API_BASE_URL=%s\nVITE_CONFIG_PASSWORD=%s\n' \
-                    "${VITE_API_BASE_URL}" \
-                    "${VITE_CONFIG_PASSWORD}" >"${FRONTEND_ENV}"
+                printf 'VITE_API_BASE_URL=%s\n' \
+                    "${VITE_API_BASE_URL}" >"${FRONTEND_ENV}"
             )
             log "Đã tạo frontend/.env từ biến môi trường của terminal."
         else
             cp "${FRONTEND_ENV_EXAMPLE}" "${FRONTEND_ENV}"
-            die "Đã tạo frontend/.env. Hãy chỉnh API URL và mật khẩu, sau đó chạy lại setup."
+            log "Đã tạo frontend/.env từ file example."
         fi
     else
         log "Giữ nguyên frontend/.env hiện có."
     fi
 
     local api_base_url
-    local config_password
     api_base_url="$(sed -n 's/^VITE_API_BASE_URL=//p' "${FRONTEND_ENV}" | tail -n 1)"
-    config_password="$(sed -n 's/^VITE_CONFIG_PASSWORD=//p' "${FRONTEND_ENV}" | tail -n 1)"
 
     [[ -n "${api_base_url}" ]] || die "frontend/.env thiếu VITE_API_BASE_URL."
     [[ "${api_base_url}" != *"["* ]] || die \
         "VITE_API_BASE_URL trong frontend/.env vẫn là placeholder."
-    [[ -n "${config_password}" && "${config_password}" != "change-me" ]] || die \
-        "Hãy đặt VITE_CONFIG_PASSWORD trong frontend/.env trước khi build."
-
     log "Frontend env hợp lệ với API: ${api_base_url}"
+}
+
+remove_legacy_frontend_password() {
+    if [[ -f "${FRONTEND_ENV}" ]] \
+        && grep -q '^VITE_CONFIG_PASSWORD=' "${FRONTEND_ENV}"; then
+        sed -i '/^VITE_CONFIG_PASSWORD=/d' "${FRONTEND_ENV}"
+        log "Đã xóa mật khẩu plaintext cũ khỏi frontend/.env."
+    fi
+}
+
+configure_web_auth() {
+    local legacy_password=""
+    if [[ -f "${FRONTEND_ENV}" ]]; then
+        legacy_password="$(sed -n 's/^VITE_CONFIG_PASSWORD=//p' "${FRONTEND_ENV}" | tail -n 1)"
+    fi
+
+    if [[ -n "${NEO_CONFIG_PASSWORD:-}" ]]; then
+        printf '%s\n' "${NEO_CONFIG_PASSWORD}" \
+            | uv run --locked python scripts/set-web-password.py --password-stdin
+        remove_legacy_frontend_password
+        log "Đã cập nhật password hash từ NEO_CONFIG_PASSWORD."
+        return
+    fi
+
+    if uv run --locked python -c \
+        'from api.services.auth import load_auth_settings; raise SystemExit(0 if load_auth_settings().password_hash else 1)'; then
+        remove_legacy_frontend_password
+        log "Password hash quản trị đã được cấu hình."
+        return
+    fi
+
+    if [[ -n "${legacy_password}" && "${legacy_password}" != "change-me" ]]; then
+        printf '%s\n' "${legacy_password}" \
+            | uv run --locked python scripts/set-web-password.py \
+                --password-stdin --migrate-legacy
+        remove_legacy_frontend_password
+        log "Đã chuyển mật khẩu frontend cũ sang password hash backend."
+        return
+    fi
+
+    [[ -t 0 ]] || die \
+        "Thiếu password quản trị. Hãy đặt NEO_CONFIG_PASSWORD rồi chạy lại setup."
+    uv run --locked python scripts/set-web-password.py
+    remove_legacy_frontend_password
 }
 
 sync_python_environment() {
@@ -392,6 +430,7 @@ main() {
     check_local_artifacts
     prepare_config
     sync_python_environment
+    configure_web_auth
     sync_models
     build_frontend
     verify_installation

@@ -71,10 +71,27 @@ export interface CameraCalibration {
   updated_at: string
 }
 
+export function cameraCalibrationQueryKey(
+  cameraId: string | null,
+  publicAccess = false,
+) {
+  return [
+    "camera-calibration",
+    publicAccess ? "public" : "private",
+    cameraId,
+  ] as const
+}
+
 export const cameraCalibrationApi = {
-  get: (cameraId: string) =>
+  get: (cameraId: string, signal?: AbortSignal) =>
     apiRequest<ApiResponse<CameraCalibration | null>>(
       `/cameras/${cameraId}/calibration`,
+      { signal },
+    ).then(unwrapApiResponse),
+
+  getPublic: (cameraId: string) =>
+    apiRequest<ApiResponse<CameraCalibration | null>>(
+      `/public/cameras/${cameraId}/calibration`,
     ).then(unwrapApiResponse),
 
   preview: (cameraId: string, request: CalibrationPreviewRequest) =>

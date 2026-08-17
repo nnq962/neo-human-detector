@@ -52,11 +52,19 @@ export function CalibrationPointEditor({
     saveSelectedCoordinate,
     changePointLayout,
     resetPointPositions,
+    isLoadingCalibration,
+    calibrationLoadError,
+    isApplyingCalibration,
+    isDeletingCalibration,
   } = calibration
+  const editingDisabled = isLoadingCalibration
+    || Boolean(calibrationLoadError)
+    || isApplyingCalibration
+    || isDeletingCalibration
 
   return (
     <aside
-      className="flex min-h-0 w-full flex-col overflow-hidden border-t lg:h-[var(--calibration-video-height)] lg:w-auto lg:border-l lg:border-t-0"
+      className={`flex min-h-0 w-full flex-col overflow-hidden border-t lg:h-[var(--calibration-video-height)] lg:w-auto lg:border-l lg:border-t-0 ${editingDisabled ? "pointer-events-none opacity-60" : ""}`}
       style={
         {
           "--calibration-video-height": panelHeight
@@ -123,8 +131,8 @@ export function CalibrationPointEditor({
                 </div>
                 {videoSize && (
                   <Badge variant="outline" className="text-[10px] font-normal">
-                    {Math.round(selectedPoint.x * videoSize.width)} · {" "}
-                    {Math.round(selectedPoint.y * videoSize.height)}
+                    {Math.round(selectedPoint.x * Math.max(0, videoSize.width - 1))} · {" "}
+                    {Math.round(selectedPoint.y * Math.max(0, videoSize.height - 1))}
                   </Badge>
                 )}
               </div>

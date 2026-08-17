@@ -11,6 +11,11 @@ from api.services.manual_robot_task import (
     manual_robot_task_service,
     robot_uart_operation_lock,
 )
+from api.services.robot_move import (
+    RobotMoveBusyError,
+    RobotMoveUnavailableError,
+    robot_move_registry,
+)
 from src.robot_dispatch_v2.datatypes import (
     AckReasonCode,
     AckResultCode,
@@ -19,24 +24,32 @@ from src.robot_dispatch_v2.datatypes import (
 from uart_v2.uart_manager import uart_manager_v2
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _model_dump(model, **kwargs) -> dict:
+    """Chuyển Pydantic model thành dictionary với các tùy chọn đã nhận."""
     return model.model_dump(**kwargs)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _normalize_uart_config(config: dict) -> dict:
+    """Chuẩn hóa section cấu hình UART bằng model Pydantic."""
     return UartConfig(
         port=config.get("port", "/dev/ttyS4"),
         baudrate=config.get("baudrate", 115200),
     ).model_dump()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def get_uart_config() -> dict:
+    """Đọc và trả cấu hình UART hiện hành."""
     config = config_store.get_config_data()
 
     return _normalize_uart_config(config.get("uart", {}))
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def get_uart_status() -> dict:
+    """Trả trạng thái kết nối UART và các task thủ công hiện tại."""
     uart_status = uart_manager_v2.status()
     return {
         "protocol": "v2",
@@ -53,6 +66,7 @@ def get_uart_status() -> dict:
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def get_robot_snapshots() -> dict:
     """Trả trạng thái robot mới nhất được tổng hợp từ Heartbeat UART."""
     from api.services.robot_heartbeat import robot_heartbeat_service
@@ -60,7 +74,9 @@ def get_robot_snapshots() -> dict:
     return robot_heartbeat_service.snapshot()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def update_uart_config(update: UartConfigUpdate) -> dict:
+    """Cập nhật UART an toàn rồi kết nối lại với tham số mới."""
     update_data = _model_dump(update, exclude_none=True, exclude_unset=True)
 
     if update_data:
@@ -68,6 +84,7 @@ def update_uart_config(update: UartConfigUpdate) -> dict:
             _ensure_uart_reconfigure_is_safe()
 
             def mutate(config: dict) -> dict:
+                """Ghi các trường UART mới vào cấu hình gốc."""
                 uart_config = config.setdefault("uart", {})
                 uart_config.update(update_data)
                 uart_config = _normalize_uart_config(uart_config)
@@ -89,6 +106,7 @@ def update_uart_config(update: UartConfigUpdate) -> dict:
     return get_uart_config()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def send_uart_message(request: UartMessageRequest) -> dict:
     """Gửi message điều khiển thủ công khi vision Runtime không hoạt động."""
     from api.services.runtime import get_runtime_status
@@ -142,25 +160,52 @@ def _send_move_to_point(
             detail="UART V2 is not connected.",
         )
 
+    from api.services.robot_heartbeat import robot_heartbeat_service
+
+    try:
+        reservation = robot_move_registry.reserve(
+            request.robot_id,
+            robot_heartbeat_service.state_store,
+        )
+    except RobotMoveUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+    except RobotMoveBusyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
+
     message = MoveToPoint(
         robot_id=request.robot_id,
-        move_id=request.move_id,
+        move_id=reservation.move_id,
         x=request.x,
         y=request.y,
         theta=request.theta,
     )
-    ack = uart_manager_v2.send_with_retry_ack(
-        message,
-        reference_id=request.move_id,
-        timeout=ack_timeout_seconds,
-        max_retries=max_retries,
-    )
+    try:
+        ack = uart_manager_v2.send_with_retry_ack(
+            message,
+            reference_id=reservation.move_id,
+            timeout=ack_timeout_seconds,
+            max_retries=max_retries,
+        )
+    except Exception:
+        robot_move_registry.mark_uncertain(reservation)
+        raise
     if ack is None:
+        robot_move_registry.mark_uncertain(reservation)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Không nhận được ACK cho lệnh MoveToPoint.",
         )
     if ack.result_code != AckResultCode.ACCEPTED:
+        robot_move_registry.mark_rejected(
+            reservation,
+            robot_busy=ack.reason_code == AckReasonCode.ROBOT_BUSY,
+        )
         reason_name = _ack_reason_name(ack.reason_code)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -170,10 +215,12 @@ def _send_move_to_point(
             ),
         )
 
+    robot_move_registry.mark_accepted(reservation)
+
     return {
         "message_type": request.message_type,
         "robot_id": request.robot_id,
-        "move_id": request.move_id,
+        "move_id": reservation.move_id,
         "acknowledged": True,
         "ack": {
             "result_code": int(ack.result_code),
@@ -198,6 +245,7 @@ def _ack_reason_name(reason_code: int) -> str:
         return "UNKNOWN"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _ensure_uart_reconfigure_is_safe() -> None:
     """Chặn reconnect khi Runtime hoặc task thủ công đang dùng UART."""
     from api.services.runtime import get_runtime_status
@@ -216,4 +264,14 @@ def _ensure_uart_reconfigure_is_safe() -> None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="UART configuration cannot change while a manual task is active.",
+        )
+
+    from api.services.robot_heartbeat import robot_heartbeat_service
+
+    if robot_move_registry.has_any_active_move(
+        robot_heartbeat_service.state_store
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="UART configuration cannot change while a robot move is active.",
         )

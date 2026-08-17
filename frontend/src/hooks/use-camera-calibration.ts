@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import {
   cameraCalibrationApi,
+  cameraCalibrationQueryKey,
   type CalibrationPreviewRequest,
   type CalibrationPreviewResult,
   type CameraCalibration,
@@ -121,6 +122,8 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
   const [isLoadingCalibration, setIsLoadingCalibration] = useState(true)
   const [isApplyingCalibration, setIsApplyingCalibration] = useState(false)
   const [isDeletingCalibration, setIsDeletingCalibration] = useState(false)
+  const [calibrationLoadError, setCalibrationLoadError] = useState("")
+  const [loadRevision, setLoadRevision] = useState(0)
   const [hasUnappliedChanges, setHasUnappliedChanges] = useState(false)
   const [isApplyWarningOpen, setIsApplyWarningOpen] = useState(false)
   const [isDeleteCalibrationOpen, setIsDeleteCalibrationOpen] = useState(false)
@@ -130,14 +133,21 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     if (!enabled) return
 
     let cancelled = false
+    const abortController = new AbortController()
     queueMicrotask(() => {
-      if (!cancelled) setIsLoadingCalibration(true)
+      if (!cancelled) {
+        setIsLoadingCalibration(true)
+        setCalibrationLoadError("")
+      }
     })
 
-    cameraCalibrationApi.get(cameraId)
+    cameraCalibrationApi.get(cameraId, abortController.signal)
       .then((calibration) => {
         if (cancelled) return
-        queryClient.setQueryData(["camera-calibration", cameraId], calibration)
+        queryClient.setQueryData(
+          cameraCalibrationQueryKey(cameraId),
+          calibration,
+        )
 
         if (!calibration) {
           setPointLayoutSize(2)
@@ -153,8 +163,8 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
         const restoredPoints = calibration.points.map((point, index) => ({
           id: point.id,
           label: `P${index + 1}`,
-          x: point.pixel[0] / calibration.image_size.width,
-          y: point.pixel[1] / calibration.image_size.height,
+          x: point.pixel[0] / Math.max(1, calibration.image_size.width - 1),
+          y: point.pixel[1] / Math.max(1, calibration.image_size.height - 1),
         }))
         const restoredCoordinates = Object.fromEntries(
           calibration.points.map((point) => [
@@ -180,7 +190,22 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
         setHasUnappliedChanges(false)
       })
       .catch((error) => {
-        if (cancelled) return
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) {
+          return
+        }
+        setPointLayoutSize(2)
+        setPoints(createCalibrationPointPositions(2))
+        setSelectedPointId(null)
+        setRobotCoordinates({})
+        setSavedRobotCoordinates({})
+        setCalibrationPreview(null)
+        setAppliedCalibration(null)
+        setHasUnappliedChanges(false)
+        setCalibrationLoadError(
+          error instanceof Error
+            ? error.message
+            : "Không thể tải calibration đã lưu.",
+        )
         toast.error(
           error instanceof Error
             ? error.message
@@ -193,8 +218,9 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
 
     return () => {
       cancelled = true
+      abortController.abort()
     }
-  }, [cameraId, enabled, queryClient])
+  }, [cameraId, enabled, loadRevision, queryClient])
 
   const selectedPoint =
     points.find((point) => point.id === selectedPointId) ?? null
@@ -332,8 +358,8 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
         return [{
           id: point.id,
           pixel: {
-            u: Math.round(point.x * videoSize.width),
-            v: Math.round(point.y * videoSize.height),
+            u: Math.round(point.x * Math.max(0, videoSize.width - 1)),
+            v: Math.round(point.y * Math.max(0, videoSize.height - 1)),
           },
           world: {
             x: Number(coordinate.x),
@@ -389,7 +415,10 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
         ransac_threshold_m: calibrationPreview.ransac_threshold_m,
         accept_warning: acceptWarning,
       })
-      queryClient.setQueryData(["camera-calibration", cameraId], calibration)
+      queryClient.setQueryData(
+        cameraCalibrationQueryKey(cameraId),
+        calibration,
+      )
       setAppliedCalibration(calibration)
       setCalibrationPreview(savedCalibrationToPreview(calibration))
       setHasUnappliedChanges(false)
@@ -423,7 +452,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     setIsDeletingCalibration(true)
     try {
       await cameraCalibrationApi.delete(cameraId)
-      queryClient.setQueryData(["camera-calibration", cameraId], null)
+      queryClient.setQueryData(cameraCalibrationQueryKey(cameraId), null)
       setAppliedCalibration(null)
       setHasUnappliedChanges(false)
       setIsDeleteCalibrationOpen(false)
@@ -440,11 +469,13 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
   }
 
   function updatePointPositions(nextPoints: CalibrationPointPosition[]) {
+    if (isLoadingCalibration || calibrationLoadError) return
     setPoints(nextPoints)
     invalidateCalibrationPreview()
   }
 
   function changePointLayout(value: string) {
+    if (isLoadingCalibration || calibrationLoadError) return
     const size = Number(value)
     setPointLayoutSize(size)
     setPoints(createCalibrationPointPositions(size))
@@ -455,6 +486,7 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
   }
 
   function resetPointPositions() {
+    if (isLoadingCalibration || calibrationLoadError) return
     setPoints(createCalibrationPointPositions(pointLayoutSize))
     invalidateCalibrationPreview()
     setSelectedPointId(null)
@@ -488,6 +520,9 @@ export function useCameraCalibration(cameraId: string, enabled: boolean) {
     isCalculatingHomography,
     isApplyingCalibration,
     isDeletingCalibration,
+    isLoadingCalibration,
+    calibrationLoadError,
+    reloadCalibration: () => setLoadRevision((current) => current + 1),
     isApplyWarningOpen,
     setIsApplyWarningOpen,
     isDeleteCalibrationOpen,

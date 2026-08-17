@@ -26,6 +26,7 @@ interface UseWhepStreamOptions {
   reconnectKey: number
   videoRef: RefObject<HTMLVideoElement | null>
   onVideoSizeChange?: (size: VideoSize | null) => void
+  onStatusChange?: (status: WhepStreamSnapshot["status"]) => void
 }
 
 export function useWhepStream({
@@ -33,10 +34,12 @@ export function useWhepStream({
   reconnectKey,
   videoRef,
   onVideoSizeChange,
+  onStatusChange,
 }: UseWhepStreamOptions): WhepStreamState {
   const endpointUrl = getWhepUrl(src)
   const previousReconnectKeyRef = useRef(reconnectKey)
   const onVideoSizeChangeRef = useRef(onVideoSizeChange)
+  const onStatusChangeRef = useRef(onStatusChange)
   const [streamSnapshot, setStreamSnapshot] = useState<WhepStreamSnapshot>(
     EMPTY_STREAM_SNAPSHOT,
   )
@@ -45,6 +48,16 @@ export function useWhepStream({
   useEffect(() => {
     onVideoSizeChangeRef.current = onVideoSizeChange
   }, [onVideoSizeChange])
+
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  }, [onStatusChange])
+
+  useEffect(() => {
+    onStatusChangeRef.current?.(
+      endpointUrl ? streamSnapshot.status : "error",
+    )
+  }, [endpointUrl, streamSnapshot.status])
 
   useEffect(() => {
     if (!endpointUrl) return

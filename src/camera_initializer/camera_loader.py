@@ -30,11 +30,15 @@ class Camera:
     enabled : bool = True
     calibration_image_size: Optional[tuple[int, int]] = None
 
+    # ─────────────────────────────────────────────────────────────────────────
     @property
     def zone_count(self) -> int:
+        """Trả số zone runtime thuộc camera."""
         return len(self.zones)
 
+    # ─────────────────────────────────────────────────────────────────────────
     def is_ready_for_detection(self) -> bool:
+        """Kiểm tra camera đang bật và có đủ ID cùng nguồn stream."""
         return self.enabled and bool(self.id) and bool(self.source)
 
 
@@ -91,6 +95,7 @@ def _parse_camera(
     enabled_only: bool,
     warn_on_empty_zones: bool,
 ) -> Optional[Camera]:
+    """Parse một camera config, trả ``None`` khi dữ liệu không hợp lệ."""
     if not isinstance(camera_data, Mapping):
         LOGGER.warning("Bỏ qua camera config không phải dict: %s", camera_data)
         return None
@@ -158,6 +163,7 @@ def _parse_zones(
     homography: Any,
     seen_zone_keys: Set[str],
 ) -> List[Zone]:
+    """Parse danh sách zone hợp lệ thuộc một camera."""
     if not isinstance(zones_data, list):
         LOGGER.warning("Camera '%s' có field zones không phải list.", camera_id)
         return []
@@ -185,6 +191,7 @@ def _parse_zone(
     homography: Any,
     seen_zone_keys: Set[str],
 ) -> Optional[Zone]:
+    """Parse một zone và dựng goal pose từ calibration nếu có."""
     if not isinstance(zone_data, Mapping):
         LOGGER.warning("Bỏ qua zone không phải dict trong camera '%s'.", camera_id)
         return None
@@ -362,14 +369,26 @@ def _build_goal_pose(
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _is_valid_polygon(points: Any) -> bool:
+    """Kiểm tra polygon có đủ ba điểm phân biệt và diện tích khác không."""
     if not isinstance(points, list) or len(points) < 3:
         return False
+    normalized_points: list[tuple[float, float]] = []
     for point in points:
         if not isinstance(point, (list, tuple)) or len(point) != 2:
             return False
         try:
-            if not all(np.isfinite(float(v)) for v in point):
+            normalized_point = tuple(float(value) for value in point)
+            if not all(np.isfinite(value) for value in normalized_point):
                 return False
+            normalized_points.append(normalized_point)
         except (TypeError, ValueError):
             return False
-    return True
+    if len(set(normalized_points)) < 3:
+        return False
+    polygon = np.asarray(normalized_points, dtype=np.float64)
+    shifted = np.roll(polygon, -1, axis=0)
+    twice_area = np.sum(
+        polygon[:, 0] * shifted[:, 1]
+        - shifted[:, 0] * polygon[:, 1]
+    )
+    return bool(abs(twice_area) > 0)

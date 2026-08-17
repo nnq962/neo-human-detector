@@ -1,9 +1,23 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _polygon_area(points: List[List[int]]) -> float:
+    """Tính diện tích có hướng tuyệt đối của polygon bằng công thức shoelace."""
+    return abs(
+        sum(
+            current[0] * points[(index + 1) % len(points)][1]
+            - points[(index + 1) % len(points)][0] * current[1]
+            for index, current in enumerate(points)
+        )
+    ) / 2.0
 
 
 class Zone(BaseModel):
+    """Một vùng polygon hợp lệ trong hệ tọa độ pixel video."""
+
     id: Optional[str] = None
     name: str
     service_point: Optional[List[int]] = Field(
@@ -11,7 +25,19 @@ class Zone(BaseModel):
         min_length=2,
         max_length=2,
     )
-    points: List[List[int]] = Field(default_factory=list)
+    points: List[List[int]] = Field(min_length=3)
+
+    @field_validator("points")
+    @classmethod
+    def validate_polygon(cls, points: List[List[int]]) -> List[List[int]]:
+        """Từ chối điểm sai shape, trùng nhau hoặc polygon có diện tích bằng 0."""
+        if any(len(point) != 2 for point in points):
+            raise ValueError("Mỗi điểm zone phải có đúng hai tọa độ.")
+        if len({(point[0], point[1]) for point in points}) < 3:
+            raise ValueError("Zone phải có ít nhất ba điểm phân biệt.")
+        if _polygon_area(points) <= 0:
+            raise ValueError("Các điểm zone không được thẳng hàng.")
+        return points
 
 
 class StreamConfig(BaseModel):

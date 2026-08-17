@@ -442,7 +442,7 @@ export function ZoneOverlay({
       if (isFinishingDraftRef.current) return
       isFinishingDraftRef.current = true
       const pts = draftPointsRef.current
-      if (pts.length < 2) { isFinishingDraftRef.current = false; return }
+      if (pts.length < 3) { isFinishingDraftRef.current = false; return }
       draftPointsRef.current = []
       lastDraftTapRef.current = null
       setDraftPoints([])

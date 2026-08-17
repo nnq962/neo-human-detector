@@ -38,7 +38,6 @@ class UartMoveToPointRequest(BaseModel):
 
     message_type: Literal["move_to_point"] = "move_to_point"
     robot_id: int = Field(..., ge=0, le=255)
-    move_id: int = Field(..., ge=0, le=255)
     x: float = Field(..., ge=-327.68, le=327.67)
     y: float = Field(..., ge=-327.68, le=327.67)
     theta: float = Field(..., ge=-32.768, le=32.767)

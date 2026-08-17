@@ -10,6 +10,7 @@ from api.models.runtime import (
     RuntimeSettings,
     RuntimeSettingsUpdate,
 )
+from api.models.camera import Zone as CameraZone
 from api.services import config_store
 from src.app import Runtime, build_runtime_config
 from src.detection.model_registry import resolve_model_artifact
@@ -72,6 +73,25 @@ def _validate_runtime_settings(settings: dict, app_config: dict) -> None:
     ]
     if disabled_ids:
         raise ValueError(f"Camera runtime đang bị tắt: {', '.join(disabled_ids)}.")
+
+    invalid_zones: list[str] = []
+    for camera_id in camera_ids:
+        for index, zone in enumerate(cameras[camera_id].get("zones") or []):
+            try:
+                CameraZone.model_validate(zone)
+            except (TypeError, ValueError):
+                zone_name = (
+                    zone.get("name")
+                    if isinstance(zone, dict)
+                    else None
+                )
+                invalid_zones.append(
+                    f"{camera_id}/{zone_name or f'zone-{index + 1}'}"
+                )
+    if invalid_zones:
+        raise ValueError(
+            "Zone runtime không hợp lệ: " + ", ".join(invalid_zones) + "."
+        )
 
     model_id = (app_config.get("detection") or {}).get("model_id")
     artifact = resolve_model_artifact(model_id)
@@ -163,6 +183,8 @@ class RuntimeManager:
             manual_robot_task_service,
             robot_uart_operation_lock,
         )
+        from api.services.robot_heartbeat import robot_heartbeat_service
+        from api.services.robot_move import robot_move_registry
 
         with robot_uart_operation_lock:
             with self._lock:
@@ -173,10 +195,14 @@ class RuntimeManager:
                     raise ValueError(
                         "Runtime cannot start while a manual robot task is active."
                     )
+                if robot_move_registry.has_any_active_move(
+                    robot_heartbeat_service.state_store
+                ):
+                    raise ValueError(
+                        "Runtime cannot start while a manual robot move is active."
+                    )
 
                 from uart_v2.uart_manager import uart_manager_v2
-                from api.services.robot_heartbeat import robot_heartbeat_service
-
                 _validate_runtime_start_config(config_path)
                 runtime_config = build_runtime_config(config_path, show=preview)
                 runtime = Runtime(

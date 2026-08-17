@@ -13,13 +13,18 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 import { useCamera } from "@/hooks/use-camera"
 import { useCameraCalibration } from "@/hooks/use-camera-calibration"
 
 export function CameraCalibrationPage() {
   const { id = "" } = useParams<{ id: string }>()
-  const { data: camera, isLoading, isError } = useCamera(id)
-  const calibration = useCameraCalibration(id, Boolean(camera))
+  return <CameraCalibrationWorkspace key={id} cameraId={id} />
+}
+
+function CameraCalibrationWorkspace({ cameraId }: { cameraId: string }) {
+  const { data: camera, isLoading, isError } = useCamera(cameraId)
+  const calibration = useCameraCalibration(cameraId, Boolean(camera))
   const videoPanelRef = useRef<HTMLDivElement>(null)
   const [videoPanelHeight, setVideoPanelHeight] = useState<number | null>(null)
 
@@ -58,6 +63,22 @@ export function CameraCalibrationPage() {
     <div className="flex flex-col gap-4">
       <CalibrationSummaryCard camera={camera} calibration={calibration} />
 
+      {calibration.calibrationLoadError && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="flex items-center justify-between gap-4 py-3 text-sm">
+            <span>{calibration.calibrationLoadError}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={calibration.reloadCalibration}
+            >
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="gap-0 py-0">
         <CardHeader className="py-4">
           <CardTitle>Hiệu chỉnh tọa độ</CardTitle>
@@ -83,6 +104,12 @@ export function CameraCalibrationPage() {
                 selectedPointId={calibration.selectedPointId}
                 onPointsChange={calibration.updatePointPositions}
                 onPointSelect={calibration.setSelectedPointId}
+                disabled={
+                  calibration.isLoadingCalibration
+                  || Boolean(calibration.calibrationLoadError)
+                  || calibration.isApplyingCalibration
+                  || calibration.isDeletingCalibration
+                }
               />
             </div>
 
