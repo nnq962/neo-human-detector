@@ -10,11 +10,16 @@ export class ApiError extends Error {
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "same-origin",
     ...init,
   })
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
+    if (res.status === 401 && path !== "/auth/login") {
+      const { notifyAuthenticationRequired } = await import("@/lib/auth-events")
+      notifyAuthenticationRequired()
+    }
     throw new ApiError(res.status, body?.message ?? body?.detail ?? res.statusText)
   }
 

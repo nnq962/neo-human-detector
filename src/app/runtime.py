@@ -62,6 +62,7 @@ class Runtime:
         self.is_running = False
         self._stop_requested = threading.Event()
         self._fps_tracker: Dict[str, float] = {}
+        self._camera_fps: Dict[str, float] = {}
         self._frame_counters: Dict[str, int] = {}
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -206,6 +207,8 @@ class Runtime:
             pass
 
         runtime_state.clear()
+        self._fps_tracker.clear()
+        self._camera_fps.clear()
         LOGGER.info("Runtime stopped.")
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -219,6 +222,22 @@ class Runtime:
                 self.media_sources.release()
             except Exception:
                 pass
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def get_performance_metrics(self) -> dict:
+        """Trả metric inference của các model đang được runtime sử dụng."""
+        return {
+            "yolo": (
+                self.detector.get_inference_metrics()
+                if self.detector is not None
+                else None
+            ),
+            "reid": (
+                self.reid_pipeline.get_inference_metrics()
+                if self.reid_pipeline is not None
+                else None
+            ),
+        }
 
     # ── setup ─────────────────────────────────────────────────────────────────
     def _prepare(self) -> None:
@@ -413,15 +432,20 @@ class Runtime:
             ack_timeout_seconds=robot_config.ack_timeout_seconds,
             max_retries=robot_config.max_retries,
             register_heartbeat_handler=self._register_robot_heartbeat_handler,
+            background_ack=True,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
     def _update_fps(self, camera_id: str, timestamp: float) -> float:
+        """Cập nhật và trả FPS giữa hai frame liên tiếp của một camera."""
         prev = self._fps_tracker.get(camera_id)
         self._fps_tracker[camera_id] = timestamp
         if prev is None:
-            return 0.0
-        return 1.0 / max(timestamp - prev, 1e-6)
+            fps = 0.0
+        else:
+            fps = 1.0 / max(timestamp - prev, 1e-6)
+        self._camera_fps[camera_id] = fps
+        return fps
 
     # ─────────────────────────────────────────────────────────────────────────
     def _validate_batch_lengths(

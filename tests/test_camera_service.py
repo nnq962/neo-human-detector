@@ -16,6 +16,7 @@ from api.services import config_store
 
 class CameraServiceTest(unittest.TestCase):
     def setUp(self):
+        """Tạo config tạm và thay các dependency có side effect."""
         self._tmpdir = tempfile.TemporaryDirectory()
         self.config_path = Path(self._tmpdir.name) / "config.yaml"
         self.config_path.write_text("cameras: []\n", encoding="utf-8")
@@ -29,14 +30,18 @@ class CameraServiceTest(unittest.TestCase):
         config_store._notify_config_saved = lambda config: None
         camera_service.mediamtx_service.delete_camera_path = lambda *args, **kwargs: None
 
+    # ─────────────────────────────────────────────────────────────────────────
     def tearDown(self):
+        """Khôi phục dependency và xóa config tạm sau mỗi test."""
         config_store.CONFIG_PATH = self._old_config_path
         config_store._notify_config_saved = self._old_notify
         camera_service.mediamtx_service.upsert_camera_path = self._old_upsert
         camera_service.mediamtx_service.delete_camera_path = self._old_delete
         self._tmpdir.cleanup()
 
+    # ─────────────────────────────────────────────────────────────────────────
     def _read_config(self):
+        """Đọc lại config YAML tạm đã được service ghi."""
         return yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -77,10 +82,13 @@ class CameraServiceTest(unittest.TestCase):
             ],
         )
 
+    # ─────────────────────────────────────────────────────────────────────────
     def test_create_camera_syncs_mediamtx_after_config_is_saved(self):
+        """Kiểm tra tạo camera đồng bộ MediaMTX sau khi config đã lưu."""
         observed_ids = []
 
         def fake_upsert(camera: dict):
+            """Ghi nhận camera và xác minh config đã được commit trước."""
             saved = self._read_config()
             observed_ids.append(camera["id"])
             self.assertIn(
@@ -100,7 +108,9 @@ class CameraServiceTest(unittest.TestCase):
 
         self.assertEqual(observed_ids, [created["id"]])
 
+    # ─────────────────────────────────────────────────────────────────────────
     def test_update_camera_syncs_mediamtx_after_config_is_saved(self):
+        """Kiểm tra cập nhật camera đồng bộ MediaMTX sau khi config đã lưu."""
         self.config_path.write_text(
             """
 cameras:
@@ -118,6 +128,7 @@ cameras:
         observed_sources = []
 
         def fake_upsert(camera: dict):
+            """Ghi nhận source và xác minh config mới đã được lưu trước."""
             saved = self._read_config()
             observed_sources.append(camera["stream"]["source"])
             self.assertEqual(
@@ -151,7 +162,7 @@ cameras:
   - id: zone1
     name: Zone 1
     goal_pose: {x: 1.0, y: 2.0, theta: 0.5}
-    points: [[1, 2], [3, 4], [5, 6]]
+    points: [[1, 2], [3, 4], [5, 7]]
 """.lstrip(),
             encoding="utf-8",
         )
@@ -164,7 +175,7 @@ cameras:
                         "id": "zone1",
                         "name": "Zone 1",
                         "service_point": [320, 240],
-                        "points": [[1, 2], [3, 4], [5, 6]],
+                        "points": [[1, 2], [3, 4], [5, 7]],
                     }
                 ],
             ),
@@ -198,7 +209,7 @@ cameras:
                         {
                             "name": "Zone mới",
                             "service_point": None,
-                            "points": [[1, 2], [3, 4], [5, 6]],
+                            "points": [[1, 2], [3, 4], [5, 7]],
                         }
                     ],
                 ),
@@ -343,7 +354,7 @@ cameras:
   zones:
   - id: zone1
     name: Zone 1
-    points: [[1, 2], [3, 4], [5, 6]]
+    points: [[1, 2], [3, 4], [5, 7]]
 """.lstrip(),
             encoding="utf-8",
         )

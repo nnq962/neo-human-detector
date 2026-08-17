@@ -46,8 +46,8 @@ export interface RobotTaskSnapshot {
 }
 
 export const robotTasksApi = {
-  getSnapshot: () =>
-    apiRequest<ApiResponse<RobotTaskSnapshot>>("/runtime/tasks").then(
+  getSnapshot: (signal?: AbortSignal) =>
+    apiRequest<ApiResponse<RobotTaskSnapshot>>("/runtime/tasks", { signal }).then(
       unwrapApiResponse,
     ),
 }

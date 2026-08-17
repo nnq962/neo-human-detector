@@ -1,6 +1,7 @@
-// Singleton WebSocket stream cho /ws/runtime/bboxes.
-// Một kết nối dùng chung cho mọi subscriber: parse message đúng một lần rồi
-// fan-out qua callback, không đi qua React state để tránh re-render 20 lần/giây.
+// Singleton WebSocket stream cho bbox runtime. Mỗi namespace public/private có
+// một kết nối dùng chung, parse message một lần rồi fan-out qua callback.
+
+import { notifyAuthenticationRequired } from "@/lib/auth-events"
 
 export interface BBoxCoords {
   xyxy: [number, number, number, number]
@@ -47,69 +48,104 @@ export interface BboxesBatch {
   cameras: Record<string, CameraDetectionPayload>
 }
 
-// Batch null nghĩa là mất kết nối — subscriber nên xóa overlay hiện tại.
+export interface BboxStreamState {
+  batch: BboxesBatch | null
+  connected: boolean
+}
+
 export type BboxListener = (batch: BboxesBatch | null) => void
+export type BboxStateListener = (state: BboxStreamState) => void
 
 const RETRY_DELAY_MS = 3000
 
-const listeners = new Set<BboxListener>()
-let ws: WebSocket | null = null
-let retryTimer: ReturnType<typeof setTimeout> | null = null
-
-function getWsUrl(): string {
+function getWsUrl(path: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-  return `${protocol}//${window.location.host}/ws/runtime/bboxes`
+  return `${protocol}//${window.location.host}${path}`
 }
 
-function notify(batch: BboxesBatch | null) {
-  listeners.forEach((listener) => listener(batch))
-}
+function createBboxStream(path: string, protectedAccess: boolean) {
+  const listeners = new Set<BboxStateListener>()
+  let websocket: WebSocket | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let currentState: BboxStreamState = { batch: null, connected: false }
 
-function scheduleRetry() {
-  if (retryTimer || listeners.size === 0) return
-  retryTimer = setTimeout(() => {
-    retryTimer = null
-    connect()
-  }, RETRY_DELAY_MS)
-}
+  const notify = (state: BboxStreamState) => {
+    currentState = state
+    listeners.forEach((listener) => listener(currentState))
+  }
 
-function connect() {
-  if (ws || listeners.size === 0) return
-  const socket = new WebSocket(getWsUrl())
-  ws = socket
+  const scheduleRetry = () => {
+    if (retryTimer || listeners.size === 0) return
+    retryTimer = setTimeout(() => {
+      retryTimer = null
+      connect()
+    }, RETRY_DELAY_MS)
+  }
 
-  socket.onmessage = (e: MessageEvent) => {
-    try {
-      const msg = JSON.parse(e.data) as BboxesBatch
-      if (msg.cameras) notify(msg)
-    } catch {
-      // bỏ qua message hỏng
+  const connect = () => {
+    if (websocket || listeners.size === 0) return
+    const socket = new WebSocket(getWsUrl(path))
+    websocket = socket
+
+    socket.onopen = () => {
+      if (listeners.size === 0) {
+        websocket = null
+        socket.close()
+        return
+      }
+      notify({ ...currentState, connected: true })
     }
+    socket.onmessage = (event: MessageEvent) => {
+      try {
+        const batch = JSON.parse(event.data) as BboxesBatch
+        if (batch.cameras) notify({ batch, connected: true })
+      } catch {
+        // Bỏ qua payload hỏng và chờ message tiếp theo.
+      }
+    }
+    socket.onclose = (event) => {
+      if (websocket === socket) websocket = null
+      notify({ batch: null, connected: false })
+      if (protectedAccess && event.code === 4401) {
+        notifyAuthenticationRequired()
+        return
+      }
+      scheduleRetry()
+    }
+    socket.onerror = () => socket.close()
   }
 
-  socket.onclose = () => {
-    if (ws === socket) ws = null
-    notify(null)
-    scheduleRetry()
-  }
+  const subscribeState = (listener: BboxStateListener): (() => void) => {
+    listeners.add(listener)
+    listener(currentState)
+    connect()
 
-  socket.onerror = () => socket.close()
-}
-
-export function subscribeBboxes(listener: BboxListener): () => void {
-  listeners.add(listener)
-  connect()
-
-  return () => {
-    listeners.delete(listener)
-    if (listeners.size === 0) {
+    return () => {
+      listeners.delete(listener)
+      if (listeners.size > 0) return
       if (retryTimer) {
         clearTimeout(retryTimer)
         retryTimer = null
       }
-      const socket = ws
-      ws = null
-      socket?.close()
+      const socket = websocket
+      if (!socket) return
+      if (socket.readyState === WebSocket.OPEN) {
+        websocket = null
+        socket.close()
+      }
     }
   }
+
+  const subscribeBatch = (listener: BboxListener): (() => void) =>
+    subscribeState((state) => listener(state.batch))
+
+  return { subscribeBatch, subscribeState }
 }
+
+const privateStream = createBboxStream("/ws/runtime/bboxes", true)
+const publicStream = createBboxStream("/ws/public/runtime/bboxes", false)
+
+export const subscribeBboxes = privateStream.subscribeBatch
+export const subscribeBboxState = privateStream.subscribeState
+export const subscribePublicBboxes = publicStream.subscribeBatch
+export const subscribePublicBboxState = publicStream.subscribeState

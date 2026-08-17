@@ -28,12 +28,14 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
-import { useCameras, type Camera as CameraModel } from "@/hooks/use-cameras"
+import { usePublicCameras } from "@/hooks/use-cameras"
+import type { PublicCamera as CameraModel } from "@/api/public.api"
 import {
-  subscribeBboxes,
+  subscribePublicBboxState,
   type RuntimeZonePayload,
 } from "@/lib/bbox-stream"
 import { cn } from "@/lib/utils"
+import type { StreamStatus } from "@/components/camera-preview/types"
 
 const DESIGN_WIDTH = 1920
 const DESIGN_HEIGHT = 1080
@@ -247,6 +249,14 @@ const LIVE_BADGE_BORDER_STYLE: CSSProperties = {
   maskComposite: "exclude",
 }
 
+const CONNECTING_BADGE_STYLE: CSSProperties = {
+  background: "linear-gradient(180deg, #f59e0b 0%, #d97706 100%)",
+}
+
+const OFFLINE_BADGE_STYLE: CSSProperties = {
+  background: "linear-gradient(180deg, #64748b 0%, #475569 100%)",
+}
+
 function getCanvasScale() {
   if (typeof window === "undefined") return 1
   return Math.min(
@@ -266,6 +276,20 @@ function readSavedSelection(): string[] | null {
   } catch {
     return null
   }
+}
+
+function writeSavedSelection(cameraIds: string[]) {
+  try {
+    localStorage.setItem(CAMERA_SELECTION_KEY, JSON.stringify(cameraIds))
+  } catch {
+    // Trang live vẫn hoạt động nếu storage bị trình duyệt chặn.
+  }
+}
+
+function streamStatusLabel(status: StreamStatus | undefined) {
+  if (status === "live") return "LIVE"
+  if (status === "connecting") return "CONNECTING"
+  return "OFFLINE"
 }
 
 function runtimeSummariesEqual(
@@ -515,7 +539,7 @@ function CameraSettingsSheet({
 }
 
 export function PublicCameraWallPage() {
-  const { data: cameras = [], isLoading, isError } = useCameras()
+  const { data: cameras = [], isLoading, isError } = usePublicCameras()
   const [now, setNow] = useState(() => new Date())
   const [canvasScale, setCanvasScale] = useState(getCanvasScale)
   const [selectedIds, setSelectedIds] = useState<string[] | null>(
@@ -524,27 +548,37 @@ export function PublicCameraWallPage() {
   const [runtimeSummaries, setRuntimeSummaries] = useState<
     Record<string, RuntimeCameraSummary>
   >({})
-  const [cameraStreamActive, setCameraStreamActive] = useState<
-    Record<string, boolean>
+  const [cameraStreamStatuses, setCameraStreamStatuses] = useState<
+    Record<string, StreamStatus>
   >({})
+  const [bboxConnected, setBboxConnected] = useState(false)
   const formattedDateTime = formatDateTime(now)
 
   const enabledCameras = useMemo(
     () => cameras.filter((camera) => camera.enabled),
     [cameras],
   )
+  const defaultSelectedIds = enabledCameras
+    .slice(0, MAX_VISIBLE_CAMERAS)
+    .map((camera) => camera.id)
+  const validSavedIds = selectedIds?.filter((cameraId) =>
+    enabledCameras.some((camera) => camera.id === cameraId)
+  ) ?? null
   const effectiveSelectedIds = (
-    selectedIds
-    ?? enabledCameras
-      .slice(0, MAX_VISIBLE_CAMERAS)
-      .map((camera) => camera.id)
+    selectedIds === null
+      ? defaultSelectedIds
+      : selectedIds.length === 0
+        ? []
+        : validSavedIds?.length
+          ? validSavedIds
+          : defaultSelectedIds
   ).slice(0, MAX_VISIBLE_CAMERAS)
   const visibleCameras = enabledCameras.filter((camera) =>
     effectiveSelectedIds.includes(camera.id)
   ).slice(0, MAX_VISIBLE_CAMERAS)
   const activeCamera = visibleCameras[0] ?? null
   const activeCameraCount = visibleCameras.filter(
-    (camera) => cameraStreamActive[camera.id] === true,
+    (camera) => cameraStreamStatuses[camera.id] === "live",
   ).length
   const detectedPersonCount = visibleCameras.reduce(
     (total, camera) =>
@@ -576,11 +610,21 @@ export function PublicCameraWallPage() {
   const updateSelection = (cameraIds: string[]) => {
     const limitedCameraIds = cameraIds.slice(0, MAX_VISIBLE_CAMERAS)
     setSelectedIds(limitedCameraIds)
-    localStorage.setItem(
-      CAMERA_SELECTION_KEY,
-      JSON.stringify(limitedCameraIds),
-    )
+    writeSavedSelection(limitedCameraIds)
   }
+
+  useEffect(() => {
+    if (selectedIds === null || selectedIds.length === 0 || isLoading) return
+    if (
+      effectiveSelectedIds.length === selectedIds.length
+      && effectiveSelectedIds.every((cameraId, index) => cameraId === selectedIds[index])
+    ) return
+    const timer = window.setTimeout(() => {
+      setSelectedIds(effectiveSelectedIds)
+      writeSavedSelection(effectiveSelectedIds)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [effectiveSelectedIds, isLoading, selectedIds])
 
   useEffect(() => {
     const updateCanvasScale = () => setCanvasScale(getCanvasScale())
@@ -588,7 +632,8 @@ export function PublicCameraWallPage() {
     return () => window.removeEventListener("resize", updateCanvasScale)
   }, [])
 
-  useEffect(() => subscribeBboxes((batch) => {
+  useEffect(() => subscribePublicBboxState(({ batch, connected }) => {
+    setBboxConnected(connected)
     const nextSummaries = batch
       ? Object.fromEntries(
           Object.entries(batch.cameras).map(([cameraId, payload]) => [
@@ -605,11 +650,11 @@ export function PublicCameraWallPage() {
     )
   }), [])
 
-  const updateCameraStreamActive = useCallback(
-    (cameraId: string, active: boolean) => {
-      setCameraStreamActive((current) => {
-        if (current[cameraId] === active) return current
-        return { ...current, [cameraId]: active }
+  const updateCameraStreamStatus = useCallback(
+    (cameraId: string, status: StreamStatus) => {
+      setCameraStreamStatuses((current) => {
+        if (current[cameraId] === status) return current
+        return { ...current, [cameraId]: status }
       })
     },
     [],
@@ -716,20 +761,29 @@ export function PublicCameraWallPage() {
                           hideFaceKeypoints
                           hideStreamBadges
                           videoBorderRadius={14}
-                          onVideoSizeChange={(size) =>
-                            updateCameraStreamActive(camera.id, size !== null)
+                          onStreamStatusChange={(status) =>
+                            updateCameraStreamStatus(camera.id, status)
                           }
+                          publicAccess
                         />
                         <div
                           className="pointer-events-none absolute top-3 left-3 z-50 flex h-[38px] w-[122px] items-center justify-center gap-[10px] rounded-[100px] border border-transparent px-[12px] py-[8px] text-sm font-medium text-white"
-                          style={LIVE_BADGE_STYLE}
+                          style={
+                            cameraStreamStatuses[camera.id] === "live"
+                              ? LIVE_BADGE_STYLE
+                              : cameraStreamStatuses[camera.id] === "connecting"
+                                ? CONNECTING_BADGE_STYLE
+                                : OFFLINE_BADGE_STYLE
+                          }
                         >
                           <div
                             aria-hidden="true"
                             className="absolute inset-0 rounded-[100px] p-px"
                             style={LIVE_BADGE_BORDER_STYLE}
                           />
-                          <span className="relative">Stream: LIVE</span>
+                          <span className="relative">
+                            Stream: {streamStatusLabel(cameraStreamStatuses[camera.id])}
+                          </span>
                         </div>
                     </div>
                   </article>
@@ -758,6 +812,15 @@ export function PublicCameraWallPage() {
               />
               <h2 className="flex h-[36px] w-[450px] items-center font-['Space_Grotesk_Variable'] text-[28px] leading-none font-medium tracking-normal">
                 Giám sát
+                <span className="ml-auto flex items-center gap-2 text-[13px] font-medium text-white/70">
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      bboxConnected ? "bg-emerald-400" : "bg-slate-400",
+                    )}
+                  />
+                  {bboxConnected ? "Realtime" : "Mất dữ liệu"}
+                </span>
               </h2>
 
               <div className="flex h-[238px] w-[450px] flex-col gap-[34px]">

@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom"
 import { Collapsible } from "radix-ui"
 import {
   Camera,
+  Bot,
   ChevronRight,
   Cpu,
   Crosshair,
@@ -11,7 +12,7 @@ import {
   LayoutDashboard,
   Plus,
   ScanEye,
-  Video,
+  Box
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -39,6 +40,7 @@ const navItems = [
   { title: "Detection", url: "/detection", icon: ScanEye },
   { title: "Zone State Machine", url: "/zone-state-machine", icon: GitBranch },
   { title: "Re-ID", url: "/re-id", icon: Fingerprint },
+  { title: "Robot Dispatch", url: "/robot-dispatch", icon: Bot },
   { title: "UART", url: "/uart", icon: Cpu },
 ]
 
@@ -64,7 +66,7 @@ export function AppSidebar() {
               >
                 <Link to="/">
                   <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    <Video className="size-4" />
+                    <Box className="size-4" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">Neo Human Detector</span>

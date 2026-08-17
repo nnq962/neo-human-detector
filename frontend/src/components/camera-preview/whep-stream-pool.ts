@@ -63,6 +63,11 @@ function closeCurrentConnection(entry: WhepStreamEntry) {
   cleanup?.()
 }
 
+function deleteWhepSession(sessionUrl: string) {
+  if (!sessionUrl) return
+  fetch(sessionUrl, { method: "DELETE", keepalive: true }).catch(() => undefined)
+}
+
 function disposeEntry(entry: WhepStreamEntry) {
   if (entry.disposed) return
   entry.disposed = true
@@ -134,9 +139,7 @@ async function connect(entry: WhepStreamEntry): Promise<void> {
 
   entry.cleanupConnection = () => {
     connectionClosed = true
-    if (sessionUrl) {
-      fetch(sessionUrl, { method: "DELETE" }).catch(() => undefined)
-    }
+    deleteWhepSession(sessionUrl)
     connection.getSenders().forEach((sender) => sender.track?.stop())
     connection.getReceivers().forEach((receiver) => receiver.track?.stop())
     connection.close()
@@ -158,6 +161,10 @@ async function connect(entry: WhepStreamEntry): Promise<void> {
 
   try {
     const optionsResponse = await fetch(entry.endpointUrl, { method: "OPTIONS" })
+    if (!optionsResponse.ok) {
+      throw new Error(`WHEP OPTIONS thất bại: HTTP ${optionsResponse.status}`)
+    }
+    if (connectionClosed) return
     const iceServers = parseIceServers(optionsResponse.headers.get("link"))
     if (iceServers.length) connection.setConfiguration({ iceServers })
 
@@ -189,8 +196,10 @@ async function connect(entry: WhepStreamEntry): Promise<void> {
     }
 
     const offer = await connection.createOffer()
+    if (connectionClosed) return
     offerData = parseOffer(offer.sdp ?? "")
     await connection.setLocalDescription(offer)
+    if (connectionClosed) return
 
     const response = await fetch(entry.endpointUrl, {
       method: "POST",
@@ -199,7 +208,12 @@ async function connect(entry: WhepStreamEntry): Promise<void> {
     })
     if (!response.ok) throw new Error(`WHEP thất bại: HTTP ${response.status}`)
 
-    sessionUrl = getSessionUrl(response, entry.endpointUrl)
+    const createdSessionUrl = getSessionUrl(response, entry.endpointUrl)
+    sessionUrl = createdSessionUrl
+    if (connectionClosed) {
+      deleteWhepSession(createdSessionUrl)
+      return
+    }
     await connection.setRemoteDescription({
       type: "answer",
       sdp: await response.text(),

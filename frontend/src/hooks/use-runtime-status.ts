@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { ApiResponse } from "@/api/client"
 import type { RuntimeStatus } from "@/api/runtime.api"
+import { notifyAuthenticationRequired } from "@/lib/auth-events"
 
 function getWsUrl(): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
@@ -38,12 +39,14 @@ export function useRuntimeStatus() {
         }
       }
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (wsRef.current === ws) {
           wsRef.current = null
         }
         setConnected(false)
-        if (!disposed) {
+        if (!disposed && event.code === 4401) {
+          notifyAuthenticationRequired()
+        } else if (!disposed) {
           retryRef.current = setTimeout(connect, 3000)
         }
       }

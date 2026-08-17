@@ -1,4 +1,9 @@
-import { type ReactNode, type SubmitEvent, useState } from "react"
+import {
+  type ReactNode,
+  type SubmitEvent,
+  useEffect,
+  useState,
+} from "react"
 import {
   AlertCircle,
   ArrowRight,
@@ -11,40 +16,77 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { ApiError } from "@/api/client"
+import { AUTH_REQUIRED_EVENT, authApi } from "@/api/auth.api"
+import { Spinner } from "@/components/ui/spinner"
 
-const SESSION_KEY = "neo-config-authenticated"
 const PASSWORD_INPUT_ID = "config-password"
 const PASSWORD_ERROR_ID = "config-password-error"
 
-function hasAuthenticatedSession() {
-  return sessionStorage.getItem(SESSION_KEY) === "true"
-}
-
 export function ConfigGuard({ children }: { children: ReactNode }) {
-  const configuredPassword = import.meta.env.VITE_CONFIG_PASSWORD as
-    | string
-    | undefined
-  const [authenticated, setAuthenticated] = useState(hasAuthenticatedSession)
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
-  function verify(event: SubmitEvent<HTMLFormElement>) {
+  useEffect(() => {
+    let active = true
+
+    authApi.getSession()
+      .then((session) => {
+        if (active) setAuthenticated(session.authenticated)
+      })
+      .catch((requestError) => {
+        if (!active) return
+        setAuthenticated(false)
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không thể kiểm tra phiên đăng nhập.",
+        )
+      })
+
+    const requireAuthentication = () => setAuthenticated(false)
+    window.addEventListener(AUTH_REQUIRED_EVENT, requireAuthentication)
+    return () => {
+      active = false
+      window.removeEventListener(AUTH_REQUIRED_EVENT, requireAuthentication)
+    }
+  }, [])
+
+  async function verify(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (!configuredPassword) {
-      setError("Frontend chưa được cấu hình mật khẩu truy cập.")
-      return
-    }
-
-    if (password !== configuredPassword) {
-      setError("Mật khẩu chưa chính xác. Vui lòng thử lại.")
-      return
-    }
-
-    sessionStorage.setItem(SESSION_KEY, "true")
     setError("")
-    setAuthenticated(true)
+    setSubmitting(true)
+    try {
+      const session = await authApi.login(password)
+      setPassword("")
+      setAuthenticated(session.authenticated)
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 429) {
+        setError("Đăng nhập sai quá nhiều lần. Vui lòng chờ rồi thử lại.")
+      } else {
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Không thể đăng nhập.",
+        )
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (authenticated === null) {
+    return (
+      <main className="grid min-h-svh place-items-center bg-[#f5f7fb] dark:bg-background">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Spinner className="size-5" />
+          Đang kiểm tra phiên đăng nhập...
+        </div>
+      </main>
+    )
   }
 
   if (authenticated) {
@@ -102,7 +144,7 @@ export function ConfigGuard({ children }: { children: ReactNode }) {
 
             <div className="mt-7 hidden items-center gap-2 text-xs whitespace-nowrap text-white/65 md:flex">
               <LockKeyhole className="size-3.5" aria-hidden="true" />
-              <span>Phiên xác minh chỉ được lưu trong tab hiện tại</span>
+              <span>Phiên đăng nhập tự hết hạn theo cấu hình hệ thống</span>
             </div>
           </div>
         </section>
@@ -188,15 +230,16 @@ export function ConfigGuard({ children }: { children: ReactNode }) {
               variant="blue"
               size="lg"
               className="mt-3 h-11 w-full rounded-xl text-sm font-semibold"
-              disabled={!password}
+              disabled={!password || submitting}
             >
-              <span>Tiếp tục vào cấu hình</span>
+              {submitting && <Spinner className="size-4" />}
+              <span>{submitting ? "Đang xác minh..." : "Tiếp tục vào cấu hình"}</span>
               <ArrowRight className="size-4" aria-hidden="true" />
             </Button>
           </form>
 
           <p className="mt-6 text-center text-xs leading-5 text-muted-foreground md:hidden">
-            Phiên xác minh chỉ được lưu trong tab hiện tại.
+            Phiên đăng nhập được bảo vệ bằng cookie HttpOnly.
           </p>
         </CardContent>
       </Card>

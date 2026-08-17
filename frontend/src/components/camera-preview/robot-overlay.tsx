@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Bot } from "lucide-react"
-import { cameraCalibrationApi } from "@/api/camera-calibration.api"
+import {
+  cameraCalibrationApi,
+  cameraCalibrationQueryKey,
+} from "@/api/camera-calibration.api"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
 import { computeLayout } from "./layout"
 import {
@@ -23,6 +26,7 @@ interface RobotOverlayProps {
   cameraId: string | null
   previewSize: PreviewSize
   videoSize: VideoSize
+  publicAccess?: boolean
 }
 
 function robotPositionsEqual(
@@ -41,11 +45,14 @@ export function RobotOverlay({
   cameraId,
   previewSize,
   videoSize,
+  publicAccess = false,
 }: RobotOverlayProps) {
-  const { snapshot, connected } = useRobotHeartbeats()
+  const { snapshot, connected } = useRobotHeartbeats(publicAccess)
   const { data: calibration } = useQuery({
-    queryKey: ["camera-calibration", cameraId],
-    queryFn: () => cameraCalibrationApi.get(cameraId!),
+    queryKey: cameraCalibrationQueryKey(cameraId, publicAccess),
+    queryFn: () => publicAccess
+      ? cameraCalibrationApi.getPublic(cameraId!)
+      : cameraCalibrationApi.get(cameraId!),
     enabled: Boolean(cameraId),
     staleTime: 60_000,
   })

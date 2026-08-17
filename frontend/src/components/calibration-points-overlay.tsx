@@ -3,6 +3,12 @@ import { useEffect, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import type { CalibrationPointPosition } from "@/lib/calibration-points"
 import { cn } from "@/lib/utils"
+import {
+  normalizedVideoPointToPixel,
+  normalizedVideoPointToPreview,
+  previewPointToNormalizedVideo,
+} from "@/components/camera-preview/layout"
+import { usePreviewSize } from "@/components/camera-preview/use-preview-size"
 
 interface CalibrationPointsOverlayProps {
   points: CalibrationPointPosition[]
@@ -10,6 +16,7 @@ interface CalibrationPointsOverlayProps {
   selectedPointId: string | null
   onPointsChange: (points: CalibrationPointPosition[]) => void
   onPointSelect: (pointId: string | null) => void
+  disabled?: boolean
 }
 
 function clamp(value: number) {
@@ -25,24 +32,32 @@ export function CalibrationPointsOverlay({
   selectedPointId,
   onPointsChange,
   onPointSelect,
+  disabled = false,
 }: CalibrationPointsOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const [draggingPointId, setDraggingPointId] = useState<string | null>(null)
+  const previewSize = usePreviewSize(containerRef)
 
   useEffect(() => {
-    if (!draggingPointId) return
+    if (!draggingPointId || disabled || !videoSize) return
+    const activeVideoSize = videoSize
 
     function handlePointerMove(event: PointerEvent) {
       const rect = containerRef.current?.getBoundingClientRect()
       if (!rect?.width || !rect.height) return
 
-      const x = clamp(
-        (event.clientX - dragOffsetRef.current.x - rect.left) / rect.width,
+      const normalized = previewPointToNormalizedVideo(
+        {
+          x: event.clientX - dragOffsetRef.current.x - rect.left,
+          y: event.clientY - dragOffsetRef.current.y - rect.top,
+        },
+        previewSize,
+        activeVideoSize,
       )
-      const y = clamp(
-        (event.clientY - dragOffsetRef.current.y - rect.top) / rect.height,
-      )
+      if (!normalized) return
+      const x = clamp(normalized.x)
+      const y = clamp(normalized.y)
       onPointsChange(
         points.map((point) =>
           point.id === draggingPointId ? { ...point, x, y } : point,
@@ -61,14 +76,14 @@ export function CalibrationPointsOverlay({
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
     }
-  }, [draggingPointId, onPointsChange, points])
+  }, [disabled, draggingPointId, onPointsChange, points, previewSize, videoSize])
 
   return (
     <div
       ref={containerRef}
       className="absolute inset-0 z-30 touch-none select-none"
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) {
+        if (!disabled && event.target === event.currentTarget) {
           onPointSelect(null)
         }
       }}
@@ -100,6 +115,14 @@ export function CalibrationPointsOverlay({
         const selected = point.id === selectedPointId
         const dragging = point.id === draggingPointId
         const color = selected ? SELECTED_COLOR : UNSELECTED_COLOR
+        const previewPoint = videoSize
+          ? normalizedVideoPointToPreview(point, previewSize, videoSize)
+          : null
+        const pixelPoint = videoSize
+          ? normalizedVideoPointToPixel(point, videoSize)
+          : null
+
+        if (!previewPoint) return null
 
         return (
           <button
@@ -107,12 +130,13 @@ export function CalibrationPointsOverlay({
             type="button"
             aria-label={`Di chuyển ${point.label}`}
             onPointerDown={(event) => {
+              if (disabled) return
               event.preventDefault()
               const rect = containerRef.current?.getBoundingClientRect()
               if (rect) {
                 dragOffsetRef.current = {
-                  x: event.clientX - (rect.left + point.x * rect.width),
-                  y: event.clientY - (rect.top + point.y * rect.height),
+                  x: event.clientX - (rect.left + previewPoint.x),
+                  y: event.clientY - (rect.top + previewPoint.y),
                 }
               }
               onPointSelect(point.id)
@@ -120,10 +144,11 @@ export function CalibrationPointsOverlay({
             }}
             className={cn(
               "pointer-events-auto absolute grid size-11 -translate-x-1/2 -translate-y-1/2 cursor-grab place-items-center rounded-full transition-opacity duration-200 active:cursor-grabbing",
+              disabled && "pointer-events-none opacity-60",
             )}
             style={{
-              left: `${point.x * 100}%`,
-              top: `${point.y * 100}%`,
+              left: previewPoint.x,
+              top: previewPoint.y,
             }}
           >
             <span
@@ -177,8 +202,8 @@ export function CalibrationPointsOverlay({
               )}
               style={selected ? { backgroundColor: SELECTED_COLOR } : undefined}
             >
-              {videoSize
-                ? `${point.label} (${Math.round(point.x * videoSize.width)} · ${Math.round(point.y * videoSize.height)})`
+              {pixelPoint
+                ? `${point.label} (${Math.round(pixelPoint.x)} · ${Math.round(pixelPoint.y)})`
                 : point.label}
             </Badge>
           </button>

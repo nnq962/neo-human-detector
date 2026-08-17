@@ -71,6 +71,12 @@ class RobotHeartbeatService:
     def on_heartbeat(self, heartbeat: Heartbeat) -> None:
         """Cập nhật snapshot mới nhất khi UART nhận được Heartbeat."""
         self.state_store.update_from_heartbeat(heartbeat)
+        from api.services.robot_move import robot_move_registry
+
+        robot_move_registry.observe_heartbeat(
+            heartbeat.robot_id,
+            self.state_store,
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     def snapshot(self) -> dict:

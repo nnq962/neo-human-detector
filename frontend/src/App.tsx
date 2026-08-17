@@ -3,13 +3,18 @@ import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Toaster } from "@/components/ui/sonner"
 import { ConfigGuard } from "@/components/config-guard"
 import { DashboardLayout } from "@/layouts/DashboardLayout"
-import { PublicCameraWallPage } from "@/pages/PublicCameraWallPage"
+
+const PublicCameraWallPage = lazy(() =>
+  import("@/pages/PublicCameraWallPage").then((m) => ({
+    default: m.PublicCameraWallPage,
+  })),
+)
 
 const DashboardPage = lazy(() =>
   import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
 )
-const CameraPage = lazy(() =>
-  import("@/pages/CameraPage").then((m) => ({ default: m.CameraPage })),
+const CameraPageRoute = lazy(() =>
+  import("@/pages/CameraPage").then((m) => ({ default: m.CameraPageRoute })),
 )
 const CameraCalibrationPage = lazy(() =>
   import("@/pages/CameraCalibrationPage").then((m) => ({
@@ -27,6 +32,9 @@ const ZoneStateMachinePage = lazy(() =>
 )
 const DetectionPage = lazy(() =>
   import("@/pages/DetectionPage").then((m) => ({ default: m.DetectionPage })),
+)
+const RobotDispatchPage = lazy(() =>
+  import("@/pages/RobotDispatchPage").then((m) => ({ default: m.RobotDispatchPage })),
 )
 function App() {
   return (
@@ -48,13 +56,14 @@ function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/cameras/:id" element={<CameraPage />} />
+            <Route path="/cameras/:id" element={<CameraPageRoute />} />
             <Route
               path="/calibration/cameras/:id"
               element={<CameraCalibrationPage />}
             />
             <Route path="/uart" element={<UartPage />} />
             <Route path="/re-id" element={<ReidPage />} />
+            <Route path="/robot-dispatch" element={<RobotDispatchPage />} />
             <Route path="/zone-state-machine" element={<ZoneStateMachinePage />} />
             <Route path="/detection" element={<DetectionPage />} />
           </Route>

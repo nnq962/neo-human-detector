@@ -55,6 +55,8 @@ export function CalibrationSummaryCard({
     isCalculatingHomography,
     isApplyingCalibration,
     isDeletingCalibration,
+    isLoadingCalibration,
+    calibrationLoadError,
     isApplyWarningOpen,
     setIsApplyWarningOpen,
     isDeleteCalibrationOpen,
@@ -64,6 +66,7 @@ export function CalibrationSummaryCard({
     requestApplyCalibration,
     deleteSavedCalibration,
   } = calibration
+  const actionsDisabled = isLoadingCalibration || Boolean(calibrationLoadError)
 
   return (
     <Card className="gap-0 overflow-hidden py-0">
@@ -169,6 +172,7 @@ export function CalibrationSummaryCard({
                   variant="destructive"
                   size="sm"
                   className="w-full"
+                  disabled={actionsDisabled}
                   onClick={() => setIsDeleteCalibrationOpen(true)}
                 >
                   <Trash2 />
@@ -183,6 +187,7 @@ export function CalibrationSummaryCard({
                 disabled={
                   !canCalculateHomography ||
                   !videoSize ||
+                  actionsDisabled ||
                   isCalculatingHomography
                 }
                 onClick={previewHomographyCalculation}
@@ -200,6 +205,7 @@ export function CalibrationSummaryCard({
                 className="w-full"
                 disabled={
                   !calibrationPreview ||
+                  actionsDisabled ||
                   calibrationPreview.quality.rating === "RECALIBRATE" ||
                   isApplyingCalibration ||
                   isCalculatingHomography

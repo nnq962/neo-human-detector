@@ -7,6 +7,7 @@ import {
 } from "react"
 import {
   subscribeBboxes,
+  subscribePublicBboxes,
   type CameraDetectionPayload,
   type DetectionPayload,
   type RuntimeZonePayload,
@@ -252,6 +253,7 @@ interface DetectionOverlayProps {
   previewSize: PreviewSize
   videoSize: VideoSize
   hideFaceKeypoints: boolean
+  publicAccess?: boolean
   onZoneStatesChange: Dispatch<
     SetStateAction<Record<string, RuntimeZonePayload> | undefined>
   >
@@ -262,6 +264,7 @@ export function DetectionOverlay({
   previewSize,
   videoSize,
   hideFaceKeypoints,
+  publicAccess = false,
   onZoneStatesChange,
 }: DetectionOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -334,7 +337,8 @@ export function DetectionOverlay({
       )
     }
 
-    const unsubscribe = subscribeBboxes((batch) => {
+    const subscribe = publicAccess ? subscribePublicBboxes : subscribeBboxes
+    const unsubscribe = subscribe((batch) => {
       applyPayload(batch?.cameras[cameraId] ?? null)
     })
     return () => {
@@ -343,7 +347,7 @@ export function DetectionOverlay({
       onZoneStatesChange(undefined)
       scheduleDraw()
     }
-  }, [cameraId, onZoneStatesChange, scheduleDraw])
+  }, [cameraId, onZoneStatesChange, publicAccess, scheduleDraw])
 
   return (
     <canvas

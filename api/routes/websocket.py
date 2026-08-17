@@ -1,11 +1,15 @@
+"""Các WebSocket realtime cho màn hình public và dashboard riêng tư."""
+
 import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 
+from api.routes.auth import SESSION_COOKIE_NAME
 from api.routes.responses import ok
-from api.services.hardware_metrics import hardware_metrics_service
 from api.services import runtime as runtime_service
+from api.services.auth import auth_service, is_origin_allowed, load_auth_settings
+from api.services.hardware_metrics import hardware_metrics_service
 from api.services.robot_heartbeat import robot_heartbeat_service
 from src.app.runtime_state import runtime_state
 from utils import LOGGER
@@ -19,14 +23,37 @@ RUNTIME_TASK_INTERVAL_SECONDS = 0.5
 DEFAULT_HARDWARE_METRICS_INTERVAL_SECONDS = 1.0
 
 
-# ───────────────────────────────────────────────────────────────────────────
-# Gửi dữ liệu bbox/pose runtime lên web preview.
-# Payload đã được serialize sẵn một lần lúc publish — mỗi client chỉ send_text,
-# không deepcopy/re-encode.
-@router.websocket("/ws/runtime/bboxes")
-async def websocket_endpoint(websocket: WebSocket):
+# ─────────────────────────────────────────────────────────────────────────────
+async def _require_private_websocket(websocket: WebSocket) -> bool:
+    """Xác thực cookie và Origin trước khi chấp nhận WebSocket riêng tư."""
+    settings = load_auth_settings()
+    if not settings.enabled:
+        return True
+
+    host = websocket.headers.get("host", "")
+    scheme = "https" if websocket.url.scheme == "wss" else "http"
+    if not is_origin_allowed(
+        websocket.headers.get("origin"),
+        scheme=scheme,
+        host=host,
+    ):
+        await websocket.accept()
+        await websocket.close(code=4403, reason="Origin không được phép.")
+        return False
+
+    token = websocket.cookies.get(SESSION_COOKIE_NAME)
+    if not settings.password or not auth_service.is_session_valid(token):
+        await websocket.accept()
+        await websocket.close(code=4401, reason="Phiên đăng nhập không hợp lệ.")
+        return False
+    return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+async def _serve_bboxes(websocket: WebSocket) -> None:
+    """Phát payload bbox mới nhất cho một WebSocket đã được cho phép."""
     await websocket.accept()
-    LOGGER.info("Client connected to /ws/runtime/bboxes")
+    LOGGER.info("Client connected to %s", websocket.url.path)
     last_sequence = None
     try:
         while True:
@@ -40,13 +67,31 @@ async def websocket_endpoint(websocket: WebSocket):
 
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
-        LOGGER.info("Client disconnected from /ws/runtime/bboxes")
+        LOGGER.info("Client disconnected from %s", websocket.url.path)
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# Gửi trạng thái runtime lên web config/dashboard.
+# ─────────────────────────────────────────────────────────────────────────────
+@router.websocket("/ws/runtime/bboxes")
+async def private_bboxes_websocket(websocket: WebSocket) -> None:
+    """Phát bbox cho dashboard sau khi kiểm tra session."""
+    if await _require_private_websocket(websocket):
+        await _serve_bboxes(websocket)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.websocket("/ws/public/runtime/bboxes")
+async def public_bboxes_websocket(websocket: WebSocket) -> None:
+    """Phát bbox công khai cho màn hình live."""
+    await _serve_bboxes(websocket)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @router.websocket("/ws/runtime/status")
-async def runtime_status_websocket(websocket: WebSocket):
+async def runtime_status_websocket(websocket: WebSocket) -> None:
+    """Phát trạng thái runtime định kỳ cho dashboard riêng tư."""
+    if not await _require_private_websocket(websocket):
+        return
+
     await websocket.accept()
     interval_seconds = _runtime_status_interval_from_websocket(websocket)
     LOGGER.info("Client connected to /ws/runtime/status")
@@ -66,12 +111,11 @@ async def runtime_status_websocket(websocket: WebSocket):
         LOGGER.info("Client disconnected from /ws/runtime/status")
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# Gửi snapshot robot mới nhất và tự cập nhật trạng thái online/offline.
-@router.websocket("/ws/uart/robots")
-async def uart_robots_websocket(websocket: WebSocket):
+# ─────────────────────────────────────────────────────────────────────────────
+async def _serve_robot_heartbeats(websocket: WebSocket) -> None:
+    """Phát snapshot robot cho một WebSocket đã được cho phép."""
     await websocket.accept()
-    LOGGER.info("Client connected to /ws/uart/robots")
+    LOGGER.info("Client connected to %s", websocket.url.path)
 
     try:
         while True:
@@ -85,14 +129,31 @@ async def uart_robots_websocket(websocket: WebSocket):
             )
             await asyncio.sleep(ROBOT_HEARTBEAT_INTERVAL_SECONDS)
     except WebSocketDisconnect:
-        LOGGER.info("Client disconnected from /ws/uart/robots")
+        LOGGER.info("Client disconnected from %s", websocket.url.path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gửi read-model task của phiên runtime hiện tại.
+@router.websocket("/ws/uart/robots")
+async def uart_robots_websocket(websocket: WebSocket) -> None:
+    """Phát vị trí robot cho dashboard sau khi kiểm tra session."""
+    if await _require_private_websocket(websocket):
+        await _serve_robot_heartbeats(websocket)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.websocket("/ws/public/uart/robots")
+async def public_uart_robots_websocket(websocket: WebSocket) -> None:
+    """Phát vị trí robot công khai cho overlay trang live."""
+    await _serve_robot_heartbeats(websocket)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @router.websocket("/ws/runtime/tasks")
-async def runtime_tasks_websocket(websocket: WebSocket):
-    """Phát snapshot task runtime định kỳ tới WebSocket client."""
+async def runtime_tasks_websocket(websocket: WebSocket) -> None:
+    """Phát snapshot task runtime định kỳ tới dashboard riêng tư."""
+    if not await _require_private_websocket(websocket):
+        return
+
     await websocket.accept()
     LOGGER.info("Client connected to /ws/runtime/tasks")
 
@@ -112,10 +173,12 @@ async def runtime_tasks_websocket(websocket: WebSocket):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Gửi snapshot CPU, RAM và GPU để hiển thị giám sát phần cứng.
 @router.websocket("/ws/metrics")
-async def hardware_metrics_websocket(websocket: WebSocket):
-    """Phát snapshot tài nguyên phần cứng định kỳ tới WebSocket client."""
+async def hardware_metrics_websocket(websocket: WebSocket) -> None:
+    """Phát snapshot tài nguyên phần cứng tới dashboard riêng tư."""
+    if not await _require_private_websocket(websocket):
+        return
+
     await websocket.accept()
     interval_seconds = _hardware_metrics_interval_from_websocket(websocket)
     LOGGER.info("Client connected to /ws/metrics")
@@ -135,7 +198,7 @@ async def hardware_metrics_websocket(websocket: WebSocket):
         LOGGER.info("Client disconnected from /ws/metrics")
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 def _runtime_status_interval_from_websocket(websocket: WebSocket) -> float:
     """Đọc khoảng gửi trạng thái runtime từ query parameter của WebSocket."""
     return _interval_from_websocket(websocket, default=1.0)

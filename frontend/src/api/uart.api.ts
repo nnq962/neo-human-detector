@@ -65,7 +65,6 @@ export interface UartAckResult {
 
 export interface MoveToPointRequest {
   robot_id: number
-  move_id: number
   x: number
   y: number
   theta: number

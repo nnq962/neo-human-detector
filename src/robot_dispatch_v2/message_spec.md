@@ -23,21 +23,23 @@ Body:
 ```json
 {
   "robot_id": 1,
-  "move_id": 25,
   "x": 1.5,
   "y": 2.0,
   "theta": 0.25
 }
 ```
 
-`move_id` do client tự cấp trong khoảng 0-255 và độc lập với `task_id`. API
-chỉ trả thành công khi robot phản hồi ACK `ACCEPTED`.
+Backend cấp `move_id` tuần tự theo từng robot trong khoảng 0-255; client không
+được tự truyền ID này. API chỉ trả thành công khi robot phản hồi ACK `ACCEPTED`
+và trả `move_id` đã cấp trong response.
 
 Service chờ ACK theo `ack_timeout_seconds`/`max_retries`. `TaskAssign` được
-theo dõi trong memory để xử lý `TaskStatus`; `MoveToPoint` không được đưa vào
-task registry hoặc danh sách manual task. API trả `409 Conflict` nếu Runtime
-đang chạy, nếu còn manual task active khi khởi động Runtime, hoặc khi đổi cấu
-hình UART trong lúc UART đang được sử dụng.
+theo dõi trong memory để xử lý `TaskStatus`; `MoveToPoint` có registry riêng để
+không cấp hai lệnh đồng thời cho cùng robot. Một ID được giữ trong suốt các lần
+retry và chỉ được giải phóng sau khi backend quan sát robot đã chạy rồi trở về
+`IDLE`. API trả `409 Conflict` nếu Runtime đang chạy, robot đang bận, còn manual
+task active khi khởi động Runtime, hoặc khi đổi cấu hình UART trong lúc UART
+đang được sử dụng.
 
 Mục tiêu của V2 là bỏ format string/JSON khi gửi qua LoRa/UART, thay bằng các
 frame nhị phân nhỏ, có kích thước cố định theo từng loại message.
@@ -584,7 +586,8 @@ Giá trị raw trước checksum:
 Khi Dispatcher gửi lại cùng bộ
 `(robot_id, MOVE_TO_POINT, move_id)` do mất ACK, robot không được tạo một lệnh
 di chuyển mới. Robot phải nhận diện đây là lần gửi lại và trả lại kết quả tiếp
-nhận đã lưu cho `move_id` đó.
+nhận đã lưu cho `move_id` đó. Robot phải từ chối một `MoveToPoint` mới khi đang
+bận; sau khi lệnh hoàn thành và robot trở về `IDLE`, robot xóa `move_id` đã lưu.
 
 ---
 
@@ -600,6 +603,8 @@ nhận đã lưu cho `move_id` đó.
 - Mỗi frame kết thúc bằng 2 byte checksum little-endian.
 - Checksum chỉ tính trên payload; không tính `0xAA`, không tính `length`, và
   không tính 2 byte checksum cuối.
+- Với `MoveToPoint`, lưu kết quả nhận theo `move_id` để retry là idempotent,
+  từ chối ID mới khi robot đang bận và xóa ID đã hoàn thành khi trở về `IDLE`.
 - Khi Python gửi bằng `UartManagerV2.send_message()`, manager tự thêm `0xAA` +
   `length`. Firmware/bên forward gửi Heartbeat, TaskStatus hoặc ACK về Python
   phải tự thêm cả 2 byte này.

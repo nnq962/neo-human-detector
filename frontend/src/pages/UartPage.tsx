@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, Pencil, Send, Shuffle, X } from "lucide-react"
+import { Check, Pencil, Send, X } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -7,7 +7,6 @@ import {
   uartApi,
 } from "@/api/uart.api"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Card,
   CardContent,
@@ -46,15 +45,6 @@ const COMMON_BAUDRATES = [
 
 const NUMBER_INPUT_CLASS =
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-
-function generateMoveId(previous?: number) {
-  let moveId = Math.floor(Math.random() * 256)
-  while (moveId === previous) {
-    moveId = Math.floor(Math.random() * 256)
-  }
-  return moveId
-}
-
 
 function UartConfigCard() {
   const { data: config, isLoading } = useUartConfig()
@@ -170,7 +160,6 @@ function UartStatusCard() {
 function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
   const invalidate = useInvalidateUart()
   const [robotId, setRobotId] = useState("")
-  const [moveId, setMoveId] = useState(() => generateMoveId())
   const [x, setX] = useState("0")
   const [y, setY] = useState("0")
   const [theta, setTheta] = useState("0")
@@ -209,11 +198,11 @@ function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
     try {
       const result = await uartApi.moveToPoint({
         robot_id: Number(selectedRobotId),
-        move_id: moveId,
         ...target,
       })
-      toast.success(`Robot #${result.robot_id} đã nhận lệnh di chuyển`)
-      setMoveId((current) => generateMoveId(current))
+      toast.success(
+        `Robot #${result.robot_id} đã nhận lệnh di chuyển #${result.move_id}`,
+      )
       await invalidate()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gửi lệnh di chuyển thất bại")
@@ -261,18 +250,6 @@ function MoveToPointCard({ robots }: { robots: RobotHeartbeat[] }) {
             </Select>
             <p className="text-xs text-muted-foreground">
               Danh sách được cập nhật từ Heartbeat; robot offline không thể chọn.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Move ID</label>
-            <div className="flex h-8 items-center gap-2 rounded-md border bg-muted/30 px-3 text-sm">
-              <Shuffle className="size-3.5 text-muted-foreground" />
-              <span className="font-medium tabular-nums">#{moveId}</span>
-              <Badge variant="secondary" className="ml-auto text-[10px]">Tự động</Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Tự sinh trong khoảng 0–255 và đổi sau mỗi lần gửi thành công.
             </p>
           </div>
 

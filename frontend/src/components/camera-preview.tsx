@@ -6,7 +6,7 @@ import { DetectionOverlay } from "./camera-preview/detection-overlay"
 import { computeLayout } from "./camera-preview/layout"
 import { RobotOverlay } from "./camera-preview/robot-overlay"
 import { StreamStatusOverlay } from "./camera-preview/stream-status-overlay"
-import type { VideoSize } from "./camera-preview/types"
+import type { StreamStatus, VideoSize } from "./camera-preview/types"
 import { usePreviewSize } from "./camera-preview/use-preview-size"
 import { useWhepStream } from "./camera-preview/use-whep-stream"
 
@@ -37,6 +37,8 @@ export interface CameraPreviewProps {
   hideStreamBadges?: boolean
   videoBorderRadius?: number
   onVideoSizeChange?: (size: VideoSize | null) => void
+  publicAccess?: boolean
+  onStreamStatusChange?: (status: StreamStatus) => void
 }
 
 const EMPTY_ZONES: Zone[] = []
@@ -61,6 +63,8 @@ export function CameraPreview({
   hideStreamBadges = false,
   videoBorderRadius = 0,
   onVideoSizeChange,
+  publicAccess = false,
+  onStreamStatusChange,
 }: CameraPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -74,6 +78,7 @@ export function CameraPreview({
     reconnectKey,
     videoRef,
     onVideoSizeChange,
+    onStatusChange: onStreamStatusChange,
   })
 
   const videoLayout = computeLayout(previewSize, videoSize)
@@ -136,6 +141,7 @@ export function CameraPreview({
         previewSize={previewSize}
         videoSize={videoSize}
         hideFaceKeypoints={hideFaceKeypoints}
+        publicAccess={publicAccess}
         onZoneStatesChange={setZoneStates}
       />
 
@@ -143,6 +149,7 @@ export function CameraPreview({
         cameraId={cameraId}
         previewSize={previewSize}
         videoSize={videoSize}
+        publicAccess={publicAccess}
       />
 
       <StreamStatusOverlay

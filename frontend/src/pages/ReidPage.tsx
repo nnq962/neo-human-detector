@@ -102,10 +102,10 @@ function BoolRow({
 }
 
 function NumField({
-  value, onChange, step = 1, min, max,
+  value, onChange, step = 1, min, max, integer = false,
 }: {
   value: number; onChange: (v: number) => void
-  step?: number; min?: number; max?: number
+  step?: number; min?: number; max?: number; integer?: boolean
 }) {
   const [raw, setRaw] = useState(String(value))
   const synced = useRef(value)
@@ -126,12 +126,26 @@ function NumField({
       value={raw}
       onChange={(e) => {
         setRaw(e.target.value)
-        const n = parseFloat(e.target.value)
-        if (!isNaN(n)) { synced.current = n; onChange(n) }
+        const n = Number(e.target.value)
+        if (
+          Number.isFinite(n)
+          && (!integer || Number.isInteger(n))
+          && (min === undefined || n >= min)
+          && (max === undefined || n <= max)
+        ) {
+          synced.current = n
+          onChange(n)
+        }
       }}
       onBlur={() => {
-        const n = parseFloat(raw)
-        if (isNaN(n) || raw.trim() === "") {
+        const n = Number(raw)
+        if (
+          !Number.isFinite(n)
+          || raw.trim() === ""
+          || (integer && !Number.isInteger(n))
+          || (min !== undefined && n < min)
+          || (max !== undefined && n > max)
+        ) {
           setRaw(String(value)); synced.current = value
         } else {
           setRaw(String(n)); synced.current = n
@@ -314,6 +328,7 @@ function GeneralCard({
                   value={draft.embedding_batch_size}
                   onChange={(val) => setDraft((p) => ({ ...p, embedding_batch_size: val }))}
                   min={1}
+                  integer
                 />
               ) : (
                 <div className="flex h-8 items-center text-sm">{saved.embedding_batch_size}</div>
@@ -365,7 +380,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Buffer min (frames)" desc="Số frame tối thiểu để track được coi là ổn định" />
             {editing
-              ? <NumField value={draft.buffer_min} onChange={(val) => setDraft((p) => ({ ...p, buffer_min: val }))} min={0} />
+              ? <NumField value={draft.buffer_min} onChange={(val) => setDraft((p) => ({ ...p, buffer_min: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.buffer_min}</div>
             }
           </div>
@@ -373,7 +388,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Grace period (frames)" desc="Số frame giữ lại track sau khi mất dấu" />
             {editing
-              ? <NumField value={draft.grace_period} onChange={(val) => setDraft((p) => ({ ...p, grace_period: val }))} min={0} />
+              ? <NumField value={draft.grace_period} onChange={(val) => setDraft((p) => ({ ...p, grace_period: val }))} min={0} integer />
               : <div className="flex h-8 items-center text-sm">{v.grace_period}</div>
             }
           </div>
@@ -381,7 +396,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Update interval (frames)" desc="Khoảng cách frame giữa hai lần cập nhật embedding" />
             {editing
-              ? <NumField value={draft.update_interval} onChange={(val) => setDraft((p) => ({ ...p, update_interval: val }))} min={1} />
+              ? <NumField value={draft.update_interval} onChange={(val) => setDraft((p) => ({ ...p, update_interval: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.update_interval}</div>
             }
           </div>
@@ -389,7 +404,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Max buffer size" desc="Kích thước tối đa của embedding buffer mỗi track" />
             {editing
-              ? <NumField value={draft.max_buffer_size} onChange={(val) => setDraft((p) => ({ ...p, max_buffer_size: val }))} min={1} />
+              ? <NumField value={draft.max_buffer_size} onChange={(val) => setDraft((p) => ({ ...p, max_buffer_size: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.max_buffer_size}</div>
             }
           </div>
@@ -397,7 +412,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Gallery cleanup interval (s)" desc="Chu kỳ (giây) dọn dẹp các entry cũ trong gallery" />
             {editing
-              ? <NumField value={draft.gallery_cleanup_interval} onChange={(val) => setDraft((p) => ({ ...p, gallery_cleanup_interval: val }))} min={1} />
+              ? <NumField value={draft.gallery_cleanup_interval} onChange={(val) => setDraft((p) => ({ ...p, gallery_cleanup_interval: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.gallery_cleanup_interval}</div>
             }
           </div>
@@ -405,7 +420,7 @@ function TrackCard({ config, onSaved }: { config: ReIdTrackConfig; onSaved: () =
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Max reverify misses" desc="Số lần thất bại tái xác minh trước khi xóa track" />
             {editing
-              ? <NumField value={draft.max_reverify_misses} onChange={(val) => setDraft((p) => ({ ...p, max_reverify_misses: val }))} min={0} />
+              ? <NumField value={draft.max_reverify_misses} onChange={(val) => setDraft((p) => ({ ...p, max_reverify_misses: val }))} min={0} integer />
               : <div className="flex h-8 items-center text-sm">{v.max_reverify_misses}</div>
             }
           </div>
@@ -470,7 +485,7 @@ function QualityCard({ config, onSaved }: { config: ReIdQualityConfig; onSaved: 
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Stable bbox window (frames)" desc="Số frame để kiểm tra độ ổn định bounding box" />
             {editing
-              ? <NumField value={draft.stable_bbox_window} onChange={(val) => setDraft((p) => ({ ...p, stable_bbox_window: val }))} min={1} />
+              ? <NumField value={draft.stable_bbox_window} onChange={(val) => setDraft((p) => ({ ...p, stable_bbox_window: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.stable_bbox_window}</div>
             }
           </div>
@@ -478,7 +493,7 @@ function QualityCard({ config, onSaved }: { config: ReIdQualityConfig; onSaved: 
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Stable center shift ratio" desc="Tỉ lệ dịch chuyển tâm tối đa để bbox được coi là ổn định" />
             {editing
-              ? <SliderField value={draft.stable_center_shift_ratio} onChange={(val) => setDraft((p) => ({ ...p, stable_center_shift_ratio: val }))} />
+              ? <NumField value={draft.stable_center_shift_ratio} onChange={(val) => setDraft((p) => ({ ...p, stable_center_shift_ratio: val }))} step={0.01} min={0} />
               : <div className="flex h-8 items-center text-sm">{v.stable_center_shift_ratio}</div>
             }
           </div>
@@ -486,7 +501,7 @@ function QualityCard({ config, onSaved }: { config: ReIdQualityConfig; onSaved: 
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Stable size change ratio" desc="Tỉ lệ thay đổi kích thước tối đa để bbox được coi là ổn định" />
             {editing
-              ? <SliderField value={draft.stable_size_change_ratio} onChange={(val) => setDraft((p) => ({ ...p, stable_size_change_ratio: val }))} />
+              ? <NumField value={draft.stable_size_change_ratio} onChange={(val) => setDraft((p) => ({ ...p, stable_size_change_ratio: val }))} step={0.01} min={0} />
               : <div className="flex h-8 items-center text-sm">{v.stable_size_change_ratio}</div>
             }
           </div>
@@ -559,7 +574,7 @@ function GalleryCard({ config, onSaved }: { config: ReIdGalleryConfig; onSaved: 
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="Max samples" desc="Số embedding mẫu tối đa trong gallery mỗi người" />
             {editing
-              ? <NumField value={draft.max_samples} onChange={(val) => setDraft((p) => ({ ...p, max_samples: val }))} min={1} />
+              ? <NumField value={draft.max_samples} onChange={(val) => setDraft((p) => ({ ...p, max_samples: val }))} min={1} integer />
               : <div className="flex h-8 items-center text-sm">{v.max_samples}</div>
             }
           </div>
@@ -567,7 +582,7 @@ function GalleryCard({ config, onSaved }: { config: ReIdGalleryConfig; onSaved: 
           <div className="flex flex-col gap-1.5">
             <FieldLabel label="TTL (minutes)" desc="Thời gian sống (phút) của mỗi entry trong gallery" />
             {editing
-              ? <NumField value={draft.ttl_minutes} onChange={(val) => setDraft((p) => ({ ...p, ttl_minutes: val }))} step={0.1} min={0.1} />
+              ? <NumField value={draft.ttl_minutes} onChange={(val) => setDraft((p) => ({ ...p, ttl_minutes: val }))} step={0.1} min={0} />
               : <div className="flex h-8 items-center text-sm">{v.ttl_minutes}</div>
             }
           </div>

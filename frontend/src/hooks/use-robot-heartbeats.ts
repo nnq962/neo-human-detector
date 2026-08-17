@@ -1,15 +1,23 @@
 import { useEffect, useState } from "react"
 import type { RobotHeartbeatSnapshot } from "@/api/uart.api"
-import { subscribeRobotHeartbeats } from "@/lib/robot-heartbeat-stream"
+import {
+  subscribePublicRobotHeartbeats,
+  subscribeRobotHeartbeats,
+} from "@/lib/robot-heartbeat-stream"
 
-export function useRobotHeartbeats() {
+export function useRobotHeartbeats(publicAccess = false) {
   const [snapshot, setSnapshot] = useState<RobotHeartbeatSnapshot | null>(null)
   const [connected, setConnected] = useState(false)
 
-  useEffect(() => subscribeRobotHeartbeats((state) => {
-    setSnapshot(state.snapshot)
-    setConnected(state.connected)
-  }), [])
+  useEffect(() => {
+    const subscribe = publicAccess
+      ? subscribePublicRobotHeartbeats
+      : subscribeRobotHeartbeats
+    return subscribe((state) => {
+      setSnapshot(state.snapshot)
+      setConnected(state.connected)
+    })
+  }, [publicAccess])
 
   return { snapshot, connected }
 }

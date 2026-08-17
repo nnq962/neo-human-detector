@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 
 import numpy as np
 
@@ -93,6 +94,37 @@ class FakeUart:
             (),
         ):
             subscriber(message)
+
+
+class BlockingAckUart(FakeUart):
+    """UART giả giữ ACK để kiểm tra worker nền không làm chặn caller."""
+
+    def __init__(self) -> None:
+        """Khởi tạo các event điều khiển thời điểm trả ACK."""
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def send_with_retry_ack(
+        self,
+        message,
+        reference_id: int,
+        timeout: float = 1.0,
+        max_retries: int = 5,
+    ):
+        """Giữ worker tại điểm chờ ACK rồi trả ACK chấp nhận khi được mở khóa."""
+        del timeout, max_retries
+        self.sent.append(message)
+        self.started.set()
+        self.release.wait(timeout=2.0)
+        return Ack(
+            robot_id=message.robot_id,
+            acked_type=message.MESSAGE_TYPE,
+            reference_id=reference_id,
+            result_code=AckResultCode.ACCEPTED,
+            reason_code=AckReasonCode.NONE,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -502,3 +534,35 @@ def test_task_activity_tracks_assign_retry_and_cancel() -> None:
     snapshot = activity_store.snapshot()
     assert snapshot["canceled"] == 1
     assert snapshot["tasks"][0]["status"] == "CANCELED"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_background_ack_returns_before_uart_ack_is_received() -> None:
+    """Kiểm tra dispatch nền không chặn caller khi UART đang chờ ACK."""
+    uart = BlockingAckUart()
+    dispatcher = RobotDispatcherV2(uart, background_ack=True)
+    zone = _zone("zone-1")
+    dispatcher.on_heartbeat(_heartbeat())
+
+    try:
+        started_at = time.monotonic()
+        handled = dispatcher.process_decision(
+            _decision(DispatchAction.TASK_ASSIGN, zone)
+        )
+        elapsed = time.monotonic() - started_at
+
+        assert not handled
+        assert elapsed < 0.1
+        assert uart.started.wait(timeout=1.0)
+        assert dispatcher.pending_count() == 1
+
+        uart.release.set()
+        deadline = time.monotonic() + 1.0
+        while dispatcher.pending_count() != 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert dispatcher.pending_count() == 0
+        assert dispatcher.get_assigned_task(zone.id) is not None
+    finally:
+        uart.release.set()
+        dispatcher.close()

@@ -5,6 +5,18 @@ runtime:
   auto_start: false
   camera_ids: []
 
+web:
+  auth:
+    enabled: true
+    password: ''
+    session_ttl_seconds: 28800
+    max_login_failures: 5
+    login_window_seconds: 60
+    login_block_seconds: 300
+  allowed_origins:
+    - http://127.0.0.1:5173
+    - http://localhost:5173
+
 detection:
   model_id: yolo26m-pose-pytorch
   conf: 0.5

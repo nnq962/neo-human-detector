@@ -1,36 +1,68 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from api.routes import camera, detection, mediamtx, models, reid, runtime, uart, websocket, zone_state_machine
+from api.routes import (
+    auth,
+    camera,
+    detection,
+    mediamtx,
+    models,
+    public,
+    reid,
+    robot_dispatch,
+    runtime,
+    uart,
+    websocket,
+    zone_state_machine,
+)
 from api.routes.responses import error_response
+from api.services.auth import auth_service, is_origin_allowed, load_auth_settings
 
 
 STANDARD_RESPONSE_PREFIXES = (
+    "/api/public",
     "/api/cameras",
     "/api/detection",
     "/api/mediamtx",
     "/api/models",
     "/api/reid",
+    "/api/robot-dispatch",
     "/api/runtime",
     "/api/uart",
     "/api/zone-state-machine",
 )
+PUBLIC_API_PREFIXES = ("/api/auth", "/api/public")
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def _uses_standard_api_response(path: str) -> bool:
+    """Kiểm tra endpoint có dùng envelope response chuẩn của dự án."""
     return any(
         path == prefix or path.startswith(f"{prefix}/")
         for prefix in STANDARD_RESPONSE_PREFIXES
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def _is_public_api_path(path: str) -> bool:
+    """Kiểm tra path thuộc bề mặt API không yêu cầu đăng nhập."""
+    return any(
+        path == prefix or path.startswith(f"{prefix}/")
+        for prefix in PUBLIC_API_PREFIXES
+    )
+
+
 class SPAStaticFiles(StaticFiles):
+    """Phục vụ frontend SPA và fallback route về ``index.html``."""
+
     async def get_response(self, path: str, scope):
+        """Trả asset tĩnh hoặc index cho một route điều hướng phía client."""
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
@@ -48,6 +80,7 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def run_startup_tasks() -> None:
     """Khởi tạo catalog model và các dịch vụ phụ trợ khi API bắt đầu."""
     from api.services.config_store import get_config_data
@@ -102,7 +135,9 @@ def run_startup_tasks() -> None:
             LOGGER.error(f"Failed to auto-start runtime: {e}")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def run_shutdown_tasks() -> None:
+    """Dừng runtime và đóng các dịch vụ UART khi API kết thúc."""
     from utils import LOGGER
 
     try:
@@ -124,8 +159,10 @@ def run_shutdown_tasks() -> None:
         LOGGER.error(f"Failed to close UART V2: {e}")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Quản lý startup và shutdown trong vòng đời ứng dụng FastAPI."""
     run_startup_tasks()
     try:
         yield
@@ -140,6 +177,7 @@ OPENAPI_TAGS = [
     {"name": "Cameras", "description": "Camera and zone configuration."},
     {"name": "Zone State Machine", "description": "Zone state timing configuration."},
     {"name": "ReID", "description": "Re-identification configuration."},
+    {"name": "Robot Dispatch", "description": "Automatic robot dispatch configuration."},
     {"name": "Runtime", "description": "Application runtime lifecycle."},
     {"name": "UART", "description": "UART serial configuration."},
 ]
@@ -148,8 +186,51 @@ OPENAPI_TAGS = [
 app = FastAPI(lifespan=lifespan, openapi_tags=OPENAPI_TAGS)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+@app.middleware("http")
+async def require_authenticated_api(request: Request, call_next):
+    """Chặn API riêng tư nếu request không có session hợp lệ."""
+    path = request.url.path
+    if (
+        request.method == "OPTIONS"
+        or not path.startswith("/api/")
+        or _is_public_api_path(path)
+    ):
+        return await call_next(request)
+
+    settings = load_auth_settings()
+    if not settings.enabled:
+        return await call_next(request)
+    if not settings.password:
+        return error_response(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Xác thực web chưa được cấu hình.",
+        )
+
+    token = request.cookies.get(auth.SESSION_COOKIE_NAME)
+    if not auth_service.is_session_valid(token):
+        return error_response(
+            status.HTTP_401_UNAUTHORIZED,
+            "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
+        )
+
+    if request.method not in SAFE_HTTP_METHODS and not is_origin_allowed(
+        request.headers.get("origin"),
+        scheme=request.url.scheme,
+        host=request.headers.get("host", request.url.netloc),
+    ):
+        return error_response(
+            status.HTTP_403_FORBIDDEN,
+            "Origin không được phép thực hiện thao tác này.",
+        )
+
+    return await call_next(request)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
+    """Chuẩn hóa lỗi HTTP theo loại endpoint đang được gọi."""
     if _uses_standard_api_response(request.url.path):
         return error_response(exc.status_code, str(exc.detail))
 
@@ -160,33 +241,43 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Chuẩn hóa lỗi validation theo envelope response của API."""
     if _uses_standard_api_response(request.url.path):
         return error_response(422, "Validation error.", exc.errors())
 
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
-# Cấu hình CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Cho phép tất cả các domain. Có thể thay bằng list cụ thể, vd: ["http://localhost:3000"]
-    allow_credentials=True, # Cho phép gửi cookie, thông tin xác thực
-    allow_methods=["*"],  # Cho phép tất cả các method HTTP (GET, POST, PUT, DELETE, OPTIONS...)
-    allow_headers=["*"],  # Cho phép tất cả các header
-)
+try:
+    configured_origins = list(load_auth_settings().allowed_origins)
+except Exception:
+    configured_origins = []
 
-# ────────────────────────────────────────────────────────────────
+if configured_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=configured_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type"],
+    )
+
+# ─────────────────────────────────────────────────────────────────────────────
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(public.router, prefix="/api/public", tags=["Public"])
 app.include_router(detection.router, prefix="/api/detection", tags=["Detection"])
 app.include_router(mediamtx.router, prefix="/api/mediamtx", tags=["MediaMTX"])
 app.include_router(models.router, prefix="/api/models", tags=["Models"])
 app.include_router(camera.router, prefix="/api/cameras", tags=["Cameras"])
 app.include_router(zone_state_machine.router, prefix="/api/zone-state-machine", tags=["Zone State Machine"],)
 app.include_router(reid.router, prefix="/api/reid", tags=["ReID"])
+app.include_router(robot_dispatch.router, prefix="/api/robot-dispatch", tags=["Robot Dispatch"])
 app.include_router(runtime.router, prefix="/api/runtime", tags=["Runtime"])
 app.include_router(uart.router, prefix="/api/uart", tags=["UART"])
 app.include_router(websocket.router)
 
-# ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Mount frontend build
 app.mount("/", SPAStaticFiles(directory="frontend/dist", html=True), name="frontend")
