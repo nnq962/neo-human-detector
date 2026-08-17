@@ -1,5 +1,7 @@
 """Tương thích API detection với catalog model động."""
 
+from __future__ import annotations
+
 from src.model_catalog import (
     ModelArtifact,
     find_default_model,

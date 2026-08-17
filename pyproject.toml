@@ -1,22 +1,26 @@
 [project]
 name = "neo-human-detector-batch"
 version = "0.1.0"
-requires-python = ">=3.10,<3.11"
+requires-python = "==3.8.*"
 dependencies = [
     "colorlog>=6.10.1",
     "fastapi>=0.124.4",
     "gdown>=5.2.2",
     "lapx>=0.9.4",
-    "opencv-python",
+    "opencv-contrib-python",
     "pyyaml>=6.0.3",
     "pyserial>=3.5",
     "pytz>=2026.2",
     "tensorboard>=2.14.0",
+    "torch",
     "torchreid>=0.2.5",
+    "torchvision",
     "ultralytics>=8.4.60",
     "unidecode>=1.4.0",
     "uvicorn[standard]>=0.33.0",
     "yt-dlp>=2024.10.22",
+    "onnx>=1.12.0,<2.0.0",
+    "onnxslim>=0.1.95",
 ]
 
 [dependency-groups]
@@ -25,5 +29,13 @@ dev = [
     "ruff>=0.15.14",
 ]
 
+[tool.uv]
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+exclude-dependencies = ["opencv-python"]
+
 [tool.uv.sources]
-opencv-python = { path = "wheels/pc-x86_64/opencv_python-4.13.0.92-cp310-cp310-linux_x86_64.whl" }
+opencv-contrib-python = { path = "wheels/jp5.1.6-py38-aarch64/opencv_contrib_python-4.13.0.90-cp38-cp38-linux_aarch64.whl" }
+torch = { path = "wheels/jp5.1.6-py38-aarch64/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl" }
+torchvision = { path = "wheels/jp5.1.6-py38-aarch64/torchvision-0.16.1-cp38-cp38-linux_aarch64.whl" }

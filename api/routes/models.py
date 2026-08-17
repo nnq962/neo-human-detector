@@ -1,6 +1,6 @@
 """API cung cấp catalog model được khám phá từ thư mục weights."""
 
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Query
 
@@ -15,7 +15,7 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────────────────────
 @router.get("", response_model=ApiResponse)
 def get_models(
-    kind: Literal["detection", "reid"] | None = Query(default=None),
+    kind: Optional[Literal["detection", "reid"]] = Query(default=None),
 ):
     """Quét lại thư mục weights và trả danh sách model khả dụng."""
     try:

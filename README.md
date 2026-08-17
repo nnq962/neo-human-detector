@@ -10,12 +10,13 @@ và cấu hình thiết bị qua giao diện web.
 
 | Nền tảng | Trạng thái | Model |
 | --- | --- | --- |
-| Ubuntu/Debian PC x86_64 | Đã hỗ trợ setup tự động | PyTorch |
-| NVIDIA Jetson aarch64 | Chưa có script setup | PyTorch |
+| Ubuntu/Debian PC x86_64 | Không hỗ trợ trong branch này | PyTorch |
+| NVIDIA Jetson JP 5.1.6 aarch64 | Đã hỗ trợ setup tự động | PyTorch CUDA |
 | RK3588/RKNN | Đã khai báo artifact, runtime chưa hỗ trợ | RKNN |
 
-> Không chạy `scripts/setup-pc.sh` trên Jetson hoặc RK3588. `pyproject.toml`
-> hiện sử dụng OpenCV wheel dành riêng cho CPython 3.10 x86_64.
+> Branch này chỉ khóa runtime Jetson aarch64 với Python 3.8. Nội dung PC phía
+> dưới được giữ làm tài liệu tham khảo cho branch PC, không chạy
+> `scripts/setup-pc.sh` trong branch này.
 
 ## Yêu cầu cho PC
 
@@ -164,6 +165,33 @@ Dashboard và các API cấu hình yêu cầu đăng nhập. Màn hình `/live` 
 thiết kế và không yêu cầu mật khẩu.
 
 Dừng ứng dụng bằng `Ctrl+C`.
+
+## Cài đặt trên Jetson JetPack 5.1.6
+
+Script Jetson dành riêng cho L4T R35.6.4, aarch64 và system Python 3.8.
+`pyproject.toml` và `uv.lock` chỉ resolve Python 3.8 trên Linux aarch64.
+
+Chuẩn bị `frontend/.env` giống hướng dẫn PC, sau đó chạy:
+
+```bash
+./scripts/setup-jetson.sh
+```
+
+Script sẽ:
+
+1. Xác minh JetPack 5.1.6 và L4T R35.6.4.
+2. Cài OpenBLAS, OpenMPI, FFmpeg, GStreamer và compiler cần thiết.
+3. Tạo `.venv` và chạy `uv sync --locked` bằng Python 3.8.
+4. Tải và kiểm tra checksum các wheel OpenCV, torch và torchvision aarch64.
+5. Cài torch/torchvision NVIDIA và OpenCV có GStreamer.
+6. Tải model `jetson-aarch64`, build frontend và kiểm tra CUDA.
+
+Chỉ kiểm tra rồi chạy ứng dụng:
+
+```bash
+./scripts/run.sh --check
+./scripts/run.sh
+```
 
 ## Chạy tự động bằng Supervisor
 
@@ -366,6 +394,18 @@ Model chỉ xuất hiện trên giao diện khi:
 | `--skip-frontend` | Không cài và build frontend |
 | `--skip-models` | Không kiểm tra hoặc tải model |
 | `--with-supervisor` | Cài và chạy app bằng Supervisor |
+
+### Setup Jetson
+
+```bash
+./scripts/setup-jetson.sh --help
+```
+
+| Tùy chọn | Ý nghĩa |
+| --- | --- |
+| `--skip-system-packages` | Không chạy `apt-get` |
+| `--skip-frontend` | Không cài và build frontend |
+| `--skip-models` | Không kiểm tra hoặc tải model |
 
 ### Chạy ứng dụng
 

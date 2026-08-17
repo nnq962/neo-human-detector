@@ -4,9 +4,11 @@ Hàm tiện ích nhỏ cho embedding ReID.
 
 from __future__ import annotations
 
+from typing import Tuple
+
 import numpy as np
 
-BBoxXYXY = tuple[float, float, float, float]
+BBoxXYXY = Tuple[float, float, float, float]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

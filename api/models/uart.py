@@ -1,6 +1,7 @@
-from typing import Annotated, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
+from typing_extensions import Annotated
 
 
 class UartConfig(BaseModel):

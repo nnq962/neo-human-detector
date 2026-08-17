@@ -1,5 +1,4 @@
 # Artifact cần có trước khi cài Python dependencies.
-# Wheel Jetson sẽ được bổ sung thành một entry riêng khi đã build xong.
 
 schema_version: 1
 
@@ -11,3 +10,23 @@ artifacts:
     drive_id: 1sztysiIq6A9TmrQml-vX1M03RHRapuuf
     sha256: 79323abd4caf34263538384b2af954533a951215f6fb22150fac0f584e3b6a81
 
+  - id: opencv-contrib-python-jp5.1.6-py38-aarch64
+    kind: python-wheel
+    platforms: [jetson-aarch64]
+    path: wheels/jp5.1.6-py38-aarch64/opencv_contrib_python-4.13.0.90-cp38-cp38-linux_aarch64.whl
+    drive_id: 1zNORDUpdrOkPW90F2Q8H8CPx3TiZI0ZA
+    sha256: b7dae96844a5591361ac1e610442f12c405c1f7fa1c13272863807fca512a1c7
+
+  - id: torch-jp5.1.6-py38-aarch64
+    kind: python-wheel
+    platforms: [jetson-aarch64]
+    path: wheels/jp5.1.6-py38-aarch64/torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl
+    drive_id: 1VAbWbsg4Orj-7MPGmztiFNeUv1WwtIRL
+    sha256: 5112e2ef5051f1003ae2ffb545ae596377df66979d62a954d774f18009064dbe
+
+  - id: torchvision-jp5.1.6-py38-aarch64
+    kind: python-wheel
+    platforms: [jetson-aarch64]
+    path: wheels/jp5.1.6-py38-aarch64/torchvision-0.16.1-cp38-cp38-linux_aarch64.whl
+    drive_id: 1JSZPIZBYMnmZ_6gm1nyIjShUPtTFqbgg
+    sha256: fa636d72b33bf7ab0fa7f0141cdd58ac97d685f539f332ba79002507074a49bd

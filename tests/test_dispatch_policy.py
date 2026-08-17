@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from src.detection import Detection
 from src.dispatch_decision import (
     DispatchAction,

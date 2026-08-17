@@ -488,10 +488,10 @@ class RobotDispatcherV2:
                 excluded_robot_ids=self._task_registry.reserved_robot_ids(),
             )
             if robot is None:
-                LOGGER.info(
-                    "Chưa có robot IDLE cho zone %s; giữ lại để thử sau.",
-                    pending.zone_id,
-                )
+                # LOGGER.info(
+                #     "Chưa có robot IDLE cho zone %s; giữ lại để thử sau.",
+                #     pending.zone_id,
+                # )
                 return False
 
             try:

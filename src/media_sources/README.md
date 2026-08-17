@@ -246,6 +246,7 @@ Các option này có thể truyền vào `MediaSources` hoặc `create_media_sou
 with MediaSources(
     ["rtsp://cam1", "rtsp://cam2"],
     use_gstreamer=True,
+    use_jetson_acceleration=None,
     reconnect=True,
     reconnect_forever=True,
     reconnect_delay=2.0,
@@ -257,12 +258,18 @@ with MediaSources(
 | Option | Mặc định | Ý nghĩa |
 |---|---:|---|
 | `use_gstreamer` | `True` | thử GStreamer trước, fallback FFMPEG |
+| `use_jetson_acceleration` | `None` | tự nhận diện Jetson và ưu tiên `nvv4l2decoder`; `True` để ép thử, `False` để tắt |
 | `reconnect` | `True` | tự reconnect khi mất tín hiệu |
 | `reconnect_delay` | `2.0` | thời gian chờ ban đầu giữa các lần reconnect |
 | `reconnect_forever` | `True` | reconnect vô hạn |
 | `max_reconnect_attempts` | `5` | số lần thử khi `reconnect_forever=False` |
 | `open_timeout_ms` | `5000` | timeout mở stream |
 | `read_timeout_ms` | `5000` | timeout đọc frame |
+
+Trên Jetson, hardware decode được thử trước theo pipeline
+`nvv4l2decoder → nvvidconv`. Nếu pipeline không khả dụng hoặc không tạo được frame,
+reader tự thử lại bằng software GStreamer rồi fallback sang FFMPEG. Frame trả về vẫn là
+numpy array BGR trong system memory; đây là hardware decode, chưa phải zero-copy NVMM/CUDA.
 
 Kwargs không áp dụng cho loại reader hiện tại sẽ được bỏ qua và log ở mức DEBUG.
 

@@ -189,7 +189,12 @@ class OSNetPersonEmbedder:
         state_dict: OrderedDict[str, Tensor] = OrderedDict()
         for key, value in checkpoint.items():
             if isinstance(value, Tensor):
-                state_dict[key.removeprefix("module.")] = value
+                normalized_key = (
+                    key[len("module."):]
+                    if key.startswith("module.")
+                    else key
+                )
+                state_dict[normalized_key] = value
 
         return state_dict
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import cv2
 import numpy as np
 
@@ -44,10 +46,21 @@ def open_capture(
     Dùng overload params của OpenCV; build không hỗ trợ thì fallback constructor thường.
     Lưu ý: nhiều backend webcam (USB) có thể bỏ qua timeout — đây là best-effort.
     """
+    # GStreamer backend không hỗ trợ CAP_PROP_*_TIMEOUT_MSEC. Truyền các params
+    # này khiến OpenCV fail ngay khi mở pipeline ("can't set property 53").
+    supports_timeout_params = backend != cv2.CAP_GSTREAMER
     params: list[int] = []
-    if open_timeout_ms is not None and hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+    if (
+        supports_timeout_params
+        and open_timeout_ms is not None
+        and hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC")
+    ):
         params += [int(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC), int(open_timeout_ms)]
-    if read_timeout_ms is not None and hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+    if (
+        supports_timeout_params
+        and read_timeout_ms is not None
+        and hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC")
+    ):
         params += [int(cv2.CAP_PROP_READ_TIMEOUT_MSEC), int(read_timeout_ms)]
     if params:
         try:

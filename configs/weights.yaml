@@ -61,6 +61,7 @@ models:
     path: pytorch/yolo/yolo26/pose/yolo26n-pose.pt
     drive_id: 1Y_VQo6zxOYcOXQDQ1HW8wiGg27Qp7egL
     sha256: eb3bb8268828aeaf515cec23a4bfafd793944a86fe9af94ba7823609c14522a9
+    runtime_supported: true
 
   - id: yolo26m-pose-pytorch
     kind: detection
