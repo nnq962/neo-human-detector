@@ -227,13 +227,30 @@ sync_python_environment() {
 }
 
 prepare_config() {
-    if [[ -e "${DEFAULT_CONFIG}" ]]; then
-        log "Giữ nguyên configs/default.yaml hiện có."
+    if [[ ! -e "${DEFAULT_CONFIG}" ]]; then
+        cp "${EXAMPLE_CONFIG}" "${DEFAULT_CONFIG}"
+        log "Đã tạo configs/default.yaml từ file example."
         return
     fi
 
-    cp "${EXAMPLE_CONFIG}" "${DEFAULT_CONFIG}"
-    log "Đã tạo configs/default.yaml từ file example."
+    if grep -qE '^web:[[:space:]]*$' "${DEFAULT_CONFIG}"; then
+        log "Giữ nguyên section web trong configs/default.yaml hiện có."
+        return
+    fi
+
+    local web_config
+    web_config="$(awk '
+        /^web:[[:space:]]*$/ { in_web = 1 }
+        in_web && /^detection:[[:space:]]*$/ { exit }
+        in_web { print }
+    ' "${EXAMPLE_CONFIG}")"
+    [[ -n "${web_config}" ]] || die \
+        "Không tìm thấy section web trong ${EXAMPLE_CONFIG}."
+
+    {
+        printf '\n%s\n' "${web_config}"
+    } >>"${DEFAULT_CONFIG}"
+    log "Đã bổ sung section web từ default.example.yaml vào configs/default.yaml."
 }
 
 prepare_frontend_env() {
@@ -241,12 +258,11 @@ prepare_frontend_env() {
         "Thiếu frontend env mẫu: ${FRONTEND_ENV_EXAMPLE}"
 
     if [[ ! -e "${FRONTEND_ENV}" ]]; then
-        if [[ -n "${VITE_API_BASE_URL:-}" && -n "${VITE_CONFIG_PASSWORD:-}" ]]; then
+        if [[ -n "${VITE_API_BASE_URL:-}" ]]; then
             (
                 umask 077
-                printf 'VITE_API_BASE_URL=%s\nVITE_CONFIG_PASSWORD=%s\n' \
-                    "${VITE_API_BASE_URL}" \
-                    "${VITE_CONFIG_PASSWORD}" >"${FRONTEND_ENV}"
+                printf 'VITE_API_BASE_URL=%s\n' \
+                    "${VITE_API_BASE_URL}" >"${FRONTEND_ENV}"
             )
             log "Đã tạo frontend/.env từ biến môi trường của terminal."
         else
@@ -258,17 +274,39 @@ prepare_frontend_env() {
     fi
 
     local api_base_url
-    local config_password
     api_base_url="$(sed -n 's/^VITE_API_BASE_URL=//p' "${FRONTEND_ENV}" | tail -n 1)"
-    config_password="$(sed -n 's/^VITE_CONFIG_PASSWORD=//p' "${FRONTEND_ENV}" | tail -n 1)"
 
     [[ -n "${api_base_url}" ]] || die "frontend/.env thiếu VITE_API_BASE_URL."
     [[ "${api_base_url}" != *"["* ]] || die \
         "VITE_API_BASE_URL trong frontend/.env vẫn là placeholder."
-    [[ -n "${config_password}" && "${config_password}" != "change-me" ]] || die \
-        "Hãy đặt VITE_CONFIG_PASSWORD trong frontend/.env trước khi build."
 
     log "Frontend env hợp lệ với API: ${api_base_url}"
+}
+
+configure_web_auth() {
+    if [[ -n "${NEO_CONFIG_PASSWORD:-}" ]]; then
+        if printf '%s\n' "${NEO_CONFIG_PASSWORD}" \
+            | "${VENV_PYTHON}" scripts/set-web-password.py --password-stdin; then
+            log "Đã cập nhật password từ NEO_CONFIG_PASSWORD."
+            return
+        fi
+
+        [[ -t 0 ]] || die \
+            "NEO_CONFIG_PASSWORD không hợp lệ; cần ít nhất 8 ký tự."
+        warn "NEO_CONFIG_PASSWORD không hợp lệ. Vui lòng nhập lại password trong terminal."
+        "${VENV_PYTHON}" scripts/set-web-password.py
+        return
+    fi
+
+    if "${VENV_PYTHON}" -c \
+        'from api.services.auth import load_auth_settings; raise SystemExit(0 if load_auth_settings().password else 1)'; then
+        log "Password quản trị đã được cấu hình trong configs/default.yaml."
+        return
+    fi
+
+    [[ -t 0 ]] || die \
+        "Thiếu password quản trị. Hãy chạy setup trong terminal để nhập password."
+    "${VENV_PYTHON}" scripts/set-web-password.py
 }
 
 check_node() {
@@ -356,6 +394,7 @@ main() {
     check_local_artifacts
     sync_python_environment
     prepare_config
+    configure_web_auth
     sync_models
     build_frontend
     verify_installation

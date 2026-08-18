@@ -76,6 +76,45 @@ models:
     sha256: 2fbf16367022256a226035695c5c389384c6706e8bb8ab8fcd0e7976f05443c4
     runtime_supported: true
 
+  - id: yolo26n-pose-tensorRT
+    kind: detection
+    backend: tensorRT
+    version: yolo26
+    task: pose
+    variant: nano
+    platforms: [jetson-aarch64]
+    batch_size: dynamic
+    path: tensorRT/yolo/yolo26/pose/yolo26n-pose.engine
+    drive_id: 1NBxdfzvWFzS_EIVZi_b86Mu--OxZVURg
+    sha256: c9315e113d129c5a74d416cad5ab651ad586849987e917b2c3dd5af5030b78b2
+    runtime_supported: true
+
+  - id: yolo26s-pose-tensorRT
+    kind: detection
+    backend: tensorRT
+    version: yolo26
+    task: pose
+    variant: small
+    platforms: [jetson-aarch64]
+    batch_size: dynamic
+    path: tensorRT/yolo/yolo26/pose/yolo26s-pose.engine
+    drive_id: 1saG3bmSt96ss_-967BH609wp2ENfHNFU
+    sha256: 92573bab2be59b6315ced00b9e6233cb0f11f49febdad66cdf648a05edb6a6bc
+    runtime_supported: true
+
+  - id: yolo26m-pose-tensorRT
+    kind: detection
+    backend: tensorRT
+    version: yolo26
+    task: pose
+    variant: medium
+    platforms: [jetson-aarch64]
+    batch_size: dynamic
+    path: tensorRT/yolo/yolo26/pose/yolo26m-pose.engine
+    drive_id: 1T6p5-ZSgeUYwarm9RV-KFYBzqzOyk_m_
+    sha256: 36809c1c96763b1d6ced11f52a62c94704f3683df8bc4bdf946bb2b8824c3022
+    runtime_supported: true
+
   - id: osnet-ain-ms-d-c-pytorch
     kind: reid
     backend: pytorch

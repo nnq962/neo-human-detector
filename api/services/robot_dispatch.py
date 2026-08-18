@@ -1,5 +1,7 @@
 """Đọc, kiểm tra và lưu cấu hình auto-dispatch robot."""
 
+from __future__ import annotations
+
 from api.models.robot_dispatch import RobotDispatchConfig, RobotDispatchConfigUpdate
 from api.services import config_store
 

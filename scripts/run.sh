@@ -8,6 +8,9 @@ readonly DEFAULT_CONFIG="${PROJECT_ROOT}/configs/default.yaml"
 readonly FRONTEND_DIST="${PROJECT_ROOT}/frontend/dist"
 readonly JETSON_OPENCV_WHEEL="${PROJECT_ROOT}/wheels/jp5.1.6-py38-aarch64/opencv_contrib_python-4.13.0.90-cp38-cp38-linux_aarch64.whl"
 readonly JETSON_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+readonly SYSTEM_PYTHON_PATH="/usr/lib/python3.8/dist-packages"
+
+export PYTHONPATH="${SYSTEM_PYTHON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
 
 SKIP_MODEL_SYNC=false
 CHECK_ONLY=false

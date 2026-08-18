@@ -245,47 +245,23 @@ prepare_frontend_env() {
     log "Frontend env hợp lệ với API: ${api_base_url}"
 }
 
-remove_legacy_frontend_password() {
-    if [[ -f "${FRONTEND_ENV}" ]] \
-        && grep -q '^VITE_CONFIG_PASSWORD=' "${FRONTEND_ENV}"; then
-        sed -i '/^VITE_CONFIG_PASSWORD=/d' "${FRONTEND_ENV}"
-        log "Đã xóa mật khẩu plaintext cũ khỏi frontend/.env."
-    fi
-}
-
 configure_web_auth() {
-    local legacy_password=""
-    if [[ -f "${FRONTEND_ENV}" ]]; then
-        legacy_password="$(sed -n 's/^VITE_CONFIG_PASSWORD=//p' "${FRONTEND_ENV}" | tail -n 1)"
-    fi
-
     if [[ -n "${NEO_CONFIG_PASSWORD:-}" ]]; then
         printf '%s\n' "${NEO_CONFIG_PASSWORD}" \
             | uv run --locked python scripts/set-web-password.py --password-stdin
-        remove_legacy_frontend_password
         log "Đã cập nhật password từ NEO_CONFIG_PASSWORD."
         return
     fi
 
     if uv run --locked python -c \
         'from api.services.auth import load_auth_settings; raise SystemExit(0 if load_auth_settings().password else 1)'; then
-        remove_legacy_frontend_password
         log "Password quản trị đã được cấu hình."
-        return
-    fi
-
-    if [[ -n "${legacy_password}" && "${legacy_password}" != "change-me" ]]; then
-        printf '%s\n' "${legacy_password}" \
-            | uv run --locked python scripts/set-web-password.py --password-stdin
-        remove_legacy_frontend_password
-        log "Đã chuyển mật khẩu frontend cũ sang backend."
         return
     fi
 
     [[ -t 0 ]] || die \
         "Thiếu password quản trị. Hãy đặt NEO_CONFIG_PASSWORD rồi chạy lại setup."
     uv run --locked python scripts/set-web-password.py
-    remove_legacy_frontend_password
 }
 
 sync_python_environment() {

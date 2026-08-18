@@ -34,11 +34,23 @@ def read_password(*, password_stdin: bool) -> str:
     if password_stdin:
         return sys.stdin.readline().rstrip("\r\n")
 
-    password = getpass.getpass("Mật khẩu quản trị mới: ")
-    confirmation = getpass.getpass("Nhập lại mật khẩu: ")
-    if password != confirmation:
-        raise ValueError("Hai lần nhập mật khẩu không khớp.")
-    return password
+    while True:
+        password = getpass.getpass("Mật khẩu quản trị mới (ít nhất 8 ký tự): ")
+        if not password:
+            print("Lỗi: Mật khẩu không được để trống.", file=sys.stderr)
+            continue
+        if len(password) < MIN_PASSWORD_LENGTH:
+            print(
+                f"Lỗi: Mật khẩu phải có ít nhất {MIN_PASSWORD_LENGTH} ký tự.",
+                file=sys.stderr,
+            )
+            continue
+
+        confirmation = getpass.getpass("Nhập lại mật khẩu: ")
+        if password != confirmation:
+            print("Lỗi: Hai lần nhập mật khẩu không khớp.", file=sys.stderr)
+            continue
+        return password
 
 
 # ─────────────────────────────────────────────────────────────────────────────

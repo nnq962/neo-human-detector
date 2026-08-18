@@ -1,4 +1,0 @@
-PYTHONPATH=/usr/lib/python3.8/dist-packages \
-uv run python benchmark_runtime.py \
-    --model weights/pytorch/yolo/yolo26/pose/yolo26n-pose.engine \
-    --backend gstreamer
