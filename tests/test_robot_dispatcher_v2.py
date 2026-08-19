@@ -17,6 +17,7 @@ from src.dispatch_decision import (
 from src.robot_dispatch_v2 import (
     RobotDispatcherV2,
     TaskActivityStore,
+    TaskPriority,
     TaskRegistry,
 )
 from src.robot_dispatch_v2.datatypes import (
@@ -31,7 +32,7 @@ from src.robot_dispatch_v2.datatypes import (
     TaskStatus,
     TaskStatusCode,
 )
-from src.zones_management import Zone, ZoneState
+from src.zones_management import Zone, ZonePriority, ZoneState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,6 +134,8 @@ def _zone(
     *,
     state: ZoneState = ZoneState.OCCUPIED,
     goal_pose=None,
+    priority: ZonePriority = ZonePriority.LOW,
+    service_point: tuple[float, float] | None = None,
 ) -> Zone:
     return Zone(
         camera_id="camera-1",
@@ -141,6 +144,8 @@ def _zone(
         name=zone_id,
         pts=np.empty((0, 2), dtype=np.int32),
         goal_pose=goal_pose or {"x": 1.0, "y": 2.0, "theta": 0.0},
+        priority=priority,
+        service_point=service_point,
         state=state,
     )
 
@@ -153,6 +158,7 @@ def _decision(action: DispatchAction, zone: Zone) -> DispatchDecision:
         zone=zone,
         previous_state=ZoneState.PENDING_ENTER,
         current_state=zone.state,
+        priority=zone.priority,
     )
 
 
@@ -174,6 +180,33 @@ def _heartbeat(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _assigned_task_for_zone(
+    dispatcher: RobotDispatcherV2,
+    zone_id: str,
+):
+    """Tra reservation của task zone qua secondary index zone sang UID."""
+    task_uid = dispatcher.task_activity_store.get_active_uid_by_zone(zone_id)
+    if task_uid is None:
+        return None
+    return dispatcher.get_assigned_task_by_uid(task_uid)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_task_registry_indexes_reservations_only_by_uid() -> None:
+    """Registry không cần zone ID để cấp, tra và giải phóng reservation."""
+    registry = TaskRegistry()
+
+    first = registry.allocate(robot_id=1, task_uid="task-a")
+    second = registry.allocate(robot_id=2, task_uid="task-b")
+
+    assert registry.get_by_uid("task-a") == first
+    assert registry.get_by_uid("task-b") == second
+    assert registry.allocate(robot_id=3, task_uid="task-a") == first
+    assert registry.release(first.robot_id, first.task_id) == first
+    assert registry.get_by_uid("task-a") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def test_lost_assign_ack_retries_same_robot_and_task() -> None:
     uart = FakeUart()
     uart.set_outcomes(TaskAssign, False, True)
@@ -184,7 +217,7 @@ def test_lost_assign_ack_retries_same_robot_and_task() -> None:
     assert not dispatcher.process_decision(
         _decision(DispatchAction.TASK_ASSIGN, zone)
     )
-    reserved = dispatcher.get_assigned_task(zone.id)
+    reserved = _assigned_task_for_zone(dispatcher, zone.id)
     assert reserved is not None
     assert dispatcher.pending_count() == 1
 
@@ -198,7 +231,8 @@ def test_lost_assign_ack_retries_same_robot_and_task() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def test_new_assign_waits_for_pending_cancel_of_old_task() -> None:
+def test_zone_rejects_new_assign_until_pending_cancel_finishes() -> None:
+    """Không tạo task zone thứ hai trước khi task cũ hủy xong."""
     uart = FakeUart()
     uart.set_outcomes(TaskCancel, False, True)
     dispatcher = RobotDispatcherV2(uart)
@@ -208,7 +242,7 @@ def test_new_assign_waits_for_pending_cancel_of_old_task() -> None:
     assert dispatcher.process_decision(
         _decision(DispatchAction.TASK_ASSIGN, zone)
     )
-    old_task = dispatcher.get_assigned_task(zone.id)
+    old_task = _assigned_task_for_zone(dispatcher, zone.id)
     assert old_task is not None
 
     assert not dispatcher.process_decision(
@@ -217,10 +251,13 @@ def test_new_assign_waits_for_pending_cancel_of_old_task() -> None:
     assert not dispatcher.process_decision(
         _decision(DispatchAction.TASK_ASSIGN, zone)
     )
-    assert dispatcher.pending_count() == 2
+    assert dispatcher.pending_count() == 1
 
-    assert dispatcher.tick() == 2
-    new_task = dispatcher.get_assigned_task(zone.id)
+    assert dispatcher.tick() == 1
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    new_task = _assigned_task_for_zone(dispatcher, zone.id)
     assert new_task is not None
     assert new_task.task_id != old_task.task_id
     assert [type(message) for message in uart.sent] == [
@@ -229,25 +266,6 @@ def test_new_assign_waits_for_pending_cancel_of_old_task() -> None:
         TaskCancel,
         TaskAssign,
     ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-def test_existing_reservation_is_bound_and_sent_instead_of_dropped() -> None:
-    uart = FakeUart()
-    registry = TaskRegistry()
-    reserved = registry.allocate(robot_id=1, zone_id="zone-1")
-    dispatcher = RobotDispatcherV2(uart, task_registry=registry)
-    zone = _zone("zone-1")
-
-    assert dispatcher.process_decision(
-        _decision(DispatchAction.TASK_ASSIGN, zone)
-    )
-
-    assert len(uart.sent) == 1
-    assert isinstance(uart.sent[0], TaskAssign)
-    assert uart.sent[0].robot_id == reserved.robot_id
-    assert uart.sent[0].task_id == reserved.task_id
-    assert dispatcher.pending_count() == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -263,7 +281,235 @@ def test_no_idle_robot_keeps_assignment_until_tick() -> None:
 
     dispatcher.on_heartbeat(_heartbeat())
     assert dispatcher.tick() == 1
-    assert dispatcher.get_assigned_task(zone.id) is not None
+    assert _assigned_task_for_zone(dispatcher, zone.id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_pending_assignments_use_priority_then_fifo() -> None:
+    """Kiểm tra hàng đợi chọn priority cao trước và giữ FIFO khi cùng mức."""
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(uart)
+    low_first = _zone(
+        "low-first",
+        priority=ZonePriority.LOW,
+        goal_pose={"x": 1.0, "y": 0.0, "theta": 0.0},
+    )
+    low_second = _zone(
+        "low-second",
+        priority=ZonePriority.LOW,
+        goal_pose={"x": 2.0, "y": 0.0, "theta": 0.0},
+    )
+    medium = _zone(
+        "medium",
+        priority=ZonePriority.MEDIUM,
+        goal_pose={"x": 3.0, "y": 0.0, "theta": 0.0},
+    )
+    high = _zone(
+        "high",
+        priority=ZonePriority.HIGH,
+        goal_pose={"x": 4.0, "y": 0.0, "theta": 0.0},
+    )
+
+    for zone in (low_first, low_second, medium, high):
+        assert not dispatcher.process_decision(
+            _decision(DispatchAction.TASK_ASSIGN, zone),
+        )
+
+    dispatcher.on_heartbeat(_heartbeat())
+    assert dispatcher.tick() == 1
+    assert _assigned_task_for_zone(dispatcher, high.id) is not None
+
+    high_task = _assigned_task_for_zone(dispatcher, high.id)
+    assert high_task is not None
+    dispatcher.on_task_status(
+        TaskStatus(high_task.robot_id, high_task.task_id, TaskStatusCode.COMPLETED),
+    )
+    assert dispatcher.tick() == 1
+    assert _assigned_task_for_zone(dispatcher, medium.id) is not None
+
+    medium_task = _assigned_task_for_zone(dispatcher, medium.id)
+    assert medium_task is not None
+    dispatcher.on_task_status(
+        TaskStatus(
+            medium_task.robot_id,
+            medium_task.task_id,
+            TaskStatusCode.COMPLETED,
+        ),
+    )
+    assert dispatcher.tick() == 1
+    assert _assigned_task_for_zone(dispatcher, low_first.id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_manual_task_uses_shared_priority_queue() -> None:
+    """Task manual được xếp chung với task zone và có thể đổi priority khi chờ."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(uart, task_activity_store=activity_store)
+    zone = _zone("zone-medium", priority=ZonePriority.MEDIUM)
+
+    manual_uid = dispatcher.enqueue_manual_task(
+        camera_id="camera-1",
+        camera_name="Camera 1",
+        target_pixel=(960.0, 540.0),
+        goal_pose={"x": 9.0, "y": 8.0, "theta": 0.5},
+        priority=TaskPriority.LOW,
+    )
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    assert dispatcher.change_task_priority(manual_uid, TaskPriority.HIGH)
+
+    manual_activity = activity_store.get(manual_uid)
+    assert manual_activity is not None
+    assert manual_activity.origin == "manual"
+    assert manual_activity.zone_id is None
+    assert manual_activity.priority == "high"
+
+    dispatcher.on_heartbeat(_heartbeat())
+    assert dispatcher.tick() == 1
+    assigned = dispatcher.get_assigned_task_by_uid(manual_uid)
+    assert assigned is not None
+    assert isinstance(uart.sent[-1], TaskAssign)
+    assert (uart.sent[-1].x, uart.sent[-1].y) == (9.0, 8.0)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_cancel_waiting_manual_task_does_not_send_uart() -> None:
+    """Task manual chưa có robot được hủy ngay mà không phát TaskCancel."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(uart, task_activity_store=activity_store)
+    task_uid = dispatcher.enqueue_manual_task(
+        camera_id="camera-1",
+        camera_name="Camera 1",
+        target_pixel=(100.0, 200.0),
+        goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
+        priority=TaskPriority.LOW,
+    )
+
+    assert dispatcher.cancel_task(task_uid)
+    assert dispatcher.pending_count() == 0
+    assert activity_store.get(task_uid).status == "CANCELED"
+    assert not any(isinstance(message, TaskCancel) for message in uart.sent)
+    assert dispatcher.cancel_task(task_uid)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_cancel_assigned_manual_task_sends_uart() -> None:
+    """Task manual đã assign dùng cùng đường TaskCancel với task zone."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(uart, task_activity_store=activity_store)
+    dispatcher.on_heartbeat(_heartbeat())
+    task_uid = dispatcher.enqueue_manual_task(
+        camera_id="camera-1",
+        camera_name="Camera 1",
+        target_pixel=(100.0, 200.0),
+        goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
+        priority=TaskPriority.HIGH,
+    )
+
+    assert dispatcher.get_assigned_task_by_uid(task_uid) is not None
+    assert dispatcher.cancel_task(task_uid)
+    assert activity_store.get(task_uid).status == "CANCELED"
+    assert isinstance(uart.sent[-1], TaskCancel)
+    assert dispatcher.get_assigned_task_by_uid(task_uid) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_web_cancel_zone_task_updates_decision_engine() -> None:
+    """Cancel chủ động task zone đồng bộ trạng thái service của decision engine."""
+    uart = FakeUart()
+    engine = DispatchDecisionEngine()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        decision_engine=engine,
+        task_activity_store=activity_store,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
+    dispatcher.process_zones([zone])
+    zone.state = ZoneState.OCCUPIED
+    dispatcher.process_zones([zone])
+    task_uid = activity_store.get_active_uid_by_zone(zone.id)
+    assert task_uid is not None
+
+    assert dispatcher.cancel_task(task_uid)
+    assert activity_store.get(task_uid).status == "CANCELED"
+    assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_batch_decisions_assign_high_priority_first() -> None:
+    """Kiểm tra decision cùng batch được gửi theo priority thay vì thứ tự input."""
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(uart)
+    dispatcher.on_heartbeat(_heartbeat(robot_id=1))
+    dispatcher.on_heartbeat(_heartbeat(robot_id=2))
+    low = _zone(
+        "low",
+        priority=ZonePriority.LOW,
+        goal_pose={"x": 1.0, "y": 0.0, "theta": 0.0},
+    )
+    high = _zone(
+        "high",
+        priority=ZonePriority.HIGH,
+        goal_pose={"x": 9.0, "y": 0.0, "theta": 0.0},
+    )
+
+    assert dispatcher.process_decisions([
+        _decision(DispatchAction.TASK_ASSIGN, low),
+        _decision(DispatchAction.TASK_ASSIGN, high),
+    ]) == [True, True]
+
+    assignments = [message for message in uart.sent if isinstance(message, TaskAssign)]
+    assert [message.x for message in assignments] == [9.0, 1.0]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_batch_cancel_runs_before_assignment() -> None:
+    """Kiểm tra cancel giải phóng robot trước khi dispatcher thử assign mới."""
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(uart)
+    dispatcher.on_heartbeat(_heartbeat())
+    current = _zone("current")
+    waiting = _zone("waiting", priority=ZonePriority.HIGH)
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, current),
+    )
+    uart.sent.clear()
+
+    assert dispatcher.process_decisions([
+        _decision(DispatchAction.TASK_ASSIGN, waiting),
+        _decision(DispatchAction.TASK_CANCEL, current),
+    ]) == [True, True]
+
+    assert [type(message) for message in uart.sent] == [TaskCancel, TaskAssign]
+    assert _assigned_task_for_zone(dispatcher, waiting.id) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_high_priority_does_not_preempt_assigned_task() -> None:
+    """Kiểm tra task priority cao không tự hủy task đã giao cho robot."""
+    uart = FakeUart()
+    dispatcher = RobotDispatcherV2(uart)
+    dispatcher.on_heartbeat(_heartbeat())
+    low = _zone("low", priority=ZonePriority.LOW)
+    high = _zone("high", priority=ZonePriority.HIGH)
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, low),
+    )
+    uart.sent.clear()
+
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, high),
+    )
+
+    assert _assigned_task_for_zone(dispatcher, low.id) is not None
+    assert _assigned_task_for_zone(dispatcher, high.id) is None
+    assert not any(isinstance(message, TaskCancel) for message in uart.sent)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -277,7 +523,7 @@ def test_completed_status_is_idempotent_and_acknowledged() -> None:
     dispatcher.process_zones([zone])
     zone.state = ZoneState.OCCUPIED
     dispatcher.process_zones([zone])
-    task = dispatcher.get_assigned_task(zone.id)
+    task = _assigned_task_for_zone(dispatcher, zone.id)
     assert task is not None
 
     status = TaskStatus(
@@ -288,7 +534,7 @@ def test_completed_status_is_idempotent_and_acknowledged() -> None:
     dispatcher.on_task_status(status)
     dispatcher.on_task_status(status)
 
-    assert dispatcher.get_assigned_task(zone.id) is None
+    assert _assigned_task_for_zone(dispatcher, zone.id) is None
     assert engine.get_service_state(zone.id) is ZoneServiceState.COMPLETED
     assert len([message for message in uart.sent if isinstance(message, Ack)]) == 2
 
@@ -304,7 +550,7 @@ def test_failed_status_marks_service_failed_until_zone_is_empty() -> None:
     dispatcher.process_zones([zone])
     zone.state = ZoneState.OCCUPIED
     dispatcher.process_zones([zone])
-    task = dispatcher.get_assigned_task(zone.id)
+    task = _assigned_task_for_zone(dispatcher, zone.id)
     assert task is not None
 
     dispatcher.on_task_status(
@@ -314,7 +560,7 @@ def test_failed_status_marks_service_failed_until_zone_is_empty() -> None:
             status_code=TaskStatusCode.FAILED,
         )
     )
-    assert dispatcher.get_assigned_task(zone.id) is None
+    assert _assigned_task_for_zone(dispatcher, zone.id) is None
     assert engine.get_service_state(zone.id) is ZoneServiceState.FAILED
 
     zone.state = ZoneState.PENDING_EXIT
@@ -341,7 +587,7 @@ def test_invalid_goal_pose_rolls_back_requested_service() -> None:
     dispatcher.process_zones([zone])
 
     assert dispatcher.pending_count() == 0
-    assert dispatcher.get_assigned_task(zone.id) is None
+    assert _assigned_task_for_zone(dispatcher, zone.id) is None
     assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
 
 
@@ -434,7 +680,11 @@ def test_process_zones_forwards_reid_inputs_to_decision_engine() -> None:
     uart = FakeUart()
     engine = DispatchDecisionEngine(policy=ReIdDecisionPolicy())
     dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
-    zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
+    zone = _zone(
+        "zone-1",
+        state=ZoneState.PENDING_ENTER,
+        priority=ZonePriority.HIGH,
+    )
     person = Detection(
         bbox=(0.0, 0.0, 10.0, 20.0),
         confidence=0.95,
@@ -456,7 +706,8 @@ def test_process_zones_forwards_reid_inputs_to_decision_engine() -> None:
         DispatchAction.TASK_ASSIGN
     ]
     assert decisions[0].person_global_id == 42
-    assert dispatcher.get_assigned_task(zone.id) is not None
+    assert decisions[0].priority is ZonePriority.HIGH
+    assert _assigned_task_for_zone(dispatcher, zone.id) is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -469,7 +720,11 @@ def test_task_activity_keeps_terminal_task_history() -> None:
         task_activity_store=activity_store,
     )
     dispatcher.on_heartbeat(_heartbeat())
-    zone = _zone("zone-1")
+    zone = _zone(
+        "zone-1",
+        priority=ZonePriority.HIGH,
+        service_point=(123.4, 567.6),
+    )
 
     assert dispatcher.process_decision(
         _decision(DispatchAction.TASK_ASSIGN, zone)
@@ -480,6 +735,9 @@ def test_task_activity_keeps_terminal_task_history() -> None:
     assert assigned["task_id"] == 0
     assert assigned["camera_id"] == "camera-1"
     assert assigned["zone_name"] == "zone-1"
+    assert assigned["origin"] == "zone"
+    assert assigned["priority"] == "high"
+    assert assigned["target_pixel"] == {"x": 123, "y": 568}
     assert assigned["goal_pose"] == {"x": 1.0, "y": 2.0, "theta": 0.0}
 
     dispatcher.on_task_status(
@@ -562,7 +820,44 @@ def test_background_ack_returns_before_uart_ack_is_received() -> None:
             time.sleep(0.01)
 
         assert dispatcher.pending_count() == 0
-        assert dispatcher.get_assigned_task(zone.id) is not None
+        assert _assigned_task_for_zone(dispatcher, zone.id) is not None
+    finally:
+        uart.release.set()
+        dispatcher.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_cancel_while_assign_ack_is_pending_finishes_after_assign() -> None:
+    """Cancel trong lúc chờ ACK assign được giữ lại và gửi ngay sau ACK."""
+    uart = BlockingAckUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+        background_ack=True,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+
+    try:
+        task_uid = dispatcher.enqueue_manual_task(
+            camera_id="camera-1",
+            camera_name="Camera 1",
+            target_pixel=(100.0, 200.0),
+            goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
+            priority=TaskPriority.HIGH,
+        )
+        assert uart.started.wait(timeout=1.0)
+        assert not dispatcher.cancel_task(task_uid)
+        assert activity_store.get(task_uid).status == "CANCELING"
+
+        uart.release.set()
+        deadline = time.monotonic() + 1.0
+        while dispatcher.pending_count() != 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert dispatcher.pending_count() == 0
+        assert activity_store.get(task_uid).status == "CANCELED"
+        assert [type(message) for message in uart.sent] == [TaskAssign, TaskCancel]
     finally:
         uart.release.set()
         dispatcher.close()

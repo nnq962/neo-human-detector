@@ -14,6 +14,8 @@ RuntimeTaskState = Literal[
     "FAILED",
     "CANCELED",
 ]
+RuntimeTaskPriority = Literal["low", "medium", "high"]
+RuntimeTaskOrigin = Literal["zone", "manual"]
 ALLOWED_RUNTIME_BATCH_SIZES = frozenset({1, 2, 4})
 
 
@@ -101,14 +103,40 @@ class RuntimeTaskGoalPose(BaseModel):
     theta: float
 
 
+class RuntimeTaskPixel(BaseModel):
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+
+
+class RuntimeTaskCreateRequest(BaseModel):
+    """Payload tạo task thủ công từ một điểm ảnh camera."""
+
+    camera_id: str = Field(min_length=1)
+    target_pixel: RuntimeTaskPixel
+    priority: RuntimeTaskPriority = "low"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    @field_validator("camera_id")
+    @classmethod
+    def normalize_camera_id(cls, value: str) -> str:
+        """Chuẩn hóa camera ID và từ chối chuỗi chỉ chứa khoảng trắng."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Camera ID không được để trống.")
+        return normalized
+
+
 class RuntimeTask(BaseModel):
     uid: str
     task_id: Optional[int] = None
     robot_id: Optional[int] = None
     camera_id: str
     camera_name: str
-    zone_id: str
-    zone_name: str
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    origin: RuntimeTaskOrigin
+    priority: RuntimeTaskPriority
+    target_pixel: Optional[RuntimeTaskPixel] = None
     goal_pose: RuntimeTaskGoalPose
     person_global_id: Optional[int] = None
     person_similarity: Optional[float] = None

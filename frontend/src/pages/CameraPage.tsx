@@ -19,7 +19,12 @@ import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCamera } from "@/hooks/use-camera"
 import { useInvalidateCameras } from "@/hooks/use-cameras"
-import { camerasApi, type Camera, type Zone } from "@/api/cameras.api"
+import {
+  camerasApi,
+  type Camera,
+  type Zone,
+  type ZonePriority,
+} from "@/api/cameras.api"
 import { cameraCalibrationApi } from "@/api/camera-calibration.api"
 import { uartApi } from "@/api/uart.api"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
@@ -121,6 +126,28 @@ function generateZoneName(zones: Zone[]): string {
   return `Zone ${index}`
 }
 
+const ZONE_PRIORITY_VIEW: Record<ZonePriority, {
+  label: string
+  dotClassName: string
+  textClassName: string
+}> = {
+  low: {
+    label: "Thấp",
+    dotClassName: "bg-emerald-500",
+    textClassName: "text-emerald-700 dark:text-emerald-400",
+  },
+  medium: {
+    label: "Trung bình",
+    dotClassName: "bg-amber-500",
+    textClassName: "text-amber-700 dark:text-amber-400",
+  },
+  high: {
+    label: "Cao",
+    dotClassName: "bg-rose-500",
+    textClassName: "text-rose-700 dark:text-rose-400",
+  },
+}
+
 export function CameraPageRoute() {
   const { id } = useParams<{ id: string }>()
   return <CameraPage key={id} cameraId={id ?? ""} />
@@ -160,6 +187,7 @@ function CameraPage({ cameraId }: { cameraId: string }) {
 
   // Zone name editing
   const [draftZoneName, setDraftZoneName]     = useState("")
+  const [draftZonePriority, setDraftZonePriority] = useState<ZonePriority>("low")
   const [zoneNameError, setZoneNameError]     = useState("")
 
   // New-zone naming dialog
@@ -221,6 +249,7 @@ function CameraPage({ cameraId }: { cameraId: string }) {
     setDraftZones([...(camera?.zones ?? [])])
     setIsEditingVertices(true)
     setDraftZoneName(zone?.name ?? "")
+    setDraftZonePriority(zone?.priority ?? "low")
     setZoneNameError("")
     setIsPickingServicePoint(false)
     setDraftServicePoint(zone?.service_point ?? null)
@@ -235,6 +264,7 @@ function CameraPage({ cameraId }: { cameraId: string }) {
 
     const zone = draftZones[index]
     setDraftZoneName(zone?.name ?? "")
+    setDraftZonePriority(zone?.priority ?? "low")
     setZoneNameError("")
     setIsPickingServicePoint(false)
     setDraftServicePoint(zone?.service_point ?? null)
@@ -246,6 +276,7 @@ function CameraPage({ cameraId }: { cameraId: string }) {
     setSelectedZoneIndex(null)
     setDraftZones([])
     setDraftZoneName("")
+    setDraftZonePriority("low")
     setZoneNameError("")
     setIsPickingServicePoint(false)
     setDraftServicePoint(null)
@@ -281,7 +312,12 @@ function CameraPage({ cameraId }: { cameraId: string }) {
     try {
       const updatedZones = draftZones.map((z, i) =>
         i === selectedZoneIndex
-          ? { ...z, name: trimmedName, service_point: draftServicePoint }
+          ? {
+              ...z,
+              name: trimmedName,
+              priority: draftZonePriority,
+              service_point: draftServicePoint,
+            }
           : z,
       )
       const response = await camerasApi.update(id!, { zones: updatedZones })
@@ -294,6 +330,7 @@ function CameraPage({ cameraId }: { cameraId: string }) {
       setSelectedZoneIndex(null)
       setDraftZones([])
       setDraftZoneName("")
+      setDraftZonePriority("low")
       setZoneNameError("")
       setIsPickingServicePoint(false)
       setDraftServicePoint(null)
@@ -333,11 +370,12 @@ function CameraPage({ cameraId }: { cameraId: string }) {
       [insetX, videoSize.height - insetY],
     ]
     const name = generateZoneName(camera.zones)
-    const newZone: Zone = { name, points, service_point: null }
+    const newZone: Zone = { name, priority: "low", points, service_point: null }
 
     setDraftZones([...camera.zones, newZone])
     setSelectedZoneIndex(camera.zones.length)
     setDraftZoneName(name)
+    setDraftZonePriority("low")
     setZoneNameError("")
     setDraftServicePoint(null)
     setIsEditingVertices(true)
@@ -424,12 +462,14 @@ function CameraPage({ cameraId }: { cameraId: string }) {
 
     const newZone: Zone = {
       name: trimmedName,
+      priority: "low",
       points: pendingPoints as [number, number][],
       service_point: null,
     }
     setDraftZones([...camera.zones, newZone])
     setSelectedZoneIndex(camera.zones.length)
     setDraftZoneName(trimmedName)
+    setDraftZonePriority("low")
     setZoneNameError("")
     setDraftServicePoint(null)
     setIsEditingVertices(true)
@@ -620,18 +660,50 @@ function CameraPage({ cameraId }: { cameraId: string }) {
                       <div className="box-border flex w-full max-w-full min-w-0 flex-col gap-4 overflow-x-hidden p-4">
                         {isEditingVertices && (
                           <>
-                            {/* Zone name */}
-                            <div className="flex min-w-0 flex-col gap-1.5">
-                              <p className="text-xs font-medium">Tên zone</p>
-                              <Input
-                                value={draftZoneName}
-                                onChange={(e) => { setDraftZoneName(e.target.value); setZoneNameError("") }}
-                                className="h-7 text-xs"
-                                placeholder="Tên zone"
-                              />
-                              {zoneNameError && (
-                                <p className="text-xs text-destructive">{zoneNameError}</p>
-                              )}
+                            <div className="grid min-w-0 grid-cols-2 items-start gap-3">
+                              {/* Zone name */}
+                              <div className="flex min-w-0 flex-col gap-1.5">
+                                <p className="text-xs font-medium">Tên zone</p>
+                                <Input
+                                  value={draftZoneName}
+                                  onChange={(e) => { setDraftZoneName(e.target.value); setZoneNameError("") }}
+                                  className="h-7 min-w-0 text-xs"
+                                  placeholder="Tên zone"
+                                />
+                                {zoneNameError && (
+                                  <p className="text-xs text-destructive">{zoneNameError}</p>
+                                )}
+                              </div>
+
+                              {/* Zone priority */}
+                              <div className="flex min-w-0 flex-col gap-1.5">
+                                <p className="text-xs font-medium">Mức độ ưu tiên</p>
+                                <Select
+                                  value={draftZonePriority}
+                                  onValueChange={(value) => setDraftZonePriority(value as ZonePriority)}
+                                >
+                                  <SelectTrigger size="sm" className="w-full min-w-0 text-xs">
+                                    <SelectValue>
+                                      <span className={`flex items-center gap-2 ${ZONE_PRIORITY_VIEW[draftZonePriority].textClassName}`}>
+                                        <span className={`size-2 rounded-full ${ZONE_PRIORITY_VIEW[draftZonePriority].dotClassName}`} />
+                                        {ZONE_PRIORITY_VIEW[draftZonePriority].label}
+                                      </span>
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent position="popper" align="center">
+                                    {(Object.entries(ZONE_PRIORITY_VIEW) as [ZonePriority, typeof ZONE_PRIORITY_VIEW[ZonePriority]][]).map(([priority, view]) => (
+                                      <SelectItem
+                                        key={priority}
+                                        value={priority}
+                                        className={view.textClassName}
+                                      >
+                                        <span className={`size-2 rounded-full ${view.dotClassName}`} />
+                                        {view.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </div>
 
                             {/* Service point prototype */}

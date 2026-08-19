@@ -20,6 +20,7 @@ class Zone(BaseModel):
 
     id: Optional[str] = None
     name: str
+    priority: Literal["low", "medium", "high"] = "low"
     service_point: Optional[List[int]] = Field(
         default=None,
         min_length=2,

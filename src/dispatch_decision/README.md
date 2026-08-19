@@ -166,10 +166,26 @@ Engine đánh dấu service là `REQUESTED` ngay khi sinh `TASK_ASSIGN`. Khi sin
 `NOT_REQUESTED` sau khi tầng thực thi gọi `on_service_cancelled(zone_id)`. Nhờ
 vậy person request vẫn bị chặn trong lúc transport đang retry lệnh cancel.
 
+Khi người dùng chủ động hủy task zone từ web, tầng thực thi gọi
+`request_service_cancel(zone_id)` trước khi đưa UID task vào hàng đợi cancel.
+Engine vì thế dùng cùng lifecycle `CANCEL_REQUESTED` như cancel tự động và chỉ
+giải phóng service sau khi robot xác nhận hủy.
+
 Vì engine chỉ sinh mỗi decision một lần, tầng thực thi robot chịu trách nhiệm:
 
 - Chuyển decision thành message tương ứng.
+- Chụp `priority` của decision vào task và xếp hàng `high` → `medium` → `low`.
+- Dùng UID runtime làm khóa hàng đợi chung cho task `zone` và `manual`.
+- Giữ FIFO giữa các task cùng priority và luôn xử lý cancel trước assign.
 - Gửi message tới robot.
 - Retry khi gửi thất bại hoặc chưa nhận được ACK.
 - Báo lại cho engine khi task hoàn thành bằng `on_service_completed(zone_id)`.
 - Báo lại khi cancel hoàn tất bằng `on_service_cancelled(zone_id)`.
+
+Priority chỉ áp dụng cho task đang chờ robot. Task đã được giao hoặc đang thực
+hiện không bị preempt tự động. Robot không nhận priority trong payload vì tầng
+Python đã chọn task cần gửi trước khi tạo `TaskAssign`.
+
+Read-model của task chụp thêm `origin="zone"` và `target_pixel` từ
+`Zone.service_point`. Nhờ đó client có thể đặt marker đúng lên video mà không
+phụ thuộc vào việc cấu hình zone có bị chỉnh sửa sau khi task được sinh hay không.

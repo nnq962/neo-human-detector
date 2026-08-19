@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from src.zones_management import Zone, ZoneState
+from src.zones_management import Zone, ZonePriority, ZoneState
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ class DispatchDecision:
         - zone: thông tin zone hiện tại.
         - previous_state: trạng thái zone trước khi transition.
         - current_state: trạng thái zone sau khi transition.
+        - priority: mức ưu tiên được chụp tại thời điểm sinh decision.
         - person_global_id: global ID của occupancy hiện tại nếu có.
         - person_similarity: độ tương đồng của occupancy hiện tại nếu có.
         - person_track_id: track ID của occupancy hiện tại nếu có.
@@ -98,6 +99,7 @@ class DispatchDecision:
     zone: Zone
     previous_state: ZoneState
     current_state: ZoneState
+    priority: ZonePriority
     person_global_id: Optional[int] = None
     person_similarity: Optional[float] = None
     person_track_id: Optional[int] = None

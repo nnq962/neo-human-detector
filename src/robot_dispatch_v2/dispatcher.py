@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 from dataclasses import dataclass, replace
 from typing import List, Optional, Protocol, Sequence
@@ -30,7 +31,7 @@ from src.robot_dispatch_v2.task_registry import (
     TaskRegistry,
     TaskRegistryFull,
 )
-from src.robot_dispatch_v2.task_activity import TaskActivityStore
+from src.robot_dispatch_v2.task_activity import TaskActivityStore, TaskPriority
 from src.zones_management import Zone
 from utils import LOGGER
 
@@ -38,6 +39,11 @@ from utils import LOGGER
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
 DEFAULT_MAX_RETRIES = 5
 BACKGROUND_DISPATCH_INTERVAL_SECONDS = 0.25
+TASK_PRIORITY_RANK = {
+    TaskPriority.LOW: 1,
+    TaskPriority.MEDIUM: 2,
+    TaskPriority.HIGH: 3,
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,13 +83,14 @@ class UartTransport(Protocol):
 class _PendingAssignment:
     """Snapshot bất biến của một yêu cầu assign đang chờ thực thi."""
 
-    zone_id: str
+    task_uid: str
     x: float
     y: float
     theta: float
+    priority: TaskPriority
+    enqueue_sequence: int = 0
     robot_id: Optional[int] = None
     task_id: Optional[int] = None
-    activity_id: str = ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +134,7 @@ class RobotDispatcherV2:
 
         self._pending_assignments: dict[str, _PendingAssignment] = {}
         self._pending_cancellations: set[str] = set()
+        self._enqueue_sequence = 0
         self._lock = threading.RLock()
         self._background_stop = threading.Event()
         self._background_wakeup = threading.Event()
@@ -238,8 +246,16 @@ class RobotDispatcherV2:
         self,
         decisions: Sequence[DispatchDecision],
     ) -> List[bool]:
-        """Thực thi một danh sách decision và trả kết quả tức thời tương ứng."""
-        return [self.process_decision(decision) for decision in decisions]
+        """Thực thi cancel trước, rồi assign theo priority và giữ thứ tự trả về."""
+        indexed_decisions = list(enumerate(decisions))
+        ordered_decisions = sorted(
+            indexed_decisions,
+            key=lambda item: _decision_dispatch_sort_key(item[1]),
+        )
+        results = [False] * len(indexed_decisions)
+        for original_index, decision in ordered_decisions:
+            results[original_index] = self.process_decision(decision)
+        return results
 
     # ─────────────────────────────────────────────────────────────────────────
     def process_decision(self, decision: DispatchDecision) -> bool:
@@ -255,50 +271,160 @@ class RobotDispatcherV2:
                 self._decision_engine.on_service_request_failed(decision.zone_id)
                 return False
 
-            activity_id = self._task_activity_store.create_assignment(
-                decision,
-                x=pending.x,
-                y=pending.y,
-                theta=pending.theta,
-            )
-            pending = replace(pending, activity_id=activity_id)
-
-            with self._lock:
-                waiting_for_cancel = (
-                    decision.zone_id in self._pending_cancellations
+            try:
+                task_priority = TaskPriority(decision.priority.value)
+                task_uid = self._task_activity_store.create_task(
+                    camera_id=decision.zone.camera_id,
+                    camera_name=decision.zone.camera_name,
+                    origin="zone",
+                    priority=task_priority,
+                    target_pixel=decision.zone.service_point,
+                    goal_pose={
+                        "x": pending.x,
+                        "y": pending.y,
+                        "theta": pending.theta,
+                    },
+                    zone_id=decision.zone_id,
+                    zone_name=decision.zone.name,
+                    person_global_id=decision.person_global_id,
+                    person_similarity=decision.person_similarity,
+                    person_track_id=decision.person_track_id,
                 )
-                self._pending_assignments[decision.zone_id] = pending
-
-            # Task cũ của zone phải hủy xong trước khi assign task mới.
-            if waiting_for_cancel:
+            except ValueError as exc:
+                LOGGER.warning("Không thể tạo task cho zone %s: %s", decision.zone_id, exc)
+                self._decision_engine.on_service_request_failed(decision.zone_id)
                 return False
 
-            if self._background_ack:
-                self._schedule_background_dispatch()
-                return False
-
-            return self._try_assign(pending)
+            return self._enqueue_assignment(
+                replace(
+                    pending,
+                    task_uid=task_uid,
+                    priority=task_priority,
+                    enqueue_sequence=self._next_enqueue_sequence(),
+                )
+            )
 
         if decision.action is DispatchAction.TASK_CANCEL:
-            task = self._task_registry.get_by_zone(decision.zone_id)
-            self._task_activity_store.mark_cancel_requested(
-                decision.zone_id,
-                robot_id=task.robot_id if task is not None else None,
-                task_id=task.task_id if task is not None else None,
+            task_uid = self._task_activity_store.get_active_uid_by_zone(
+                decision.zone_id
             )
-            with self._lock:
-                # Dừng việc retry TaskAssign khi đã phát sinh TaskCancel.
-                self._pending_assignments.pop(decision.zone_id, None)
-                self._pending_cancellations.add(decision.zone_id)
-
-            if self._background_ack:
-                self._schedule_background_dispatch()
-                return False
-
-            return self._try_cancel(decision.zone_id)
+            if task_uid is None:
+                self._decision_engine.on_service_cancelled(decision.zone_id)
+                return True
+            return self._request_cancel(task_uid, update_decision_engine=False)
 
         LOGGER.warning("Bỏ qua dispatch action không được hỗ trợ: %s", decision.action)
         return False
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def enqueue_manual_task(
+        self,
+        *,
+        camera_id: str,
+        camera_name: str,
+        target_pixel: tuple[float, float],
+        goal_pose: dict[str, float],
+        priority: TaskPriority,
+    ) -> str:
+        """Thêm task do người dùng tạo vào cùng hàng đợi priority của zone."""
+        x, y, theta = _parse_goal_pose(goal_pose)
+        task_uid = self._task_activity_store.create_task(
+            camera_id=camera_id,
+            camera_name=camera_name,
+            origin="manual",
+            priority=priority,
+            target_pixel=target_pixel,
+            goal_pose={"x": x, "y": y, "theta": theta},
+        )
+        self._enqueue_assignment(
+            _PendingAssignment(
+                task_uid=task_uid,
+                x=x,
+                y=y,
+                theta=theta,
+                priority=priority,
+                enqueue_sequence=self._next_enqueue_sequence(),
+            )
+        )
+        return task_uid
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def cancel_task(self, task_uid: str) -> bool:
+        """Yêu cầu hủy một task từ bất kỳ nguồn nào theo UID runtime."""
+        task = self._task_activity_store.get(task_uid)
+        if task is None:
+            raise KeyError(f"Không tìm thấy task {task_uid}")
+        if task.status == "CANCELED":
+            return True
+        if task.status in {"COMPLETED", "FAILED"}:
+            raise ValueError(
+                f"Task {task_uid} đã kết thúc với trạng thái {task.status}"
+            )
+        return self._request_cancel(task_uid, update_decision_engine=True)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def change_task_priority(
+        self,
+        task_uid: str,
+        priority: TaskPriority,
+    ) -> bool:
+        """Đổi priority của task chưa bắt đầu assign và sắp xếp lại hàng đợi."""
+        with self._lock:
+            pending = self._pending_assignments.get(task_uid)
+            if pending is None or pending.robot_id is not None:
+                return False
+        if not self._task_activity_store.change_priority(task_uid, priority):
+            return False
+        with self._lock:
+            pending = self._pending_assignments.get(task_uid)
+            if pending is None or pending.robot_id is not None:
+                return False
+            self._pending_assignments[task_uid] = replace(
+                pending,
+                priority=priority,
+            )
+        self._schedule_background_dispatch()
+        return True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _enqueue_assignment(self, pending: _PendingAssignment) -> bool:
+        """Đưa assignment vào hàng đợi UID và thử gửi theo chế độ dispatcher."""
+        with self._lock:
+            self._pending_assignments[pending.task_uid] = pending
+        if self._background_ack:
+            self._schedule_background_dispatch()
+            return False
+        return self._try_assign(pending)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _request_cancel(
+        self,
+        task_uid: str,
+        *,
+        update_decision_engine: bool,
+    ) -> bool:
+        """Ghi nhận cancel theo UID và ưu tiên xử lý trước assignment."""
+        task = self._task_activity_store.get(task_uid)
+        if task is None:
+            raise KeyError(f"Không tìm thấy task {task_uid}")
+        if task.status == "CANCELED":
+            return True
+
+        if update_decision_engine and task.origin == "zone" and task.zone_id:
+            if not self._decision_engine.request_service_cancel(task.zone_id):
+                raise ValueError(
+                    f"Zone {task.zone_id} không có service có thể hủy"
+                )
+
+        self._task_activity_store.mark_cancel_requested(task_uid)
+        with self._lock:
+            self._pending_assignments.pop(task_uid, None)
+            self._pending_cancellations.add(task_uid)
+
+        if self._background_ack:
+            self._schedule_background_dispatch()
+            return False
+        return self._try_cancel(task_uid)
 
     # ─────────────────────────────────────────────────────────────────────────
     def tick(self) -> int:
@@ -317,20 +443,22 @@ class RobotDispatcherV2:
     def _run_pending_once(self) -> int:
         """Thử một lượt cancel rồi assign cho các decision đang chờ."""
         with self._lock:
-            cancellation_zone_ids = list(self._pending_cancellations)
+            cancellation_task_uids = list(self._pending_cancellations)
             assignments = list(self._pending_assignments.values())
+
+        assignments.sort(key=_pending_assignment_sort_key)
 
         completed_count = 0
 
-        for zone_id in cancellation_zone_ids:
-            if self._try_cancel(zone_id):
+        for task_uid in cancellation_task_uids:
+            if self._try_cancel(task_uid):
                 completed_count += 1
 
         for pending in assignments:
             with self._lock:
-                if pending.zone_id in self._pending_cancellations:
+                if pending.task_uid in self._pending_cancellations:
                     continue
-                if self._pending_assignments.get(pending.zone_id) != pending:
+                if self._pending_assignments.get(pending.task_uid) != pending:
                     continue
 
             if self._try_assign(pending):
@@ -351,6 +479,14 @@ class RobotDispatcherV2:
                 daemon=True,
             )
             self._background_thread.start()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _next_enqueue_sequence(self) -> int:
+        """Cấp số thứ tự tăng dần để giữ FIFO giữa task cùng priority."""
+        with self._lock:
+            sequence = self._enqueue_sequence
+            self._enqueue_sequence += 1
+            return sequence
 
     # ─────────────────────────────────────────────────────────────────────────
     def _stop_background_worker(self) -> None:
@@ -424,45 +560,51 @@ class RobotDispatcherV2:
 
         # Có TaskStatus nghĩa là robot đã nhận task, kể cả khi ACK TaskAssign
         # trước đó bị mất trên đường truyền.
-        self._remove_pending_assignment(task.zone_id)
+        self._remove_pending_assignment(task.task_uid)
 
         if status is TaskStatusCode.COMPLETED:
-            self._task_activity_store.mark_completed(
-                message.robot_id,
-                message.task_id,
-            )
-            released = self._task_registry.release(message.robot_id, message.task_id)
-            if released is not None:
-                self._decision_engine.on_service_completed(released.zone_id)
+            task_activity = self._task_activity_store.get(task.task_uid)
+            self._task_activity_store.mark_completed(task.task_uid)
+            self._task_registry.release(message.robot_id, message.task_id)
+            self._remove_pending_cancellation(task.task_uid)
+            if (
+                task_activity is not None
+                and task_activity.origin == "zone"
+                and task_activity.zone_id is not None
+            ):
+                self._decision_engine.on_service_completed(task_activity.zone_id)
 
         elif status is TaskStatusCode.FAILED:
-            self._task_activity_store.mark_failed(
-                message.robot_id,
-                message.task_id,
-            )
+            task_activity = self._task_activity_store.get(task.task_uid)
+            self._task_activity_store.mark_failed(task.task_uid)
             # Không tự giao lại task vì retry nghiệp vụ cần policy riêng.
-            released = self._task_registry.release(message.robot_id, message.task_id)
-            if released is not None:
-                self._decision_engine.on_service_failed(released.zone_id)
+            self._task_registry.release(message.robot_id, message.task_id)
+            self._remove_pending_cancellation(task.task_uid)
+            if (
+                task_activity is not None
+                and task_activity.origin == "zone"
+                and task_activity.zone_id is not None
+            ):
+                self._decision_engine.on_service_failed(task_activity.zone_id)
             LOGGER.warning(
-                "Task thất bại: robot_id=%s, task_id=%s, zone_id=%s",
+                "Task thất bại: robot_id=%s, task_id=%s, task_uid=%s",
                 message.robot_id,
                 message.task_id,
-                task.zone_id,
+                task.task_uid,
             )
 
         elif status is TaskStatusCode.IN_PROGRESS:
-            self._task_activity_store.mark_in_progress(
-                message.robot_id,
-                message.task_id,
-            )
+            self._task_activity_store.mark_in_progress(task.task_uid)
 
         self._send_task_status_ack(message)
 
     # ─────────────────────────────────────────────────────────────────────────
-    def get_assigned_task(self, zone_id: str) -> Optional[AssignedTask]:
-        """Lấy task hiện đang được giữ chỗ cho một zone."""
-        return self._task_registry.get_by_zone(zone_id)
+    def get_assigned_task_by_uid(
+        self,
+        task_uid: str,
+    ) -> Optional[AssignedTask]:
+        """Lấy reservation robot hiện tại theo UID runtime."""
+        return self._task_registry.get_by_uid(task_uid)
 
     # ─────────────────────────────────────────────────────────────────────────
     def pending_count(self) -> int:
@@ -473,13 +615,13 @@ class RobotDispatcherV2:
     # ─────────────────────────────────────────────────────────────────────────
     def _try_assign(self, pending: _PendingAssignment) -> bool:
         """Thử chọn robot, cấp task và gửi TaskAssign cho một yêu cầu đang chờ."""
-        task = self._task_registry.get_by_zone(pending.zone_id)
+        task = self._task_registry.get_by_uid(pending.task_uid)
 
         if task is None:
             # Registry từng có task nhưng nay không còn nghĩa là terminal status
             # đã xử lý task trong lúc một lần gửi đang chờ ACK.
             if pending.robot_id is not None and pending.task_id is not None:
-                self._remove_pending_assignment(pending.zone_id)
+                self._remove_pending_assignment(pending.task_uid)
                 return True
 
             robot = self._robot_state_store.nearest_idle_robot(
@@ -489,15 +631,22 @@ class RobotDispatcherV2:
             )
             if robot is None:
                 # LOGGER.info(
-                #     "Chưa có robot IDLE cho zone %s; giữ lại để thử sau.",
-                #     pending.zone_id,
+                #     "Chưa có robot IDLE cho task %s; giữ lại để thử sau.",
+                #     pending.task_uid,
                 # )
                 return False
 
             try:
-                task = self._task_registry.allocate(robot.robot_id, pending.zone_id)
+                task = self._task_registry.allocate(
+                    robot.robot_id,
+                    pending.task_uid,
+                )
             except (TaskRegistryFull, ValueError) as exc:
-                LOGGER.warning("Chưa thể cấp task cho zone %s: %s", pending.zone_id, exc)
+                LOGGER.warning(
+                    "Chưa thể cấp robot cho task %s: %s",
+                    pending.task_uid,
+                    exc,
+                )
                 return False
 
             pending = replace(
@@ -506,7 +655,7 @@ class RobotDispatcherV2:
                 task_id=task.task_id,
             )
             with self._lock:
-                self._pending_assignments[pending.zone_id] = pending
+                self._pending_assignments[pending.task_uid] = pending
 
         elif (
             pending.robot_id != task.robot_id
@@ -520,10 +669,10 @@ class RobotDispatcherV2:
                 task_id=task.task_id,
             )
             with self._lock:
-                self._pending_assignments[pending.zone_id] = pending
+                self._pending_assignments[pending.task_uid] = pending
 
         self._task_activity_store.mark_assigning(
-            pending.activity_id,
+            pending.task_uid,
             task.robot_id,
             task.task_id,
         )
@@ -543,20 +692,20 @@ class RobotDispatcherV2:
             max_retries=self._max_retries,
         )
         if ack is None or ack.result_code != AckResultCode.ACCEPTED:
-            self._task_activity_store.increment_retry(pending.activity_id)
+            self._task_activity_store.increment_retry(pending.task_uid)
             if ack is None:
                 LOGGER.warning(
                     "Chưa nhận ACK cho TaskAssign; giữ nguyên task để thử lại: "
-                    "zone_id=%s, robot_id=%s, task_id=%s",
-                    pending.zone_id,
+                    "task_uid=%s, robot_id=%s, task_id=%s",
+                    pending.task_uid,
                     task.robot_id,
                     task.task_id,
                 )
             else:
                 LOGGER.warning(
                     "Robot từ chối TaskAssign; giữ nguyên task để thử lại: "
-                    "zone_id=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
-                    pending.zone_id,
+                    "task_uid=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
+                    pending.task_uid,
                     task.robot_id,
                     task.task_id,
                     _ack_reason_name(ack.reason_code),
@@ -564,18 +713,27 @@ class RobotDispatcherV2:
                 )
             return False
 
-        self._remove_pending_assignment(pending.zone_id)
-        self._task_activity_store.mark_assigned(pending.activity_id)
+        self._remove_pending_assignment(pending.task_uid)
+        self._task_activity_store.mark_assigned(pending.task_uid)
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _try_cancel(self, zone_id: str) -> bool:
-        """Thử gửi TaskCancel cho task hiện tại của zone."""
-        task = self._task_registry.get_by_zone(zone_id)
+    def _try_cancel(self, task_uid: str) -> bool:
+        """Thử hoàn tất yêu cầu hủy của một task runtime theo UID."""
+        task_activity = self._task_activity_store.get(task_uid)
+        if task_activity is None:
+            self._remove_pending_cancellation(task_uid)
+            return True
+
+        task = self._task_registry.get_by_uid(task_uid)
         if task is None:
-            self._task_activity_store.mark_canceled(zone_id)
-            self._decision_engine.on_service_cancelled(zone_id)
-            self._remove_pending_cancellation(zone_id)
+            self._task_activity_store.mark_canceled(task_uid)
+            if (
+                task_activity.origin == "zone"
+                and task_activity.zone_id is not None
+            ):
+                self._decision_engine.on_service_cancelled(task_activity.zone_id)
+            self._remove_pending_cancellation(task_uid)
             return True
 
         message = TaskCancel(robot_id=task.robot_id, task_id=task.task_id)
@@ -586,23 +744,20 @@ class RobotDispatcherV2:
             max_retries=self._max_retries,
         )
         if ack is None or ack.result_code != AckResultCode.ACCEPTED:
-            self._task_activity_store.increment_cancel_retry(
-                task.robot_id,
-                task.task_id,
-            )
+            self._task_activity_store.increment_retry(task_uid)
             if ack is None:
                 LOGGER.warning(
                     "Chưa nhận ACK cho TaskCancel; giữ decision để thử lại: "
-                    "zone_id=%s, robot_id=%s, task_id=%s",
-                    zone_id,
+                    "task_uid=%s, robot_id=%s, task_id=%s",
+                    task_uid,
                     task.robot_id,
                     task.task_id,
                 )
             else:
                 LOGGER.warning(
                     "Robot từ chối TaskCancel; giữ decision để thử lại: "
-                    "zone_id=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
-                    zone_id,
+                    "task_uid=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
+                    task_uid,
                     task.robot_id,
                     task.task_id,
                     _ack_reason_name(ack.reason_code),
@@ -610,14 +765,11 @@ class RobotDispatcherV2:
                 )
             return False
 
-        self._task_activity_store.mark_canceled(
-            zone_id,
-            robot_id=task.robot_id,
-            task_id=task.task_id,
-        )
+        self._task_activity_store.mark_canceled(task_uid)
         self._task_registry.release(task.robot_id, task.task_id)
-        self._decision_engine.on_service_cancelled(zone_id)
-        self._remove_pending_cancellation(zone_id)
+        if task_activity.origin == "zone" and task_activity.zone_id is not None:
+            self._decision_engine.on_service_cancelled(task_activity.zone_id)
+        self._remove_pending_cancellation(task_uid)
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -638,14 +790,16 @@ class RobotDispatcherV2:
             )
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _remove_pending_assignment(self, zone_id: str) -> None:
+    def _remove_pending_assignment(self, task_uid: str) -> None:
+        """Xóa assignment khỏi hàng đợi theo UID runtime."""
         with self._lock:
-            self._pending_assignments.pop(zone_id, None)
+            self._pending_assignments.pop(task_uid, None)
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _remove_pending_cancellation(self, zone_id: str) -> None:
+    def _remove_pending_cancellation(self, task_uid: str) -> None:
+        """Xóa yêu cầu cancel khỏi hàng đợi theo UID runtime."""
         with self._lock:
-            self._pending_cancellations.discard(zone_id)
+            self._pending_cancellations.discard(task_uid)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -655,10 +809,11 @@ def _build_pending_assignment(
     """Chụp goal pose của decision để dùng an toàn khi phải retry về sau."""
     try:
         return _PendingAssignment(
-            zone_id=decision.zone_id,
+            task_uid="",
             x=float(decision.zone.goal_pose["x"]),
             y=float(decision.zone.goal_pose["y"]),
             theta=float(decision.zone.goal_pose["theta"]),
+            priority=TaskPriority(decision.priority.value),
         )
     except (KeyError, TypeError, ValueError) as exc:
         LOGGER.error(
@@ -668,3 +823,39 @@ def _build_pending_assignment(
             exc,
         )
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_goal_pose(goal_pose: dict[str, float]) -> tuple[float, float, float]:
+    """Đọc và kiểm tra goal pose của task thủ công."""
+    try:
+        parsed = (
+            float(goal_pose["x"]),
+            float(goal_pose["y"]),
+            float(goal_pose["theta"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Goal pose của task thủ công không hợp lệ") from exc
+    if not all(math.isfinite(value) for value in parsed):
+        raise ValueError("Goal pose của task thủ công phải là số hữu hạn")
+    return parsed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _decision_dispatch_sort_key(
+    decision: DispatchDecision,
+) -> tuple[int, int]:
+    """Xếp cancel trước assign, rồi xếp assign theo priority giảm dần."""
+    if decision.action is DispatchAction.TASK_CANCEL:
+        return 0, 0
+    if decision.action is DispatchAction.TASK_ASSIGN:
+        return 1, -TASK_PRIORITY_RANK[TaskPriority(decision.priority.value)]
+    return 2, 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _pending_assignment_sort_key(
+    pending: _PendingAssignment,
+) -> tuple[int, int]:
+    """Xếp task chờ theo priority giảm dần và FIFO trong cùng một mức."""
+    return -TASK_PRIORITY_RANK[pending.priority], pending.enqueue_sequence

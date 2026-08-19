@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from src.calibration import calculate_homography
+from src.calibration import calculate_homography, project_pixel_to_world
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -12,6 +12,21 @@ def _project(points: np.ndarray, matrix: np.ndarray) -> np.ndarray:
         points.astype(np.float64).reshape(-1, 1, 2),
         matrix,
     ).reshape(-1, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_project_pixel_to_world_applies_homogeneous_division() -> None:
+    """Kiểm tra helper chiếu pixel thực hiện đúng phép chia tọa độ đồng nhất."""
+    projected = project_pixel_to_world(
+        (10, 20),
+        [
+            [2.0, 0.0, 4.0],
+            [0.0, 3.0, 6.0],
+            [0.0, 0.0, 2.0],
+        ],
+    )
+
+    assert projected == pytest.approx((12.0, 33.0))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

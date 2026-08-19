@@ -13,6 +13,35 @@ MIN_POINT_COUNT = 4
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def project_pixel_to_world(
+    pixel_point: Sequence[float],
+    homography: Sequence[Sequence[float]],
+) -> tuple[float, float]:
+    """Chiếu một điểm pixel sang tọa độ thực bằng ma trận homography."""
+    try:
+        point = np.asarray(pixel_point, dtype=np.float64)
+        matrix = np.asarray(homography, dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Điểm pixel hoặc ma trận H không hợp lệ.") from error
+
+    if point.shape != (2,) or not np.isfinite(point).all():
+        raise ValueError("Điểm pixel phải gồm hai tọa độ hữu hạn.")
+    if matrix.shape != (3, 3) or not np.isfinite(matrix).all():
+        raise ValueError("Ma trận H phải có kích thước 3 x 3 và chứa số hữu hạn.")
+
+    projected = matrix @ np.asarray([point[0], point[1], 1.0], dtype=np.float64)
+    denominator = float(projected[2])
+    if not np.isfinite(denominator) or abs(denominator) < 1e-9:
+        raise ValueError("Không thể chiếu điểm pixel vì mẫu số homography bằng 0.")
+
+    x = float(projected[0] / denominator)
+    y = float(projected[1] / denominator)
+    if not np.isfinite(x) or not np.isfinite(y):
+        raise ValueError("Tọa độ thực sau khi chiếu không hợp lệ.")
+    return x, y
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def calculate_homography(
     pixel_points: Sequence[Sequence[float]],
     world_points: Sequence[Sequence[float]],

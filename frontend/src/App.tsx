@@ -13,6 +13,9 @@ const PublicCameraWallPage = lazy(() =>
 const DashboardPage = lazy(() =>
   import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
 )
+const NavigationPage = lazy(() =>
+  import("@/pages/NavigationPage").then((m) => ({ default: m.NavigationPage })),
+)
 const CameraPageRoute = lazy(() =>
   import("@/pages/CameraPage").then((m) => ({ default: m.CameraPageRoute })),
 )
@@ -56,6 +59,7 @@ function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
+            <Route path="/navigation" element={<NavigationPage />} />
             <Route path="/cameras/:id" element={<CameraPageRoute />} />
             <Route
               path="/calibration/cameras/:id"

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, Pencil, RefreshCw, X } from "lucide-react"
+import { Check, ChevronDown, Pencil, RefreshCw, X } from "lucide-react"
 import { toast } from "sonner"
 import {
   detectionApi,
@@ -12,12 +12,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Slider } from "@/components/ui/slider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
@@ -39,13 +41,109 @@ function titleCase(value: string | null) {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function modelLabel(model: ModelArtifact) {
-  return [
-    model.version.toUpperCase(),
-    titleCase(model.task),
-    titleCase(model.variant),
-    titleCase(model.backend),
-  ].filter((part) => part !== "—").join(" · ")
+function backendLabel(backend: string) {
+  const labels: Record<string, string> = {
+    onnx: "ONNX",
+    pytorch: "PyTorch",
+    rknn: "RKNN",
+    tensorrt: "TensorRT",
+  }
+  return labels[backend.toLocaleLowerCase()] ?? titleCase(backend)
+}
+
+function modelFamily(model: ModelArtifact) {
+  const pathParts = model.path.replace(/^weights\//, "").split("/")
+  const backendIndex = pathParts.findIndex(
+    (part) => part.toLocaleLowerCase() === model.backend.toLocaleLowerCase(),
+  )
+  return pathParts[backendIndex + 1] ?? model.task ?? "Khác"
+}
+
+function ModelPicker({
+  models,
+  value,
+  onValueChange,
+}: {
+  models: ModelArtifact[]
+  value: string | null
+  onValueChange: (modelId: string) => void
+}) {
+  const backends = [...new Set(models.map((model) => model.backend))].sort()
+  const selectedModel = models.find((model) => model.id === value)
+  const selectedLabel = selectedModel
+    ? `${backendLabel(selectedModel.backend)} / ${modelFamily(selectedModel).toUpperCase()} / ${selectedModel.version.toUpperCase()} / ${titleCase(selectedModel.task)} · ${titleCase(selectedModel.variant)}`
+    : "Chọn detection model"
+
+  return (
+    <div className="space-y-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" className="font-normal">
+            <span>{selectedLabel}</span>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="max-h-80" align="start">
+        {backends.map((backend) => {
+          const backendModels = models.filter((model) => model.backend === backend)
+          return (
+            <DropdownMenuSub key={backend}>
+              <DropdownMenuSubTrigger>{backendLabel(backend)}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-80 min-w-52 overflow-y-auto">
+              {[...new Set(backendModels.map(modelFamily))].sort().map((family) => {
+                const familyModels = backendModels.filter((model) => modelFamily(model) === family)
+                return (
+                  <DropdownMenuSub key={family}>
+                    <DropdownMenuSubTrigger>{family.toUpperCase()}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-80 min-w-52 overflow-y-auto">
+                    {[...new Set(familyModels.map((model) => model.version))].sort().map((version) => {
+                      const versionModels = familyModels.filter((model) => model.version === version)
+                      return (
+                        <DropdownMenuSub key={version}>
+                          <DropdownMenuSubTrigger>{version.toUpperCase()}</DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent className="max-h-80 min-w-64 overflow-y-auto">
+                          {[...new Set(versionModels.map((model) => model.task ?? "Khác"))].sort().map((task) => {
+                            const taskModels = versionModels.filter((model) => (model.task ?? "Khác") === task)
+                            return (
+                              <DropdownMenuSub key={task}>
+                                <DropdownMenuSubTrigger>{titleCase(task)}</DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent className="max-h-80 min-w-56 overflow-y-auto">
+                                {taskModels.map((model) => {
+                                  const selected = model.id === value
+                                  return (
+                                    <DropdownMenuItem
+                                      key={model.id}
+                                      onSelect={() => onValueChange(model.id)}
+                                      className={selected ? "bg-primary/10 text-primary" : undefined}
+                                    >
+                                      <span className="min-w-0 flex-1 truncate">{titleCase(model.variant)}</span>
+                                      {selected && <Check className="size-4 shrink-0" aria-label="Đang được chọn" />}
+                                    </DropdownMenuItem>
+                                  )
+                                })}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            )
+                          })}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )
+                    })}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )
+              })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )
+        })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <p className="text-[11px] text-muted-foreground">
+        Chọn backend, họ model, phiên bản, task rồi chọn biến thể model.
+      </p>
+    </div>
+  )
 }
 
 function DetectionConfigCard({
@@ -125,24 +223,14 @@ function DetectionConfigCard({
               desc="Danh sách được quét trực tiếp từ thư mục weights"
             />
             {editing ? (
-              <Select
-                value={draft.model_id ?? undefined}
+              <ModelPicker
+                models={models}
+                value={draft.model_id}
                 onValueChange={(modelId) => setDraft((current) => ({
                   ...current,
                   model_id: modelId,
                 }))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Chọn detection model" />
-                </SelectTrigger>
-                <SelectContent position="popper">
-                  {models.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {modelLabel(model)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             ) : (
               <div className="flex min-h-8 items-center gap-2">
                 {selectedModel ? (

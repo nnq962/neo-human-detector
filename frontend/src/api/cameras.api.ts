@@ -5,9 +5,12 @@ import { apiRequest, type ApiResponse, ensureApiSuccess, unwrapApiResponse } fro
 export interface Zone {
   id?: string
   name: string
+  priority: ZonePriority
   service_point?: [number, number] | null
   points: [number, number][]
 }
+
+export type ZonePriority = "low" | "medium" | "high"
 
 export interface StreamConfig {
   source: string

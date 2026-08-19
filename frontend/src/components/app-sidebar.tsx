@@ -10,6 +10,7 @@ import {
   Fingerprint,
   GitBranch,
   LayoutDashboard,
+  Map,
   Plus,
   ScanEye,
   Box
@@ -96,16 +97,29 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/navigation"}
+                    tooltip="Navigation"
+                  >
+                    <Link to="/navigation">
+                      <Map />
+                      <span>Navigation</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
                 <Collapsible.Root open={cameraOpen} onOpenChange={setCameraOpen}>
                   <SidebarMenuItem>
                     <Collapsible.Trigger asChild>
                       <SidebarMenuButton
                         isActive={pathname.startsWith("/cameras")}
                         className="pr-14"
-                        title="Cameras"
+                        title="Cameras & Zones"
                       >
                         <Camera />
-                        <span>Cameras</span>
+                        <span>Cameras & Zones</span>
                         <ChevronRight
                           className={cn(
                             "absolute right-2 transition-transform duration-200 group-data-[collapsible=icon]:hidden",

@@ -11,6 +11,7 @@ from src.robot_dispatch_v2.task_registry import (
 from src.robot_dispatch_v2.task_activity import (
     TaskActivity,
     TaskActivityStore,
+    TaskPriority,
     runtime_task_activity_store,
 )
 
@@ -24,5 +25,6 @@ __all__ = [
     "TaskRegistryFull",
     "TaskActivity",
     "TaskActivityStore",
+    "TaskPriority",
     "runtime_task_activity_store",
 ]

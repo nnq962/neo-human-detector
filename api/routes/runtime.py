@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, status
 from typing import Optional
 
 from api.models.response import ApiResponse
@@ -6,8 +6,9 @@ from api.models.runtime import (
     RuntimeCommandRequest,
     RuntimeSettings,
     RuntimeSettingsUpdate,
+    RuntimeTaskCreateRequest,
 )
-from api.routes.responses import error_from_exception, ok
+from api.routes.responses import error_from_exception, error_response, ok
 from api.services import runtime as runtime_service
 
 
@@ -66,6 +67,41 @@ def get_runtime_tasks():
         return error_from_exception(error)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post(
+    "/tasks",
+    response_model=ApiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_runtime_task(request: RuntimeTaskCreateRequest):
+    """Tạo task thủ công từ điểm pixel trên camera runtime."""
+    try:
+        return ok(
+            "Runtime task created successfully.",
+            runtime_service.create_runtime_task(request),
+        )
+    except RuntimeError as error:
+        return error_response(status.HTTP_409_CONFLICT, str(error))
+    except Exception as error:
+        return error_from_exception(error)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@router.post("/tasks/{task_uid}/cancel", response_model=ApiResponse)
+def cancel_runtime_task(task_uid: str):
+    """Yêu cầu hủy task runtime theo UID từ nguồn zone hoặc manual."""
+    try:
+        return ok(
+            "Runtime task cancellation requested successfully.",
+            runtime_service.cancel_runtime_task(task_uid),
+        )
+    except RuntimeError as error:
+        return error_response(status.HTTP_409_CONFLICT, str(error))
+    except Exception as error:
+        return error_from_exception(error, conflict_on_value_error=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/start", response_model=ApiResponse)
 def start_runtime(command: Optional[RuntimeCommandRequest] = None):
     """Khởi động runtime."""
@@ -75,6 +111,7 @@ def start_runtime(command: Optional[RuntimeCommandRequest] = None):
         return error_from_exception(error, conflict_on_value_error=True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/stop", response_model=ApiResponse)
 def stop_runtime():
     """Dừng runtime."""
@@ -84,6 +121,7 @@ def stop_runtime():
         return error_from_exception(error, conflict_on_value_error=True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/restart", response_model=ApiResponse)
 def restart_runtime(command: Optional[RuntimeCommandRequest] = None):
     """Khởi động lại runtime."""
@@ -93,6 +131,7 @@ def restart_runtime(command: Optional[RuntimeCommandRequest] = None):
         return error_from_exception(error, conflict_on_value_error=True)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 @router.post("/reload", response_model=ApiResponse)
 def reload_runtime(command: Optional[RuntimeCommandRequest] = None):
     """Nạp lại cấu hình runtime."""

@@ -26,6 +26,15 @@ class ZoneState(Enum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+class ZonePriority(Enum):
+    """Các mức độ ưu tiên của zone."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 class ZoneColor:
     """Bảng màu BGR dùng khi vẽ zone bằng OpenCV."""
 
@@ -65,6 +74,7 @@ class Zone:
     goal_pose  : Dict[str, Any]
     id         : Optional[str] = None
     service_point: Optional[tuple[float, float]] = None
+    priority   : ZonePriority = ZonePriority.LOW
     state      : ZoneState = ZoneState.EMPTY
     enter_time : float = 0.0
     lost_time  : float = 0.0

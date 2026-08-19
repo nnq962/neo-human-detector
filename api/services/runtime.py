@@ -2,19 +2,26 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import threading
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from api.models.runtime import (
     ALLOWED_RUNTIME_BATCH_SIZES,
     RuntimeCommandRequest,
     RuntimeSettings,
     RuntimeSettingsUpdate,
+    RuntimeTaskCreateRequest,
 )
 from api.models.camera import Zone as CameraZone
 from api.services import config_store
 from src.app import Runtime, build_runtime_config
+from src.calibration import project_pixel_to_world
 from src.detection.model_registry import resolve_model_artifact
+from src.robot_dispatch_v2 import TaskPriority
 from utils import LOGGER, load_config
+
+if TYPE_CHECKING:
+    from src.camera_initializer import Camera
+    from src.robot_dispatch_v2 import RobotDispatcherV2
 
 
 DEFAULT_CONFIG_PATH = "configs/default.yaml"
@@ -171,6 +178,30 @@ class RuntimeManager:
         """Trả snapshot trạng thái runtime hiện tại."""
         with self._lock:
             return self._status_unlocked()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def require_robot_dispatcher(self) -> "RobotDispatcherV2":
+        """Trả dispatcher đang chạy hoặc báo runtime chưa sẵn sàng nhận task."""
+        with self._lock:
+            runtime = self._runtime
+            if not self._thread_alive_unlocked() or runtime is None:
+                raise RuntimeError("Runtime chưa chạy.")
+            dispatcher = runtime.robot_dispatcher
+            if dispatcher is None:
+                raise RuntimeError("Robot dispatcher chưa sẵn sàng.")
+            return dispatcher
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def require_runtime_camera(self, camera_id: str) -> "Camera":
+        """Trả camera thuộc runtime đang chạy hoặc báo không tìm thấy."""
+        with self._lock:
+            runtime = self._runtime
+            if not self._thread_alive_unlocked() or runtime is None:
+                raise RuntimeError("Runtime chưa chạy.")
+            for camera in runtime.cameras:
+                if camera.id == camera_id:
+                    return camera
+        raise KeyError(f"Không tìm thấy camera {camera_id} trong runtime đang chạy.")
 
     # ─────────────────────────────────────────────────────────────────────────
     def start(self, command: Optional[RuntimeCommandRequest] = None) -> dict:
@@ -403,21 +434,67 @@ def get_runtime_tasks() -> dict:
     return runtime_task_activity_store.snapshot()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+def create_runtime_task(request: RuntimeTaskCreateRequest) -> dict:
+    """Tạo task thủ công từ điểm pixel và đưa vào hàng đợi dispatcher."""
+    dispatcher = runtime_manager.require_robot_dispatcher()
+    camera = runtime_manager.require_runtime_camera(request.camera_id)
+    pixel = request.target_pixel
+
+    if camera.calibration_image_size is not None:
+        width, height = camera.calibration_image_size
+        if pixel.x >= width or pixel.y >= height:
+            raise ValueError(
+                f"Điểm pixel ({pixel.x}, {pixel.y}) nằm ngoài ảnh "
+                f"{width}x{height} của camera {camera.id}."
+            )
+    if camera.homography is None:
+        raise ValueError(f"Camera {camera.id} chưa có ma trận homography.")
+
+    world_x, world_y = project_pixel_to_world(
+        (pixel.x, pixel.y),
+        camera.homography,
+    )
+    task_uid = dispatcher.enqueue_manual_task(
+        camera_id=camera.id,
+        camera_name=camera.name,
+        target_pixel=(pixel.x, pixel.y),
+        goal_pose={"x": world_x, "y": world_y, "theta": 0.0},
+        priority=TaskPriority(request.priority),
+    )
+    return {"uid": task_uid}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def cancel_runtime_task(task_uid: str) -> dict:
+    """Yêu cầu dispatcher hủy task runtime theo UID từ bất kỳ nguồn nào."""
+    normalized_uid = task_uid.strip()
+    if not normalized_uid:
+        raise ValueError("Task UID không được để trống.")
+    dispatcher = runtime_manager.require_robot_dispatcher()
+    dispatcher.cancel_task(normalized_uid)
+    return {"uid": normalized_uid}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def start_runtime(command: Optional[RuntimeCommandRequest] = None) -> dict:
     """Khởi động runtime bằng manager dùng chung."""
     return runtime_manager.start(command)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def stop_runtime() -> dict:
     """Dừng runtime bằng manager dùng chung."""
     return runtime_manager.stop()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def restart_runtime(command: Optional[RuntimeCommandRequest] = None) -> dict:
     """Khởi động lại runtime bằng manager dùng chung."""
     return runtime_manager.restart(command)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
 def reload_runtime(command: Optional[RuntimeCommandRequest] = None) -> dict:
     """Nạp lại runtime bằng manager dùng chung."""
     return runtime_manager.reload(command)

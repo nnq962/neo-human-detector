@@ -14,7 +14,8 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 import numpy as np
 
-from src.zones_management.datatypes import Zone
+from src.calibration import project_pixel_to_world
+from src.zones_management.datatypes import Zone, ZonePriority
 from utils import LOGGER
 
 
@@ -29,6 +30,7 @@ class Camera:
     zones   : List[Zone] = field(default_factory=list)
     enabled : bool = True
     calibration_image_size: Optional[tuple[int, int]] = None
+    homography: Optional[tuple[tuple[float, ...], ...]] = None
 
     # ─────────────────────────────────────────────────────────────────────────
     @property
@@ -130,7 +132,7 @@ def _parse_camera(
     calibration_image_size = _parse_calibration_image_size(
         calibration_data.get("image_size"),
     )
-    homography = calibration_data.get("homography")
+    homography = _parse_homography(calibration_data.get("homography"))
 
     zones = _parse_zones(
         camera_id=camera_id,
@@ -151,6 +153,7 @@ def _parse_camera(
         zones=zones,
         enabled=enabled,
         calibration_image_size=calibration_image_size,
+        homography=homography,
     )
 
 
@@ -214,6 +217,7 @@ def _parse_zone(
         return None
 
     service_point = _parse_service_point(zone_data.get("service_point"))
+    priority = _parse_zone_priority(zone_data.get("priority"), zone_key=zone_key)
     goal_pose = _build_goal_pose(service_point, points, homography)
     if not goal_pose:
         goal_pose = dict(zone_data.get("goal_pose") or {})
@@ -227,7 +231,24 @@ def _parse_zone(
         pts=np.asarray(points, dtype=np.int32),
         goal_pose=goal_pose,
         service_point=service_point,
+        priority=priority,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _parse_zone_priority(value: Any, *, zone_key: str) -> ZonePriority:
+    """Đọc mức ưu tiên zone và dùng mức thấp khi cấu hình không hợp lệ."""
+    normalized = str(value or ZonePriority.LOW.value).strip().lower()
+    try:
+        return ZonePriority(normalized)
+    except ValueError:
+        LOGGER.warning(
+            "Zone '%s' có priority không hợp lệ '%s', dùng mặc định '%s'.",
+            zone_key,
+            value,
+            ZonePriority.LOW.value,
+        )
+        return ZonePriority.LOW
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,24 +283,17 @@ def _parse_calibration_image_size(value: Any) -> Optional[tuple[int, int]]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def _project_pixel_point(
-    point: tuple[float, float],
-    matrix: np.ndarray,
-) -> Optional[tuple[float, float]]:
-    """Chiếu một điểm pixel sang hệ tọa độ robot bằng homography."""
-    projected = matrix @ np.asarray(
-        [point[0], point[1], 1.0],
-        dtype=np.float64,
-    )
-    denominator = float(projected[2])
-    if not np.isfinite(denominator) or abs(denominator) < 1e-9:
+def _parse_homography(
+    value: Any,
+) -> Optional[tuple[tuple[float, ...], ...]]:
+    """Đọc và chuẩn hóa ma trận homography hữu hạn kích thước 3 x 3."""
+    try:
+        matrix = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError):
         return None
-
-    x = float(projected[0] / denominator)
-    y = float(projected[1] / denominator)
-    if not np.isfinite(x) or not np.isfinite(y):
+    if matrix.shape != (3, 3) or not np.isfinite(matrix).all():
         return None
-    return x, y
+    return tuple(tuple(float(coordinate) for coordinate in row) for row in matrix)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -346,18 +360,22 @@ def _build_goal_pose(
     if matrix.shape != (3, 3) or not np.isfinite(matrix).all():
         return {}
 
-    goal_point = _project_pixel_point(service_point, matrix)
-    if goal_point is None:
+    try:
+        goal_point = project_pixel_to_world(service_point, matrix)
+    except ValueError:
         return {}
 
-    projected_zone_points = [
-        projected
-        for point in zone_points
-        if (projected := _project_pixel_point(
-            (float(point[0]), float(point[1])),
-            matrix,
-        )) is not None
-    ]
+    projected_zone_points = []
+    for point in zone_points:
+        try:
+            projected_zone_points.append(
+                project_pixel_to_world(
+                    (float(point[0]), float(point[1])),
+                    matrix,
+                )
+            )
+        except (TypeError, ValueError):
+            continue
     zone_center = _polygon_centroid(projected_zone_points)
     theta = (
         _calculate_service_theta(zone_center, goal_point)

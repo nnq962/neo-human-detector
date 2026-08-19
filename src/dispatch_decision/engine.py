@@ -140,6 +140,7 @@ class DispatchDecisionEngine:
             zone=zone,
             previous_state=previous_state,
             current_state=current_state,
+            priority=zone.priority,
         )
 
     # ─────────────────────────────────────────────────────────────────────
@@ -286,6 +287,7 @@ class DispatchDecisionEngine:
             zone=zone,
             previous_state=previous_state,
             current_state=current_state,
+            priority=zone.priority,
             person_global_id=decision_person_global_id,
             person_similarity=decision_person_similarity,
             person_track_id=decision_person_track_id,
@@ -367,6 +369,21 @@ class DispatchDecisionEngine:
                 zone_id,
                 service_state=ZoneServiceState.NOT_REQUESTED,
                 active_person_global_id=None,
+            )
+            return True
+
+    # ─────────────────────────────────────────────────────────────────────
+    def request_service_cancel(self, zone_id: str) -> bool:
+        """Chuyển service đang hoạt động sang trạng thái chờ hủy chủ động."""
+        with self._lock:
+            service_state = self._zone_state_store.get_service_state(zone_id)
+            if service_state is ZoneServiceState.CANCEL_REQUESTED:
+                return True
+            if service_state is not ZoneServiceState.REQUESTED:
+                return False
+            self._zone_state_store.update(
+                zone_id,
+                service_state=ZoneServiceState.CANCEL_REQUESTED,
             )
             return True
 
