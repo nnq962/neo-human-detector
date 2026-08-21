@@ -62,6 +62,24 @@ class TaskStatusCode(IntEnum):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+class TaskFailureReasonCode(IntEnum):
+    """Nguyên nhân nghiệp vụ khi robot báo task thực thi thất bại."""
+
+    NONE               = 0
+    NAVIGATION_FAILED  = 1
+    TARGET_UNREACHABLE = 2
+    PATH_BLOCKED       = 3
+    TIMEOUT            = 4
+    ROBOT_ERROR        = 5
+    LOCALIZATION_LOST  = 6
+    DISPATCH_REJECTED  = 7
+    DISPATCH_TIMEOUT   = 8
+    RETRY_EXHAUSTED    = 9
+    CANCEL_REJECTED    = 10
+    UNKNOWN            = 255
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 class AckResultCode(IntEnum):
     """
     Kết quả tiếp nhận message được robot hoặc Dispatcher trả về trong ACK.
@@ -397,29 +415,41 @@ class TaskStatus(MessageBase):
         robot_id     : uint8 (1 byte)
         task_id      : uint8 (1 byte) - khớp với task_id trong TaskAssign tương ứng
         status_code  : uint8 (1 byte) - 0=đang làm, 1=hoàn thành, 2=thất bại
+        reason_code  : uint8 (1 byte) - xem TaskFailureReasonCode; chỉ dùng khi FAILED
 
-    Tổng payload = 4 byte, + 2 byte checksum = 6 byte/gói.
+    Tổng payload = 5 byte, + 2 byte checksum = 7 byte/gói.
 
     Robot phải chờ ACK của mỗi TaskStatus trước khi gửi status tiếp theo cho
     cùng task. ACK hiện không có sequence_id nên chỉ hỗ trợ stop-and-wait.
     """
 
     MESSAGE_TYPE = MessageType.TASK_STATUS
-    FORMAT = '<BBBB'
+    FORMAT = '<BBBBB'
 
     robot_id: int
     task_id: int
     status_code: int
+    reason_code: int = TaskFailureReasonCode.NONE
 
     def to_payload(self) -> bytes:
         """Đóng gói trạng thái task thành payload nhị phân."""
-        return struct.pack(self.FORMAT, self.MESSAGE_TYPE, self.robot_id, self.task_id, self.status_code)
+        return struct.pack(
+            self.FORMAT,
+            self.MESSAGE_TYPE,
+            self.robot_id,
+            self.task_id,
+            self.status_code,
+            self.reason_code,
+        )
 
     @classmethod
     def from_payload(cls, payload: bytes):
         """Giải mã payload trạng thái task thành object."""
-        _, robot_id, task_id, status_code = struct.unpack(cls.FORMAT, payload)
-        return cls(robot_id, task_id, status_code)
+        _, robot_id, task_id, status_code, reason_code = struct.unpack(
+            cls.FORMAT,
+            payload,
+        )
+        return cls(robot_id, task_id, status_code, reason_code)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

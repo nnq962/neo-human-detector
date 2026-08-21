@@ -200,6 +200,23 @@ kết quả tiếp nhận ở tầng nghiệp vụ.
 | 0 | `ACCEPTED` | Message đã được tiếp nhận và chấp nhận xử lý |
 | 1 | `REJECTED` | Message đã được đọc nhưng bị từ chối xử lý |
 
+### 5.3.1. TaskFailureReasonCode
+
+Dùng riêng trong `TaskStatus.reason_code` khi `status_code=FAILED`. Đây là lỗi
+phát sinh sau khi robot đã nhận task, không dùng thay cho `AckReasonCode`.
+
+| Giá trị | Tên trong code | Ý nghĩa |
+|---:|---|---|
+| 0 | `NONE` | Không có nguyên nhân thất bại |
+| 1 | `NAVIGATION_FAILED` | Điều hướng thất bại |
+| 2 | `TARGET_UNREACHABLE` | Không thể tiếp cận pose đích |
+| 3 | `PATH_BLOCKED` | Đường đi bị chặn |
+| 4 | `TIMEOUT` | Thực thi quá thời gian |
+| 5 | `ROBOT_ERROR` | Robot phát sinh lỗi khi thực thi |
+| 6 | `LOCALIZATION_LOST` | Robot mất định vị |
+| 7-10 | Lỗi dispatcher | Backend không thể hoàn tất assign/cancel |
+| 255 | `UNKNOWN` | Nguyên nhân chưa được nhận diện |
+
 ### 5.4. AckReasonCode
 
 Dùng trong `Ack.reason_code` để mô tả nguyên nhân chi tiết.
@@ -442,7 +459,7 @@ cụ thể.
 Format trong code:
 
 ```python
-FORMAT = "<BBBB"
+FORMAT = "<BBBBB"
 ```
 
 Payload:
@@ -453,6 +470,7 @@ Payload:
 | 1 | 1 | `robot_id` | `uint8` | Robot đang báo cáo |
 | 2 | 1 | `task_id` | `uint8` | Task được báo cáo |
 | 3 | 1 | `status_code` | `uint8` | Xem `TaskStatusCode` |
+| 4 | 1 | `reason_code` | `uint8` | Xem `TaskFailureReasonCode`; đặt `NONE` nếu task không FAILED |
 
 Kích thước frame truyền qua UART:
 
@@ -460,9 +478,9 @@ Kích thước frame truyền qua UART:
 |---|---:|
 | Start byte `0xAA` | 1 |
 | Length | 1 |
-| Payload | 4 |
+| Payload | 5 |
 | Checksum | 2 |
-| Tổng UART frame | 8 |
+| Tổng UART frame | 9 |
 
 #### Quy tắc gửi TaskStatus
 
@@ -479,6 +497,9 @@ Gửi TaskStatus
 Quy tắc stop-and-wait này là bắt buộc vì khóa ACK chỉ chứa `robot_id`,
 `acked_type` và `reference_id`; chưa có `sequence_id` để phân biệt ACK của
 `IN_PROGRESS`, `COMPLETED` hoặc `FAILED` cho cùng một task.
+
+Schema `TaskStatus` 5-byte này không tương thích nhị phân với schema 4-byte cũ;
+firmware và Python phải được cập nhật đồng thời.
 
 ---
 

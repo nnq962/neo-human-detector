@@ -5,10 +5,12 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
+  CircleHelp,
   Clock3,
   MapPin,
   Send,
   User,
+  WifiOff,
   XCircle,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +41,7 @@ import type {
   RobotTask,
   RobotTaskStatus,
 } from "@/api/robot-tasks.api"
+import type { RobotHeartbeat, RobotState } from "@/api/uart.api"
 import { useCameras, type Camera } from "@/hooks/use-cameras"
 import { useRobotHeartbeats } from "@/hooks/use-robot-heartbeats"
 import { useRobotTasks } from "@/hooks/use-robot-tasks"
@@ -90,6 +93,41 @@ const TASK_STATUS_VIEW = {
 } satisfies Record<
   RobotTaskStatus,
   { label: string; icon: typeof Activity; className: string }
+>
+
+const ROBOT_STATE_VIEW = {
+  IDLE: {
+    label: "Đang rảnh",
+    icon: CheckCircle2,
+    className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    iconClassName: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  },
+  SERVING: {
+    label: "Đang phục vụ",
+    icon: Activity,
+    className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+    iconClassName: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  },
+  ERROR: {
+    label: "Đang lỗi",
+    icon: CircleAlert,
+    className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400",
+    iconClassName: "bg-red-500/10 text-red-600 dark:text-red-400",
+  },
+  UNKNOWN: {
+    label: "Không xác định",
+    icon: CircleHelp,
+    className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    iconClassName: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  },
+} satisfies Record<
+  RobotState,
+  {
+    label: string
+    icon: typeof Activity
+    className: string
+    iconClassName: string
+  }
 >
 
 // ── Camera cell ───────────────────────────────────────────────────────────────
@@ -181,6 +219,56 @@ function formatTaskAge(value: string) {
   return `${hours} giờ trước`
 }
 
+function RobotStatusItem({ robot }: { robot: RobotHeartbeat }) {
+  const stateView = ROBOT_STATE_VIEW[robot.state]
+  const StateIcon = robot.online ? stateView.icon : WifiOff
+
+  return (
+    <div className="flex min-w-0 items-center gap-3 rounded-xl border bg-background p-3">
+      <div
+        className={cn(
+          "grid size-9 shrink-0 place-items-center rounded-lg",
+          robot.online
+            ? stateView.iconClassName
+            : "bg-muted text-muted-foreground",
+        )}
+      >
+        <StateIcon className="size-4" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-semibold">
+            Robot #{robot.robot_id}
+          </p>
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              robot.online ? "bg-emerald-500" : "bg-zinc-400",
+            )}
+          />
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {robot.online ? "Đã kết nối heartbeat" : "Mất kết nối heartbeat"}
+        </p>
+      </div>
+
+      <Badge
+        variant="outline"
+        className={cn(
+          "gap-1.5",
+          robot.online
+            ? stateView.className
+            : "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+        )}
+      >
+        <StateIcon />
+        {robot.online ? stateView.label : "Offline"}
+      </Badge>
+    </div>
+  )
+}
+
 function RobotOperationsCard() {
   const [filter, setFilter] = useState<TaskFilter>("all")
   const { snapshot } = useRobotTasks()
@@ -189,6 +277,9 @@ function RobotOperationsCard() {
   const tasks = snapshot?.tasks ?? []
   const robots = robotSnapshot?.robots ?? []
   const onlineRobotCount = robots.filter((robot) => robot.online).length
+  const idleRobotCount = robots.filter(
+    (robot) => robot.online && robot.state === "IDLE",
+  ).length
 
   const activeCount = snapshot?.active ?? 0
   const completedCount = snapshot?.completed ?? 0
@@ -285,12 +376,12 @@ function RobotOperationsCard() {
               <div>
                 <p className="text-sm font-medium">Trạng thái robot</p>
                 <p className="text-xs text-muted-foreground">
-                  Khả dụng theo tín hiệu heartbeat
+                  Kết nối heartbeat và trạng thái vận hành
                 </p>
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-col items-end gap-1.5 min-[380px]:flex-row min-[380px]:items-center sm:gap-2">
+            <div className="flex shrink-0 flex-col items-end gap-1.5 min-[420px]:flex-row min-[420px]:items-center sm:gap-2">
               <Badge
                 variant={robotsConnected ? "secondary" : "outline"}
                 className="gap-1.5"
@@ -301,34 +392,22 @@ function RobotOperationsCard() {
                     robotsConnected ? "bg-emerald-500" : "bg-amber-500",
                   )}
                 />
-                {onlineRobotCount}/{robots.length} online
+                {onlineRobotCount}/{robots.length} kết nối
+              </Badge>
+              <Badge
+                variant="outline"
+                className="gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+              >
+                <CheckCircle2 />
+                {idleRobotCount} sẵn sàng
               </Badge>
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
             {robots.length > 0 ? (
               robots.map((robot) => (
-                <div
-                  key={robot.robot_id}
-                  className={cn(
-                    "flex h-9 w-full items-center gap-2 rounded-lg border px-3 text-sm font-medium sm:w-auto",
-                    robot.online
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-                      : "bg-background text-muted-foreground",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "size-2 rounded-full",
-                      robot.online ? "bg-emerald-500" : "bg-zinc-400",
-                    )}
-                  />
-                  Robot #{robot.robot_id}
-                  <span className="ml-auto text-xs font-normal opacity-75 sm:ml-0">
-                    {robot.online ? "Online" : "Offline"}
-                  </span>
-                </div>
+                <RobotStatusItem key={robot.robot_id} robot={robot} />
               ))
             ) : (
               <p className="py-1 text-xs text-muted-foreground">

@@ -1,6 +1,7 @@
 """Điều phối robot qua giao thức nhị phân V2."""
 
 from src.robot_dispatch_v2.config import RobotDispatchV2Config
+from src.robot_dispatch_v2.datatypes import TaskFailureReasonCode
 from src.robot_dispatch_v2.dispatcher import RobotDispatcherV2
 from src.robot_dispatch_v2.robot_state import RobotSnapshot, RobotStateStore
 from src.robot_dispatch_v2.task_registry import (
@@ -25,6 +26,7 @@ __all__ = [
     "TaskRegistryFull",
     "TaskActivity",
     "TaskActivityStore",
+    "TaskFailureReasonCode",
     "TaskPriority",
     "runtime_task_activity_store",
 ]

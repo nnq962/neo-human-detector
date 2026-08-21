@@ -44,6 +44,10 @@ export interface RobotTask {
   assigned_at: string
   updated_at: string
   completed_at: string | null
+  last_ack_reason?: string | null
+  last_ack_reason_code?: number | null
+  failure_reason?: string | null
+  failure_reason_code?: number | null
 }
 
 export interface CreateRobotTaskRequest {

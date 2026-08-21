@@ -29,6 +29,7 @@ from src.robot_dispatch_v2.datatypes import (
     RobotStateCode,
     TaskAssign,
     TaskCancel,
+    TaskFailureReasonCode,
     TaskStatus,
     TaskStatusCode,
 )
@@ -76,6 +77,8 @@ class FakeUart:
         self.sent.append(message)
         outcomes = self.outcomes.get(type(message), [])
         accepted = outcomes.pop(0) if outcomes else True
+        if isinstance(accepted, Ack):
+            return accepted
         if not accepted:
             return None
         return Ack(
@@ -210,7 +213,7 @@ def test_task_registry_indexes_reservations_only_by_uid() -> None:
 def test_lost_assign_ack_retries_same_robot_and_task() -> None:
     uart = FakeUart()
     uart.set_outcomes(TaskAssign, False, True)
-    dispatcher = RobotDispatcherV2(uart)
+    dispatcher = RobotDispatcherV2(uart, retry_backoff_seconds=0)
     dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1")
 
@@ -231,11 +234,115 @@ def test_lost_assign_ack_retries_same_robot_and_task() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def test_robot_busy_requeues_task_to_another_robot() -> None:
+    """ACK ROBOT_BUSY giải phóng reservation và chọn robot khác sau cooldown."""
+    uart = FakeUart()
+    uart.set_outcomes(
+        TaskAssign,
+        Ack(
+            robot_id=1,
+            acked_type=MessageType.TASK_ASSIGN,
+            reference_id=0,
+            result_code=AckResultCode.REJECTED,
+            reason_code=AckReasonCode.ROBOT_BUSY,
+        ),
+        True,
+    )
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+        retry_backoff_seconds=0,
+        robot_rejection_cooldown_seconds=10,
+    )
+    dispatcher.on_heartbeat(_heartbeat(robot_id=1))
+    dispatcher.on_heartbeat(_heartbeat(robot_id=2))
+    zone = _zone("zone-busy")
+
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    waiting = activity_store.snapshot()["tasks"][0]
+    assert waiting["status"] == "WAITING_ROBOT"
+    assert waiting["last_ack_reason"] == "ROBOT_BUSY"
+    assert waiting["robot_id"] is None
+
+    assert dispatcher.tick() == 1
+    assigned = _assigned_task_for_zone(dispatcher, zone.id)
+    assert assigned is not None
+    assert assigned.robot_id == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_invalid_command_fails_assignment_without_retry() -> None:
+    """ACK INVALID_COMMAND kết thúc task ngay thay vì lặp vô hạn."""
+    uart = FakeUart()
+    uart.set_outcomes(
+        TaskAssign,
+        Ack(
+            robot_id=1,
+            acked_type=MessageType.TASK_ASSIGN,
+            reference_id=0,
+            result_code=AckResultCode.REJECTED,
+            reason_code=AckReasonCode.INVALID_COMMAND,
+        ),
+    )
+    activity_store = TaskActivityStore()
+    engine = DispatchDecisionEngine()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        decision_engine=engine,
+        task_activity_store=activity_store,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-invalid", state=ZoneState.PENDING_ENTER)
+
+    assert dispatcher.process_zones([zone]) == []
+    zone.state = ZoneState.OCCUPIED
+    dispatcher.process_zones([zone])
+    failed = activity_store.snapshot()["tasks"][0]
+    assert failed["status"] == "FAILED"
+    assert failed["last_ack_reason"] == "INVALID_COMMAND"
+    assert failed["failure_reason"] == "ASSIGN_REJECTED_INVALID_COMMAND"
+    assert dispatcher.pending_count() == 0
+    assert engine.get_service_state(zone.id) is ZoneServiceState.FAILED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_assign_timeout_stops_at_global_attempt_limit() -> None:
+    """Mất ACK chỉ retry tới giới hạn dispatch toàn cục rồi kết thúc task."""
+    uart = FakeUart()
+    uart.set_outcomes(TaskAssign, False, False, True)
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+        max_dispatch_attempts=2,
+        retry_backoff_seconds=0,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-timeout")
+
+    assert not dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    assert dispatcher.tick() == 1
+
+    failed = activity_store.snapshot()["tasks"][0]
+    assert failed["status"] == "FAILED"
+    assert failed["retry_count"] == 2
+    assert failed["failure_reason"] == "ASSIGN_ACK_TIMEOUT_RETRY_EXHAUSTED"
+    assert failed["failure_reason_code"] == TaskFailureReasonCode.DISPATCH_TIMEOUT
+    assert dispatcher.pending_count() == 0
+    assert dispatcher.get_assigned_task_by_uid(failed["uid"]) is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def test_zone_rejects_new_assign_until_pending_cancel_finishes() -> None:
     """Không tạo task zone thứ hai trước khi task cũ hủy xong."""
     uart = FakeUart()
     uart.set_outcomes(TaskCancel, False, True)
-    dispatcher = RobotDispatcherV2(uart)
+    dispatcher = RobotDispatcherV2(uart, retry_backoff_seconds=0)
     dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1")
 
@@ -418,6 +525,77 @@ def test_cancel_assigned_manual_task_sends_uart() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def test_rejected_cancel_fails_task_but_keeps_robot_reserved() -> None:
+    """Cancel bị từ chối kết thúc control flow nhưng không giao chồng task."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(uart, task_activity_store=activity_store)
+    dispatcher.on_heartbeat(_heartbeat())
+    task_uid = dispatcher.enqueue_manual_task(
+        camera_id="camera-1",
+        camera_name="Camera 1",
+        target_pixel=(100.0, 200.0),
+        goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
+        priority=TaskPriority.HIGH,
+    )
+    assigned = dispatcher.get_assigned_task_by_uid(task_uid)
+    assert assigned is not None
+    uart.set_outcomes(
+        TaskCancel,
+        Ack(
+            robot_id=assigned.robot_id,
+            acked_type=MessageType.TASK_CANCEL,
+            reference_id=assigned.task_id,
+            result_code=AckResultCode.REJECTED,
+            reason_code=AckReasonCode.INVALID_COMMAND,
+        ),
+    )
+
+    assert dispatcher.cancel_task(task_uid)
+
+    failed = activity_store.get(task_uid)
+    assert failed is not None
+    assert failed.status == "FAILED"
+    assert failed.failure_reason == "CANCEL_REJECTED_INVALID_COMMAND"
+    assert dispatcher.get_assigned_task_by_uid(task_uid) == assigned
+    assert dispatcher.pending_count() == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_cancel_timeout_stops_at_global_attempt_limit() -> None:
+    """Cancel mất ACK dừng retry nhưng giữ reservation vì trạng thái mơ hồ."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+        max_dispatch_attempts=2,
+        retry_backoff_seconds=0,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    task_uid = dispatcher.enqueue_manual_task(
+        camera_id="camera-1",
+        camera_name="Camera 1",
+        target_pixel=(100.0, 200.0),
+        goal_pose={"x": 1.0, "y": 2.0, "theta": 0.0},
+        priority=TaskPriority.HIGH,
+    )
+    assigned = dispatcher.get_assigned_task_by_uid(task_uid)
+    assert assigned is not None
+    uart.set_outcomes(TaskCancel, False, False, True)
+
+    assert not dispatcher.cancel_task(task_uid)
+    assert dispatcher.tick() == 1
+
+    failed = activity_store.get(task_uid)
+    assert failed is not None
+    assert failed.status == "FAILED"
+    assert failed.failure_reason == "CANCEL_ACK_TIMEOUT_RETRY_EXHAUSTED"
+    assert dispatcher.get_assigned_task_by_uid(task_uid) == assigned
+    assert dispatcher.pending_count() == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def test_web_cancel_zone_task_updates_decision_engine() -> None:
     """Cancel chủ động task zone đồng bộ trạng thái service của decision engine."""
     uart = FakeUart()
@@ -516,7 +694,10 @@ def test_high_priority_does_not_preempt_assigned_task() -> None:
 def test_completed_status_is_idempotent_and_acknowledged() -> None:
     uart = FakeUart()
     engine = DispatchDecisionEngine()
-    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    dispatcher = RobotDispatcherV2(
+        uart,
+        decision_engine=engine,
+    )
     dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
 
@@ -568,6 +749,38 @@ def test_failed_status_marks_service_failed_until_zone_is_empty() -> None:
     zone.state = ZoneState.EMPTY
     assert dispatcher.process_zones([zone]) == []
     assert engine.get_service_state(zone.id) is ZoneServiceState.NOT_REQUESTED
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_failed_status_exposes_robot_failure_reason() -> None:
+    """TaskStatus FAILED lưu mã lỗi robot vào read-model dùng bởi API/WS."""
+    uart = FakeUart()
+    activity_store = TaskActivityStore()
+    dispatcher = RobotDispatcherV2(
+        uart,
+        task_activity_store=activity_store,
+    )
+    dispatcher.on_heartbeat(_heartbeat())
+    zone = _zone("zone-blocked")
+    assert dispatcher.process_decision(
+        _decision(DispatchAction.TASK_ASSIGN, zone)
+    )
+    task = _assigned_task_for_zone(dispatcher, zone.id)
+    assert task is not None
+
+    dispatcher.on_task_status(
+        TaskStatus(
+            robot_id=task.robot_id,
+            task_id=task.task_id,
+            status_code=TaskStatusCode.FAILED,
+            reason_code=TaskFailureReasonCode.PATH_BLOCKED,
+        )
+    )
+
+    failed = activity_store.snapshot()["tasks"][0]
+    assert failed["status"] == "FAILED"
+    assert failed["failure_reason"] == "PATH_BLOCKED"
+    assert failed["failure_reason_code"] == TaskFailureReasonCode.PATH_BLOCKED
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -641,7 +854,11 @@ def test_person_request_is_released_only_after_cancel_succeeds() -> None:
     uart = FakeUart()
     uart.set_outcomes(TaskCancel, False, True)
     engine = DispatchDecisionEngine(policy=ReIdDecisionPolicy())
-    dispatcher = RobotDispatcherV2(uart, decision_engine=engine)
+    dispatcher = RobotDispatcherV2(
+        uart,
+        decision_engine=engine,
+        retry_backoff_seconds=0,
+    )
     zone = _zone("zone-1", state=ZoneState.PENDING_ENTER)
     person = Detection(
         bbox=(0.0, 0.0, 10.0, 20.0),
@@ -772,6 +989,7 @@ def test_task_activity_tracks_assign_retry_and_cancel() -> None:
     dispatcher = RobotDispatcherV2(
         uart,
         task_activity_store=activity_store,
+        retry_backoff_seconds=0,
     )
     dispatcher.on_heartbeat(_heartbeat())
     zone = _zone("zone-1")

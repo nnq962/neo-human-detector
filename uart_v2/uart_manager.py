@@ -13,7 +13,6 @@ from src.robot_dispatch_v2.datatypes import (
     Ack,
     AckResultCode,
     MessageBase,
-    MessageType,
 )
 
 
@@ -235,7 +234,7 @@ class UartManagerV2:
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
-        max_retries: int = 5,
+        max_retries: int = 10,
     ) -> bool:
         """Gửi message có retry và trả ``True`` khi ACK chấp nhận."""
         ack = self.send_with_retry_ack(
@@ -252,7 +251,7 @@ class UartManagerV2:
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
-        max_retries: int = 5,
+        max_retries: int = 10,
     ) -> Optional[Ack]:
         """
         Gửi message có retry và trả ACK đầy đủ.

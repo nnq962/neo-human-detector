@@ -173,6 +173,21 @@ export function NavigationTaskMarker({
             <span className="text-muted-foreground">Khởi tạo</span>
             <span>{task.createdAt.toLocaleTimeString("vi-VN")}</span>
           </div>
+          {task.status === "error" && task.failureReason ? (
+            <div className="flex items-start justify-between gap-3">
+              <span className="shrink-0 text-muted-foreground">Lý do lỗi</span>
+              <span className="break-words text-right font-medium text-destructive">
+                {task.failureReason}
+              </span>
+            </div>
+          ) : task.lastAckReason ? (
+            <div className="flex items-start justify-between gap-3">
+              <span className="shrink-0 text-muted-foreground">ACK gần nhất</span>
+              <span className="break-words text-right font-medium">
+                {task.lastAckReason}
+              </span>
+            </div>
+          ) : null}
           <div className="mt-1 grid grid-cols-2 gap-2">
             <Button
               type="button"

@@ -109,7 +109,12 @@ def build_robot_dispatch_config(raw: dict) -> RobotDispatchV2Config:
         enabled=bool(raw.get("enabled", False)),
         use_reid=bool(raw.get("use_reid", False)),
         ack_timeout_seconds=float(raw.get("ack_timeout_seconds", 1.0)),
-        max_retries=int(raw.get("max_retries", 5)),
+        max_retries=int(raw.get("max_retries", 10)),
+        max_dispatch_attempts=int(raw.get("max_dispatch_attempts", 10)),
+        retry_backoff_seconds=float(raw.get("retry_backoff_seconds", 1.0)),
+        robot_rejection_cooldown_seconds=float(
+            raw.get("robot_rejection_cooldown_seconds", 5.0)
+        ),
     )
 
 

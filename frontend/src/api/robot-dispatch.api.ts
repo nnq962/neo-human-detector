@@ -5,6 +5,9 @@ export interface RobotDispatchConfig {
   use_reid: boolean
   ack_timeout_seconds: number
   max_retries: number
+  max_dispatch_attempts: number
+  retry_backoff_seconds: number
+  robot_rejection_cooldown_seconds: number
 }
 
 export type RobotDispatchConfigUpdate = Partial<RobotDispatchConfig>

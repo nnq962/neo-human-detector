@@ -124,7 +124,7 @@ def send_uart_message(request: UartMessageRequest) -> dict:
 
         config = config_store.get_config_data().get("robot_dispatch", {})
         ack_timeout_seconds = float(config.get("ack_timeout_seconds", 1.0))
-        max_retries = int(config.get("max_retries", 5))
+        max_retries = int(config.get("max_retries", 10))
 
         if isinstance(request, UartMoveToPointRequest):
             return _send_move_to_point(

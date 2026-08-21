@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from dataclasses import dataclass, replace
-from typing import List, Optional, Protocol, Sequence
+from typing import Callable, List, Optional, Protocol, Sequence
 
 from src.detection import Detection
 from src.dispatch_decision import (
@@ -24,6 +25,7 @@ from src.robot_dispatch_v2.datatypes import (
     TaskCancel,
     TaskStatus,
     TaskStatusCode,
+    TaskFailureReasonCode,
 )
 from src.robot_dispatch_v2.robot_state import RobotStateStore
 from src.robot_dispatch_v2.task_registry import (
@@ -37,7 +39,10 @@ from utils import LOGGER
 
 
 DEFAULT_ACK_TIMEOUT_SECONDS = 1.0
-DEFAULT_MAX_RETRIES = 5
+DEFAULT_MAX_RETRIES = 10
+DEFAULT_MAX_DISPATCH_ATTEMPTS = 10
+DEFAULT_RETRY_BACKOFF_SECONDS = 1.0
+DEFAULT_ROBOT_REJECTION_COOLDOWN_SECONDS = 5.0
 BACKGROUND_DISPATCH_INTERVAL_SECONDS = 0.25
 TASK_PRIORITY_RANK = {
     TaskPriority.LOW: 1,
@@ -51,6 +56,15 @@ def _ack_reason_name(reason_code: int) -> str:
     """Đổi mã nguyên nhân ACK sang tên dễ đọc trong log dispatcher."""
     try:
         return AckReasonCode(reason_code).name
+    except ValueError:
+        return "UNKNOWN"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _task_failure_reason_name(reason_code: int) -> str:
+    """Đổi mã lỗi thực thi task sang tên dễ đọc trong log và API."""
+    try:
+        return TaskFailureReasonCode(reason_code).name
     except ValueError:
         return "UNKNOWN"
 
@@ -73,7 +87,7 @@ class UartTransport(Protocol):
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
-        max_retries: int = 5,
+        max_retries: int = 10,
     ) -> Optional[Ack]:
         """Gửi message và trả ACK đầy đủ, hoặc ``None`` nếu hết thời gian."""
 
@@ -91,6 +105,18 @@ class _PendingAssignment:
     enqueue_sequence: int = 0
     robot_id: Optional[int] = None
     task_id: Optional[int] = None
+    dispatch_attempts: int = 0
+    next_attempt_at: float = 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class _PendingCancellation:
+    """Snapshot bất biến của một yêu cầu cancel đang chờ ACK."""
+
+    task_uid: str
+    dispatch_attempts: int = 0
+    next_attempt_at: float = 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,9 +143,15 @@ class RobotDispatcherV2:
         task_activity_store: Optional[TaskActivityStore] = None,
         ack_timeout_seconds: float = DEFAULT_ACK_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
+        max_dispatch_attempts: int = DEFAULT_MAX_DISPATCH_ATTEMPTS,
+        retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
+        robot_rejection_cooldown_seconds: float = (
+            DEFAULT_ROBOT_REJECTION_COOLDOWN_SECONDS
+        ),
         register_handlers: bool = True,
         register_heartbeat_handler: bool = True,
         background_ack: bool = False,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """Khởi tạo dispatcher và tùy chọn đăng ký các UART handler cần thiết."""
         self._uart = uart
@@ -129,11 +161,24 @@ class RobotDispatcherV2:
         self._task_activity_store = task_activity_store or TaskActivityStore()
         self._ack_timeout_seconds = ack_timeout_seconds
         self._max_retries = max_retries
+        self._max_dispatch_attempts = max_dispatch_attempts
+        self._retry_backoff_seconds = retry_backoff_seconds
+        self._robot_rejection_cooldown_seconds = (
+            robot_rejection_cooldown_seconds
+        )
+        self._clock = clock
+        if self._max_dispatch_attempts <= 0:
+            raise ValueError("max_dispatch_attempts phải lớn hơn 0")
+        if self._retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds không được âm")
+        if self._robot_rejection_cooldown_seconds < 0:
+            raise ValueError("robot_rejection_cooldown_seconds không được âm")
         self._register_heartbeat_handler = register_heartbeat_handler
         self._background_ack = background_ack
 
         self._pending_assignments: dict[str, _PendingAssignment] = {}
-        self._pending_cancellations: set[str] = set()
+        self._pending_cancellations: dict[str, _PendingCancellation] = {}
+        self._robot_cooldowns: dict[int, float] = {}
         self._enqueue_sequence = 0
         self._lock = threading.RLock()
         self._background_stop = threading.Event()
@@ -419,12 +464,15 @@ class RobotDispatcherV2:
         self._task_activity_store.mark_cancel_requested(task_uid)
         with self._lock:
             self._pending_assignments.pop(task_uid, None)
-            self._pending_cancellations.add(task_uid)
+            pending = self._pending_cancellations.setdefault(
+                task_uid,
+                _PendingCancellation(task_uid=task_uid),
+            )
 
         if self._background_ack:
             self._schedule_background_dispatch()
             return False
-        return self._try_cancel(task_uid)
+        return self._try_cancel(pending)
 
     # ─────────────────────────────────────────────────────────────────────────
     def tick(self) -> int:
@@ -443,15 +491,18 @@ class RobotDispatcherV2:
     def _run_pending_once(self) -> int:
         """Thử một lượt cancel rồi assign cho các decision đang chờ."""
         with self._lock:
-            cancellation_task_uids = list(self._pending_cancellations)
+            cancellations = list(self._pending_cancellations.values())
             assignments = list(self._pending_assignments.values())
 
         assignments.sort(key=_pending_assignment_sort_key)
 
         completed_count = 0
 
-        for task_uid in cancellation_task_uids:
-            if self._try_cancel(task_uid):
+        for pending in cancellations:
+            with self._lock:
+                if self._pending_cancellations.get(pending.task_uid) != pending:
+                    continue
+            if self._try_cancel(pending):
                 completed_count += 1
 
         for pending in assignments:
@@ -576,7 +627,12 @@ class RobotDispatcherV2:
 
         elif status is TaskStatusCode.FAILED:
             task_activity = self._task_activity_store.get(task.task_uid)
-            self._task_activity_store.mark_failed(task.task_uid)
+            failure_reason = _task_failure_reason_name(message.reason_code)
+            self._task_activity_store.mark_failed(
+                task.task_uid,
+                reason=failure_reason,
+                reason_code=int(message.reason_code),
+            )
             # Không tự giao lại task vì retry nghiệp vụ cần policy riêng.
             self._task_registry.release(message.robot_id, message.task_id)
             self._remove_pending_cancellation(task.task_uid)
@@ -587,10 +643,13 @@ class RobotDispatcherV2:
             ):
                 self._decision_engine.on_service_failed(task_activity.zone_id)
             LOGGER.warning(
-                "Task thất bại: robot_id=%s, task_id=%s, task_uid=%s",
+                "Task thất bại: robot_id=%s, task_id=%s, task_uid=%s, "
+                "reason=%s(%s)",
                 message.robot_id,
                 message.task_id,
                 task.task_uid,
+                failure_reason,
+                message.reason_code,
             )
 
         elif status is TaskStatusCode.IN_PROGRESS:
@@ -615,6 +674,9 @@ class RobotDispatcherV2:
     # ─────────────────────────────────────────────────────────────────────────
     def _try_assign(self, pending: _PendingAssignment) -> bool:
         """Thử chọn robot, cấp task và gửi TaskAssign cho một yêu cầu đang chờ."""
+        if pending.next_attempt_at > self._clock():
+            return False
+
         task = self._task_registry.get_by_uid(pending.task_uid)
 
         if task is None:
@@ -627,7 +689,10 @@ class RobotDispatcherV2:
             robot = self._robot_state_store.nearest_idle_robot(
                 pending.x,
                 pending.y,
-                excluded_robot_ids=self._task_registry.reserved_robot_ids(),
+                excluded_robot_ids=(
+                    set(self._task_registry.reserved_robot_ids())
+                    | self._cooldown_robot_ids()
+                ),
             )
             if robot is None:
                 # LOGGER.info(
@@ -685,6 +750,13 @@ class RobotDispatcherV2:
             theta=pending.theta,
         )
 
+        pending = replace(
+            pending,
+            dispatch_attempts=pending.dispatch_attempts + 1,
+        )
+        with self._lock:
+            self._pending_assignments[pending.task_uid] = pending
+
         ack = self._uart.send_with_retry_ack(
             message,
             reference_id=task.task_id,
@@ -693,6 +765,16 @@ class RobotDispatcherV2:
         )
         if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             self._task_activity_store.increment_retry(pending.task_uid)
+            reason_name = "ACK_TIMEOUT" if ack is None else _ack_reason_name(
+                ack.reason_code
+            )
+            reason_code = None if ack is None else int(ack.reason_code)
+            if ack is not None:
+                self._task_activity_store.record_ack_rejection(
+                    pending.task_uid,
+                    ack_reason=reason_name,
+                    ack_reason_code=reason_code,
+                )
             if ack is None:
                 LOGGER.warning(
                     "Chưa nhận ACK cho TaskAssign; giữ nguyên task để thử lại: "
@@ -703,7 +785,7 @@ class RobotDispatcherV2:
                 )
             else:
                 LOGGER.warning(
-                    "Robot từ chối TaskAssign; giữ nguyên task để thử lại: "
+                    "Robot từ chối TaskAssign: "
                     "task_uid=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
                     pending.task_uid,
                     task.robot_id,
@@ -711,6 +793,110 @@ class RobotDispatcherV2:
                     _ack_reason_name(ack.reason_code),
                     ack.reason_code,
                 )
+
+            with self._lock:
+                cancel_requested = (
+                    pending.task_uid in self._pending_cancellations
+                )
+            if cancel_requested:
+                # Nếu robot đã từ chối rõ ràng thì task chưa chạy và reservation
+                # có thể giải phóng. Mất ACK vẫn mơ hồ nên giữ reservation để
+                # lượt TaskCancel kế tiếp xử lý an toàn.
+                if ack is not None:
+                    self._task_registry.release(task.robot_id, task.task_id)
+                self._remove_pending_assignment(pending.task_uid)
+                return False
+
+            if ack is not None and ack.reason_code in {
+                AckReasonCode.INVALID_COMMAND,
+                AckReasonCode.OUT_OF_RANGE,
+            }:
+                self._fail_assignment(
+                    pending,
+                    task,
+                    reason=f"ASSIGN_REJECTED_{reason_name}",
+                    reason_code=TaskFailureReasonCode.DISPATCH_REJECTED,
+                )
+                return True
+
+            if ack is not None and ack.reason_code not in {
+                AckReasonCode.ROBOT_BUSY,
+                AckReasonCode.ROBOT_ERROR,
+                AckReasonCode.DUPLICATE_REFERENCE,
+            }:
+                self._fail_assignment(
+                    pending,
+                    task,
+                    reason=f"ASSIGN_PROTOCOL_ERROR_{reason_name}",
+                    reason_code=TaskFailureReasonCode.DISPATCH_REJECTED,
+                )
+                return True
+
+            if pending.dispatch_attempts >= self._max_dispatch_attempts:
+                self._fail_assignment(
+                    pending,
+                    task,
+                    reason=(
+                        "ASSIGN_ACK_TIMEOUT_RETRY_EXHAUSTED"
+                        if ack is None
+                        else f"ASSIGN_RETRY_EXHAUSTED_{reason_name}"
+                    ),
+                    reason_code=(
+                        TaskFailureReasonCode.DISPATCH_TIMEOUT
+                        if ack is None
+                        else TaskFailureReasonCode.RETRY_EXHAUSTED
+                    ),
+                    release_reservation=ack is not None,
+                )
+                return True
+
+            next_attempt_at = self._next_attempt_at(
+                pending.dispatch_attempts
+            )
+            if ack is not None and ack.reason_code in {
+                AckReasonCode.ROBOT_BUSY,
+                AckReasonCode.ROBOT_ERROR,
+            }:
+                self._task_registry.release(task.robot_id, task.task_id)
+                self._put_robot_on_cooldown(task.robot_id)
+                self._task_activity_store.mark_waiting_robot(
+                    pending.task_uid,
+                    ack_reason=reason_name,
+                    ack_reason_code=reason_code,
+                )
+                pending = replace(
+                    pending,
+                    robot_id=None,
+                    task_id=None,
+                    next_attempt_at=next_attempt_at,
+                )
+            elif (
+                ack is not None
+                and ack.reason_code == AckReasonCode.DUPLICATE_REFERENCE
+            ):
+                # Cấp task_id mới ở lần thử kế tiếp; không loại robot vì đây là
+                # xung đột định danh chứ không phải lỗi khả năng thực thi.
+                self._task_registry.release(task.robot_id, task.task_id)
+                self._task_activity_store.mark_waiting_robot(
+                    pending.task_uid,
+                    ack_reason=reason_name,
+                    ack_reason_code=reason_code,
+                )
+                pending = replace(
+                    pending,
+                    robot_id=None,
+                    task_id=None,
+                    next_attempt_at=next_attempt_at,
+                )
+            else:
+                # Không nhận ACK là trạng thái mơ hồ: gửi lại đúng robot/task_id
+                # để robot có thể xử lý idempotent nếu ACK cũ bị thất lạc.
+                pending = replace(
+                    pending,
+                    next_attempt_at=next_attempt_at,
+                )
+            with self._lock:
+                self._pending_assignments[pending.task_uid] = pending
             return False
 
         self._remove_pending_assignment(pending.task_uid)
@@ -718,8 +904,54 @@ class RobotDispatcherV2:
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _try_cancel(self, task_uid: str) -> bool:
+    def _fail_assignment(
+        self,
+        pending: _PendingAssignment,
+        task: AssignedTask,
+        *,
+        reason: str,
+        reason_code: TaskFailureReasonCode,
+        release_reservation: bool = True,
+    ) -> None:
+        """Kết thúc assignment lỗi và chỉ giải phóng reservation khi an toàn."""
+        task_activity = self._task_activity_store.get(pending.task_uid)
+        if release_reservation:
+            self._task_registry.release(task.robot_id, task.task_id)
+        self._remove_pending_assignment(pending.task_uid)
+        self._task_activity_store.mark_failed(
+            pending.task_uid,
+            reason=reason,
+            reason_code=int(reason_code),
+        )
+        if (
+            task_activity is not None
+            and task_activity.origin == "zone"
+            and task_activity.zone_id is not None
+        ):
+            self._decision_engine.on_service_failed(task_activity.zone_id)
+        LOGGER.error(
+            "TaskAssign kết thúc thất bại: task_uid=%s, robot_id=%s, "
+            "task_id=%s, reason=%s",
+            pending.task_uid,
+            task.robot_id,
+            task.task_id,
+            reason,
+        )
+        if not release_reservation:
+            LOGGER.error(
+                "Giữ reservation do trạng thái robot còn mơ hồ: "
+                "robot_id=%s, task_id=%s",
+                task.robot_id,
+                task.task_id,
+            )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _try_cancel(self, pending: _PendingCancellation) -> bool:
         """Thử hoàn tất yêu cầu hủy của một task runtime theo UID."""
+        task_uid = pending.task_uid
+        if pending.next_attempt_at > self._clock():
+            return False
+
         task_activity = self._task_activity_store.get(task_uid)
         if task_activity is None:
             self._remove_pending_cancellation(task_uid)
@@ -737,6 +969,12 @@ class RobotDispatcherV2:
             return True
 
         message = TaskCancel(robot_id=task.robot_id, task_id=task.task_id)
+        pending = replace(
+            pending,
+            dispatch_attempts=pending.dispatch_attempts + 1,
+        )
+        with self._lock:
+            self._pending_cancellations[task_uid] = pending
         ack = self._uart.send_with_retry_ack(
             message,
             reference_id=task.task_id,
@@ -745,6 +983,16 @@ class RobotDispatcherV2:
         )
         if ack is None or ack.result_code != AckResultCode.ACCEPTED:
             self._task_activity_store.increment_retry(task_uid)
+            reason_name = "ACK_TIMEOUT" if ack is None else _ack_reason_name(
+                ack.reason_code
+            )
+            reason_code = None if ack is None else int(ack.reason_code)
+            if ack is not None:
+                self._task_activity_store.record_ack_rejection(
+                    task_uid,
+                    ack_reason=reason_name,
+                    ack_reason_code=reason_code,
+                )
             if ack is None:
                 LOGGER.warning(
                     "Chưa nhận ACK cho TaskCancel; giữ decision để thử lại: "
@@ -755,13 +1003,59 @@ class RobotDispatcherV2:
                 )
             else:
                 LOGGER.warning(
-                    "Robot từ chối TaskCancel; giữ decision để thử lại: "
+                    "Robot từ chối TaskCancel: "
                     "task_uid=%s, robot_id=%s, task_id=%s, reason=%s(%s)",
                     task_uid,
                     task.robot_id,
                     task.task_id,
                     _ack_reason_name(ack.reason_code),
                     ack.reason_code,
+                )
+
+            permanent_rejection = ack is not None and ack.reason_code in {
+                AckReasonCode.INVALID_COMMAND,
+                AckReasonCode.OUT_OF_RANGE,
+                AckReasonCode.DUPLICATE_REFERENCE,
+            }
+            if permanent_rejection:
+                self._fail_cancellation(
+                    task_uid,
+                    task,
+                    reason=f"CANCEL_REJECTED_{reason_name}",
+                    reason_code=TaskFailureReasonCode.CANCEL_REJECTED,
+                )
+                return True
+            protocol_error = ack is not None and ack.reason_code not in {
+                AckReasonCode.ROBOT_BUSY,
+                AckReasonCode.ROBOT_ERROR,
+            }
+            if protocol_error:
+                self._fail_cancellation(
+                    task_uid,
+                    task,
+                    reason=f"CANCEL_PROTOCOL_ERROR_{reason_name}",
+                    reason_code=TaskFailureReasonCode.CANCEL_REJECTED,
+                )
+                return True
+            if pending.dispatch_attempts >= self._max_dispatch_attempts:
+                self._fail_cancellation(
+                    task_uid,
+                    task,
+                    reason=(
+                        "CANCEL_ACK_TIMEOUT_RETRY_EXHAUSTED"
+                        if ack is None
+                        else f"CANCEL_RETRY_EXHAUSTED_{reason_name}"
+                    ),
+                    reason_code=TaskFailureReasonCode.RETRY_EXHAUSTED,
+                )
+                return True
+
+            with self._lock:
+                self._pending_cancellations[task_uid] = replace(
+                    pending,
+                    next_attempt_at=self._next_attempt_at(
+                        pending.dispatch_attempts
+                    ),
                 )
             return False
 
@@ -771,6 +1065,72 @@ class RobotDispatcherV2:
             self._decision_engine.on_service_cancelled(task_activity.zone_id)
         self._remove_pending_cancellation(task_uid)
         return True
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _fail_cancellation(
+        self,
+        task_uid: str,
+        task: AssignedTask,
+        *,
+        reason: str,
+        reason_code: TaskFailureReasonCode,
+    ) -> None:
+        """Kết thúc cancel lỗi nhưng giữ reservation tới terminal status."""
+        task_activity = self._task_activity_store.get(task_uid)
+        self._remove_pending_cancellation(task_uid)
+        self._task_activity_store.mark_failed(
+            task_uid,
+            reason=reason,
+            reason_code=int(reason_code),
+        )
+        if (
+            task_activity is not None
+            and task_activity.origin == "zone"
+            and task_activity.zone_id is not None
+        ):
+            self._decision_engine.on_service_failed(task_activity.zone_id)
+        LOGGER.error(
+            "TaskCancel kết thúc thất bại: task_uid=%s, robot_id=%s, "
+            "task_id=%s, reason=%s",
+            task_uid,
+            task.robot_id,
+            task.task_id,
+            reason,
+        )
+        LOGGER.error(
+            "Giữ reservation sau lỗi cancel để không giao task chồng: "
+            "robot_id=%s, task_id=%s",
+            task.robot_id,
+            task.task_id,
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _next_attempt_at(self, dispatch_attempts: int) -> float:
+        """Tính thời điểm retry kế tiếp theo exponential backoff có giới hạn."""
+        exponent = min(max(dispatch_attempts - 1, 0), 5)
+        return self._clock() + self._retry_backoff_seconds * (2 ** exponent)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _put_robot_on_cooldown(self, robot_id: int) -> None:
+        """Tạm loại robot vừa từ chối khỏi bước chọn robot kế tiếp."""
+        with self._lock:
+            self._robot_cooldowns[robot_id] = (
+                self._clock() + self._robot_rejection_cooldown_seconds
+            )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def _cooldown_robot_ids(self) -> set[int]:
+        """Trả các robot còn cooldown và dọn những mốc thời gian đã hết hạn."""
+        now = self._clock()
+        with self._lock:
+            expired = [
+                robot_id
+                for robot_id, expires_at in self._robot_cooldowns.items()
+                if expires_at <= now
+            ]
+            for robot_id in expired:
+                self._robot_cooldowns.pop(robot_id, None)
+            return set(self._robot_cooldowns)
 
     # ─────────────────────────────────────────────────────────────────────────
     def _send_task_status_ack(self, message: TaskStatus) -> None:
@@ -799,7 +1159,7 @@ class RobotDispatcherV2:
     def _remove_pending_cancellation(self, task_uid: str) -> None:
         """Xóa yêu cầu cancel khỏi hàng đợi theo UID runtime."""
         with self._lock:
-            self._pending_cancellations.discard(task_uid)
+            self._pending_cancellations.pop(task_uid, None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

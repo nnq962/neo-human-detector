@@ -49,7 +49,7 @@ class ManualTaskTransport(Protocol):
         message: MessageBase,
         reference_id: int,
         timeout: float = 1.0,
-        max_retries: int = 5,
+        max_retries: int = 10,
     ) -> Optional[Ack]: ...
 
     def is_connected(self) -> bool: ...

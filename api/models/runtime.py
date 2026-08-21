@@ -146,6 +146,10 @@ class RuntimeTask(BaseModel):
     assigned_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    last_ack_reason: Optional[str] = None
+    last_ack_reason_code: Optional[int] = None
+    failure_reason: Optional[str] = None
+    failure_reason_code: Optional[int] = None
 
 
 class RuntimeTaskSnapshot(BaseModel):

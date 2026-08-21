@@ -31,6 +31,8 @@ export interface NavigationTask {
   isFading: boolean
   priority: RobotTask["priority"]
   status: NavigationTaskStatus
+  lastAckReason?: string | null
+  failureReason?: string | null
 }
 
 export function mapRuntimeTaskStatus(
@@ -92,5 +94,7 @@ export function mapRuntimeTaskToNavigation(
       && completedAge >= TASK_COMPLETION_FADE_DELAY_MS,
     priority: task.priority,
     status,
+    lastAckReason: task.last_ack_reason ?? null,
+    failureReason: task.failure_reason ?? null,
   }
 }

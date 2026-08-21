@@ -10,6 +10,9 @@ from src.robot_dispatch_v2.datatypes import (
     MessageBase,
     MessageType,
     MoveToPoint,
+    TaskFailureReasonCode,
+    TaskStatus,
+    TaskStatusCode,
 )
 from uart_v2.uart_manager import UartManagerV2
 
@@ -53,6 +56,22 @@ def test_move_to_point_round_trip() -> None:
 
     assert decoded == message
     assert len(message.to_payload()) == struct.calcsize(MoveToPoint.FORMAT) == 9
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+def test_failed_task_status_preserves_failure_reason() -> None:
+    """Kiểm tra TaskStatus FAILED mang riêng mã lỗi thực thi của robot."""
+    message = TaskStatus(
+        robot_id=2,
+        task_id=17,
+        status_code=TaskStatusCode.FAILED,
+        reason_code=TaskFailureReasonCode.PATH_BLOCKED,
+    )
+
+    decoded = MessageBase.decode_any(message.encode())
+
+    assert decoded == message
+    assert len(message.to_payload()) == struct.calcsize(TaskStatus.FORMAT) == 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────

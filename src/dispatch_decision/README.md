@@ -178,9 +178,15 @@ Vì engine chỉ sinh mỗi decision một lần, tầng thực thi robot chịu
 - Dùng UID runtime làm khóa hàng đợi chung cho task `zone` và `manual`.
 - Giữ FIFO giữa các task cùng priority và luôn xử lý cancel trước assign.
 - Gửi message tới robot.
-- Retry khi gửi thất bại hoặc chưa nhận được ACK.
+- Phân loại `AckReasonCode`: lỗi robot trả task về hàng đợi và tạm tránh robot
+  đó; lỗi nội dung task kết thúc ngay; mất ACK gửi lại cùng định danh để giữ
+  tính idempotent; trùng reference được cấp `task_id` mới.
+- Retry theo exponential backoff và dừng ở `max_dispatch_attempts`, tách biệt
+  với `max_retries` của từng lần truyền UART.
 - Báo lại cho engine khi task hoàn thành bằng `on_service_completed(zone_id)`.
 - Báo lại khi cancel hoàn tất bằng `on_service_cancelled(zone_id)`.
+- Lưu `last_ack_reason` và `failure_reason` trong read-model để REST API và
+  WebSocket trả đúng nguyên nhân cho frontend.
 
 Priority chỉ áp dụng cho task đang chờ robot. Task đã được giao hoặc đang thực
 hiện không bị preempt tự động. Robot không nhận priority trong payload vì tầng

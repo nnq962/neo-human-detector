@@ -350,7 +350,13 @@ class Runtime:
         LOGGER.info("   → Active        : %s", self.robot_dispatcher is not None)
         LOGGER.info("   → Use ReID      : %s", robot.use_reid)
         LOGGER.info("   → ACK timeout   : %.2fs", robot.ack_timeout_seconds)
-        LOGGER.info("   → Max retries   : %d", robot.max_retries)
+        LOGGER.info("   → UART retries  : %d", robot.max_retries)
+        LOGGER.info("   → Dispatch tries: %d", robot.max_dispatch_attempts)
+        LOGGER.info("   → Retry backoff : %.2fs", robot.retry_backoff_seconds)
+        LOGGER.info(
+            "   → Robot cooldown: %.2fs",
+            robot.robot_rejection_cooldown_seconds,
+        )
 
         preview = self.config.preview
         LOGGER.info("PREVIEW")
@@ -431,6 +437,11 @@ class Runtime:
             task_activity_store=runtime_task_activity_store,
             ack_timeout_seconds=robot_config.ack_timeout_seconds,
             max_retries=robot_config.max_retries,
+            max_dispatch_attempts=robot_config.max_dispatch_attempts,
+            retry_backoff_seconds=robot_config.retry_backoff_seconds,
+            robot_rejection_cooldown_seconds=(
+                robot_config.robot_rejection_cooldown_seconds
+            ),
             register_heartbeat_handler=self._register_robot_heartbeat_handler,
             background_ack=True,
         )

@@ -204,6 +204,58 @@ function ConfigCard({ config, onSaved }: { config: RobotDispatchConfig; onSaved:
             <span className="text-sm tabular-nums">{value.max_retries} lần</span>
           )}
         </div>
+        <Separator />
+        <div className="flex items-center justify-between gap-4 py-3">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Số lượt dispatch tối đa</p>
+            <p className="text-xs text-muted-foreground">Giới hạn tổng số lượt thử trước khi task chuyển sang thất bại.</p>
+          </div>
+          {editing ? (
+            <NumberInput
+              value={value.max_dispatch_attempts}
+              min={1}
+              step={1}
+              integer
+              onChange={(max_dispatch_attempts) => setDraft((current) => ({ ...current, max_dispatch_attempts }))}
+            />
+          ) : (
+            <span className="text-sm tabular-nums">{value.max_dispatch_attempts} lượt</span>
+          )}
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between gap-4 py-3">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Backoff retry</p>
+            <p className="text-xs text-muted-foreground">Khoảng nghỉ cơ sở, tăng dần sau mỗi lượt thất bại.</p>
+          </div>
+          {editing ? (
+            <NumberInput
+              value={value.retry_backoff_seconds}
+              min={0}
+              step={0.25}
+              onChange={(retry_backoff_seconds) => setDraft((current) => ({ ...current, retry_backoff_seconds }))}
+            />
+          ) : (
+            <span className="text-sm tabular-nums">{value.retry_backoff_seconds} giây</span>
+          )}
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between gap-4 py-3">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">Cooldown robot</p>
+            <p className="text-xs text-muted-foreground">Tạm bỏ qua robot vừa báo bận hoặc lỗi khi chọn lại.</p>
+          </div>
+          {editing ? (
+            <NumberInput
+              value={value.robot_rejection_cooldown_seconds}
+              min={0}
+              step={0.5}
+              onChange={(robot_rejection_cooldown_seconds) => setDraft((current) => ({ ...current, robot_rejection_cooldown_seconds }))}
+            />
+          ) : (
+            <span className="text-sm tabular-nums">{value.robot_rejection_cooldown_seconds} giây</span>
+          )}
+        </div>
       </CardContent>
     </Card>
   )

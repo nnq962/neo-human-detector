@@ -51,6 +51,10 @@ class TaskActivity:
     assigned_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    last_ack_reason: Optional[str] = None
+    last_ack_reason_code: Optional[int] = None
+    failure_reason: Optional[str] = None
+    failure_reason_code: Optional[int] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,6 +165,51 @@ class TaskActivityStore:
         self._update_by_uid(uid, status="ASSIGNED", allowed={"ASSIGNING"})
 
     # ─────────────────────────────────────────────────────────────────────────
+    def mark_waiting_robot(
+        self,
+        uid: str,
+        *,
+        ack_reason: str,
+        ack_reason_code: int,
+    ) -> None:
+        """Trả task về hàng đợi sau khi robot hiện tại từ chối nhận lệnh."""
+        with self._lock:
+            task = self._tasks.get(uid)
+            if task is None or task.status in TERMINAL_TASK_STATUSES:
+                return
+            self._tasks[uid] = replace(
+                task,
+                robot_id=None,
+                task_id=None,
+                status="WAITING_ROBOT",
+                last_ack_reason=ack_reason,
+                last_ack_reason_code=ack_reason_code,
+                updated_at=_utc_now(),
+            )
+            self._changed_unlocked()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    def record_ack_rejection(
+        self,
+        uid: str,
+        *,
+        ack_reason: str,
+        ack_reason_code: int,
+    ) -> None:
+        """Lưu ACK từ chối gần nhất để API và WebSocket có thể giải thích task."""
+        with self._lock:
+            task = self._tasks.get(uid)
+            if task is None or task.status in TERMINAL_TASK_STATUSES:
+                return
+            self._tasks[uid] = replace(
+                task,
+                last_ack_reason=ack_reason,
+                last_ack_reason_code=ack_reason_code,
+                updated_at=_utc_now(),
+            )
+            self._changed_unlocked()
+
+    # ─────────────────────────────────────────────────────────────────────────
     def mark_in_progress(self, uid: str) -> None:
         """Đánh dấu robot đang thực hiện task."""
         self._update_by_uid(
@@ -175,9 +224,20 @@ class TaskActivityStore:
         self._mark_terminal_by_uid(uid, "COMPLETED")
 
     # ─────────────────────────────────────────────────────────────────────────
-    def mark_failed(self, uid: str) -> None:
-        """Đánh dấu task thực thi thất bại."""
-        self._mark_terminal_by_uid(uid, "FAILED")
+    def mark_failed(
+        self,
+        uid: str,
+        *,
+        reason: Optional[str] = None,
+        reason_code: Optional[int] = None,
+    ) -> None:
+        """Đánh dấu task thất bại và lưu nguyên nhân nếu bên gọi cung cấp."""
+        self._mark_terminal_by_uid(
+            uid,
+            "FAILED",
+            failure_reason=reason,
+            failure_reason_code=reason_code,
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     def mark_cancel_requested(self, uid: str) -> None:
@@ -256,7 +316,14 @@ class TaskActivityStore:
             self._changed_unlocked()
 
     # ─────────────────────────────────────────────────────────────────────────
-    def _mark_terminal_by_uid(self, uid: str, status: str) -> None:
+    def _mark_terminal_by_uid(
+        self,
+        uid: str,
+        status: str,
+        *,
+        failure_reason: Optional[str] = None,
+        failure_reason_code: Optional[int] = None,
+    ) -> None:
         """Kết thúc task theo UID và dọn index zone active."""
         now = _utc_now()
         with self._lock:
@@ -268,6 +335,8 @@ class TaskActivityStore:
                 status=status,
                 updated_at=now,
                 completed_at=now,
+                failure_reason=failure_reason,
+                failure_reason_code=failure_reason_code,
             )
             self._tasks[uid] = terminal
             if (
